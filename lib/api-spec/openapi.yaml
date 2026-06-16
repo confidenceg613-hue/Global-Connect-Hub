@@ -3,13 +3,21 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: PhoneLink API — international phone registration, permission consents, and WhatsApp sharing
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: users
+    description: User management
+  - name: consents
+    description: Permission consent management
+  - name: invites
+    description: WhatsApp invite management
+  - name: whatsapp
+    description: WhatsApp deep link generation
 paths:
   /healthz:
     get:
@@ -24,6 +32,304 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /users:
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Register a user with phone number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInput"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid input
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get a user by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: User not found
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: User not found
+
+  /consents:
+    get:
+      operationId: listConsents
+      tags: [consents]
+      summary: List permission consents
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: integer
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [location, notification, messaging]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [granted, denied, revoked]
+      responses:
+        "200":
+          description: List of consents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Consent"
+    post:
+      operationId: createConsent
+      tags: [consents]
+      summary: Grant or record a permission consent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsentInput"
+      responses:
+        "201":
+          description: Consent recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Consent"
+        "400":
+          description: Invalid input
+
+  /consents/summary:
+    get:
+      operationId: getConsentSummary
+      tags: [consents]
+      summary: Get aggregated consent summary by type
+      responses:
+        "200":
+          description: Consent summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentSummary"
+
+  /consents/{id}:
+    get:
+      operationId: getConsent
+      tags: [consents]
+      summary: Get a consent by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Consent found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Consent"
+        "404":
+          description: Consent not found
+    patch:
+      operationId: updateConsent
+      tags: [consents]
+      summary: Update consent status (e.g. revoke)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsentUpdate"
+      responses:
+        "200":
+          description: Consent updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Consent"
+        "404":
+          description: Consent not found
+    delete:
+      operationId: deleteConsent
+      tags: [consents]
+      summary: Delete a consent record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /invites:
+    get:
+      operationId: listInvites
+      tags: [invites]
+      summary: List WhatsApp invites
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, accepted, declined]
+      responses:
+        "200":
+          description: List of invites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Invite"
+    post:
+      operationId: createInvite
+      tags: [invites]
+      summary: Create and send a WhatsApp invite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteInput"
+      responses:
+        "201":
+          description: Invite created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invite"
+        "400":
+          description: Invalid input
+
+  /invites/{id}:
+    get:
+      operationId: getInvite
+      tags: [invites]
+      summary: Get an invite by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Invite found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invite"
+        "404":
+          description: Invite not found
+    patch:
+      operationId: updateInvite
+      tags: [invites]
+      summary: Update invite status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteUpdate"
+      responses:
+        "200":
+          description: Invite updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invite"
+        "404":
+          description: Invite not found
+
+  /whatsapp/link:
+    post:
+      operationId: generateWhatsappLink
+      tags: [whatsapp]
+      summary: Generate a WhatsApp deep link for sharing or consent requests
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WhatsappLinkRequest"
+      responses:
+        "200":
+          description: WhatsApp deep link generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsappLink"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +340,215 @@ components:
       required:
         - status
 
+    User:
+      type: object
+      required: [id, name, phoneNumber, countryCode, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        phoneNumber:
+          type: string
+          description: Local phone number without country code
+        countryCode:
+          type: string
+          description: E.164 country dial code (e.g. "+1", "+44", "+91")
+        countryIso:
+          type: ["string", "null"]
+          description: ISO 3166-1 alpha-2 country code (e.g. "US", "GB", "IN")
+        fullPhone:
+          type: string
+          description: Full phone in E.164 format (e.g. "+14155552671")
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserInput:
+      type: object
+      required: [name, phoneNumber, countryCode, countryIso]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        phoneNumber:
+          type: string
+          minLength: 1
+        countryCode:
+          type: string
+          minLength: 1
+        countryIso:
+          type: string
+          minLength: 2
+
+    UserUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        phoneNumber:
+          type: string
+          minLength: 1
+        countryCode:
+          type: string
+        countryIso:
+          type: string
+
+    Consent:
+      type: object
+      required: [id, userId, type, status, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        type:
+          type: string
+          enum: [location, notification, messaging]
+        status:
+          type: string
+          enum: [granted, denied, revoked]
+        purpose:
+          type: ["string", "null"]
+          description: Human-readable reason for this consent
+        grantedAt:
+          type: ["string", "null"]
+          format: date-time
+        revokedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    ConsentInput:
+      type: object
+      required: [userId, type, status]
+      properties:
+        userId:
+          type: integer
+        type:
+          type: string
+          enum: [location, notification, messaging]
+        status:
+          type: string
+          enum: [granted, denied, revoked]
+        purpose:
+          type: string
+
+    ConsentUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [granted, denied, revoked]
+        purpose:
+          type: string
+
+    ConsentSummary:
+      type: object
+      required: [location, notification, messaging, totals]
+      properties:
+        location:
+          $ref: "#/components/schemas/ConsentTypeStat"
+        notification:
+          $ref: "#/components/schemas/ConsentTypeStat"
+        messaging:
+          $ref: "#/components/schemas/ConsentTypeStat"
+        totals:
+          $ref: "#/components/schemas/ConsentTypeStat"
+
+    ConsentTypeStat:
+      type: object
+      required: [granted, denied, revoked, total]
+      properties:
+        granted:
+          type: integer
+        denied:
+          type: integer
+        revoked:
+          type: integer
+        total:
+          type: integer
+
+    Invite:
+      type: object
+      required: [id, fromUserId, toPhone, message, status, whatsappLink, sentAt]
+      properties:
+        id:
+          type: integer
+        fromUserId:
+          type: integer
+        toPhone:
+          type: string
+        toName:
+          type: ["string", "null"]
+        message:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, declined]
+        whatsappLink:
+          type: string
+          description: Generated wa.me deep link
+        consentType:
+          type: ["string", "null"]
+          enum: [location, notification, messaging, null]
+          description: Which permission this invite is requesting
+        sentAt:
+          type: string
+          format: date-time
+
+    InviteInput:
+      type: object
+      required: [fromUserId, toPhone, message]
+      properties:
+        fromUserId:
+          type: integer
+        toPhone:
+          type: string
+          minLength: 1
+        toName:
+          type: string
+        message:
+          type: string
+          minLength: 1
+        consentType:
+          type: string
+          enum: [location, notification, messaging]
+
+    InviteUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, accepted, declined]
+        message:
+          type: string
+
+    WhatsappLinkRequest:
+      type: object
+      required: [phoneNumber, message]
+      properties:
+        phoneNumber:
+          type: string
+          description: Phone number in E.164 format (digits only, no +)
+        message:
+          type: string
+          description: Pre-filled message text
+
+    WhatsappLink:
+      type: object
+      required: [link, phoneNumber, message]
+      properties:
+        link:
+          type: string
+          description: Full wa.me deep link URL
+        phoneNumber:
+          type: string
+        message:
+          type: string
