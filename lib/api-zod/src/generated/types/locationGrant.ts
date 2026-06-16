@@ -6,8 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface WhatsappLink {
-  link: string;
-  phoneNumber: string;
-  message: string;
+export interface LocationGrant {
+  latitude: number;
+  longitude: number;
+  address?: string;
 }

@@ -7,8 +7,6 @@
  */
 
 export interface WhatsappLinkRequest {
-  /** Phone number in E.164 format (digits only, no +) */
   phoneNumber: string;
-  /** Pre-filled message text */
   message: string;
 }

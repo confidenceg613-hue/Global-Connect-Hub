@@ -12,16 +12,10 @@ export interface HealthStatus {
 export interface User {
   id: number;
   name: string;
-  /** Local phone number without country code */
   phoneNumber: string;
-  /** E.164 country dial code (e.g. "+1", "+44", "+91") */
   countryCode: string;
-  /**
-     * ISO 3166-1 alpha-2 country code (e.g. "US", "GB", "IN")
-     * @nullable
-     */
+  /** @nullable */
   countryIso?: string | null;
-  /** Full phone in E.164 format (e.g. "+14155552671") */
   fullPhone?: string;
   createdAt: string;
   updatedAt?: string;
@@ -70,10 +64,7 @@ export interface Consent {
   userId: number;
   type: ConsentType;
   status: ConsentStatus;
-  /**
-     * Human-readable reason for this consent
-     * @nullable
-     */
+  /** @nullable */
   purpose?: string | null;
   /** @nullable */
   grantedAt?: string | null;
@@ -145,7 +136,6 @@ export const InviteStatus = {
 } as const;
 
 /**
- * Which permission this invite is requesting
  * @nullable
  */
 export type InviteConsentType = typeof InviteConsentType[keyof typeof InviteConsentType] | null;
@@ -165,14 +155,60 @@ export interface Invite {
   toName?: string | null;
   message: string;
   status: InviteStatus;
-  /** Generated wa.me deep link */
   whatsappLink: string;
+  /** @nullable */
+  consentType?: InviteConsentType;
+  /** Unique tracking token for the consent page link */
+  token: string;
   /**
-     * Which permission this invite is requesting
+     * Full URL recipient clicks to grant access
      * @nullable
      */
-  consentType?: InviteConsentType;
+  consentPageUrl?: string | null;
+  /** @nullable */
+  grantedLatitude?: number | null;
+  /** @nullable */
+  grantedLongitude?: number | null;
+  /** @nullable */
+  grantedAddress?: string | null;
+  /** @nullable */
+  grantedAt?: string | null;
   sentAt: string;
+}
+
+export type InvitePublicStatus = typeof InvitePublicStatus[keyof typeof InvitePublicStatus];
+
+
+export const InvitePublicStatus = {
+  pending: 'pending',
+  accepted: 'accepted',
+  declined: 'declined',
+} as const;
+
+/**
+ * @nullable
+ */
+export type InvitePublicConsentType = typeof InvitePublicConsentType[keyof typeof InvitePublicConsentType] | null;
+
+
+export const InvitePublicConsentType = {
+  location: 'location',
+  notification: 'notification',
+  messaging: 'messaging',
+} as const;
+
+export interface InvitePublic {
+  token: string;
+  fromUserName: string;
+  status: InvitePublicStatus;
+  /** @nullable */
+  consentType?: InvitePublicConsentType;
+  /** @nullable */
+  grantedLatitude?: number | null;
+  /** @nullable */
+  grantedLongitude?: number | null;
+  /** @nullable */
+  grantedAt?: string | null;
 }
 
 export type InviteInputConsentType = typeof InviteInputConsentType[keyof typeof InviteInputConsentType];
@@ -192,6 +228,8 @@ export interface InviteInput {
   /** @minLength 1 */
   message: string;
   consentType?: InviteInputConsentType;
+  /** Origin URL to build the consent page link (e.g. https://app.replit.app) */
+  baseUrl?: string;
 }
 
 export type InviteUpdateStatus = typeof InviteUpdateStatus[keyof typeof InviteUpdateStatus];
@@ -208,15 +246,18 @@ export interface InviteUpdate {
   message?: string;
 }
 
+export interface LocationGrant {
+  latitude: number;
+  longitude: number;
+  address?: string;
+}
+
 export interface WhatsappLinkRequest {
-  /** Phone number in E.164 format (digits only, no +) */
   phoneNumber: string;
-  /** Pre-filled message text */
   message: string;
 }
 
 export interface WhatsappLink {
-  /** Full wa.me deep link URL */
   link: string;
   phoneNumber: string;
   message: string;

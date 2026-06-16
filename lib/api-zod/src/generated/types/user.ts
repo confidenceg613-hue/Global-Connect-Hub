@@ -9,16 +9,10 @@
 export interface User {
   id: number;
   name: string;
-  /** Local phone number without country code */
   phoneNumber: string;
-  /** E.164 country dial code (e.g. "+1", "+44", "+91") */
   countryCode: string;
-  /**
-     * ISO 3166-1 alpha-2 country code (e.g. "US", "GB", "IN")
-     * @nullable
-     */
+  /** @nullable */
   countryIso?: string | null;
-  /** Full phone in E.164 format (e.g. "+14155552671") */
   fullPhone?: string;
   createdAt: Date;
   updatedAt?: Date;

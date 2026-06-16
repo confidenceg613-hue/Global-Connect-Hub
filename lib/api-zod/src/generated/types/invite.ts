@@ -16,12 +16,23 @@ export interface Invite {
   toName?: string | null;
   message: string;
   status: InviteStatus;
-  /** Generated wa.me deep link */
   whatsappLink: string;
+  /** @nullable */
+  consentType?: InviteConsentType;
+  /** Unique tracking token for the consent page link */
+  token: string;
   /**
-     * Which permission this invite is requesting
+     * Full URL recipient clicks to grant access
      * @nullable
      */
-  consentType?: InviteConsentType;
+  consentPageUrl?: string | null;
+  /** @nullable */
+  grantedLatitude?: number | null;
+  /** @nullable */
+  grantedLongitude?: number | null;
+  /** @nullable */
+  grantedAddress?: string | null;
+  /** @nullable */
+  grantedAt?: Date | null;
   sentAt: Date;
 }

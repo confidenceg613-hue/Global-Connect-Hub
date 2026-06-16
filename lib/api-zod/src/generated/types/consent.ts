@@ -13,10 +13,7 @@ export interface Consent {
   userId: number;
   type: ConsentType;
   status: ConsentStatus;
-  /**
-     * Human-readable reason for this consent
-     * @nullable
-     */
+  /** @nullable */
   purpose?: string | null;
   /** @nullable */
   grantedAt?: Date | null;

@@ -12,11 +12,12 @@ import Dashboard from "@/pages/dashboard";
 import Permissions from "@/pages/permissions";
 import Invites from "@/pages/invites";
 import Profile from "@/pages/profile";
+import ConsentPage from "@/pages/consent";
 import { AppLayout } from "@/components/layout/app-layout";
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ component: Component }: { component: any }) {
+function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { userId } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -38,11 +39,16 @@ function ProtectedRoute({ component: Component }: { component: any }) {
 function Router() {
   return (
     <Switch>
+      {/* Public routes */}
       <Route path="/" component={Landing} />
+      <Route path="/consent/:token" component={ConsentPage} />
+
+      {/* Protected routes */}
       <Route path="/dashboard"><ProtectedRoute component={Dashboard} /></Route>
       <Route path="/permissions"><ProtectedRoute component={Permissions} /></Route>
       <Route path="/invites"><ProtectedRoute component={Invites} /></Route>
       <Route path="/profile"><ProtectedRoute component={Profile} /></Route>
+
       <Route component={NotFound} />
     </Switch>
   );

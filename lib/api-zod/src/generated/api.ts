@@ -9,7 +9,6 @@ import * as zod from 'zod';
 
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
@@ -45,10 +44,10 @@ export const GetUserParams = zod.object({
 export const GetUserResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "phoneNumber": zod.string().describe('Local phone number without country code'),
-  "countryCode": zod.string().describe('E.164 country dial code (e.g. \"+1\", \"+44\", \"+91\")'),
-  "countryIso": zod.string().nullish().describe('ISO 3166-1 alpha-2 country code (e.g. \"US\", \"GB\", \"IN\")'),
-  "fullPhone": zod.string().optional().describe('Full phone in E.164 format (e.g. \"+14155552671\")'),
+  "phoneNumber": zod.string(),
+  "countryCode": zod.string(),
+  "countryIso": zod.string().nullish(),
+  "fullPhone": zod.string().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date().optional()
 })
@@ -75,10 +74,10 @@ export const UpdateUserBody = zod.object({
 export const UpdateUserResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "phoneNumber": zod.string().describe('Local phone number without country code'),
-  "countryCode": zod.string().describe('E.164 country dial code (e.g. \"+1\", \"+44\", \"+91\")'),
-  "countryIso": zod.string().nullish().describe('ISO 3166-1 alpha-2 country code (e.g. \"US\", \"GB\", \"IN\")'),
-  "fullPhone": zod.string().optional().describe('Full phone in E.164 format (e.g. \"+14155552671\")'),
+  "phoneNumber": zod.string(),
+  "countryCode": zod.string(),
+  "countryIso": zod.string().nullish(),
+  "fullPhone": zod.string().optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date().optional()
 })
@@ -98,7 +97,7 @@ export const ListConsentsResponseItem = zod.object({
   "userId": zod.number(),
   "type": zod.enum(['location', 'notification', 'messaging']),
   "status": zod.enum(['granted', 'denied', 'revoked']),
-  "purpose": zod.string().nullish().describe('Human-readable reason for this consent'),
+  "purpose": zod.string().nullish(),
   "grantedAt": zod.coerce.date().nullish(),
   "revokedAt": zod.coerce.date().nullish(),
   "createdAt": zod.coerce.date()
@@ -160,7 +159,7 @@ export const GetConsentResponse = zod.object({
   "userId": zod.number(),
   "type": zod.enum(['location', 'notification', 'messaging']),
   "status": zod.enum(['granted', 'denied', 'revoked']),
-  "purpose": zod.string().nullish().describe('Human-readable reason for this consent'),
+  "purpose": zod.string().nullish(),
   "grantedAt": zod.coerce.date().nullish(),
   "revokedAt": zod.coerce.date().nullish(),
   "createdAt": zod.coerce.date()
@@ -184,7 +183,7 @@ export const UpdateConsentResponse = zod.object({
   "userId": zod.number(),
   "type": zod.enum(['location', 'notification', 'messaging']),
   "status": zod.enum(['granted', 'denied', 'revoked']),
-  "purpose": zod.string().nullish().describe('Human-readable reason for this consent'),
+  "purpose": zod.string().nullish(),
   "grantedAt": zod.coerce.date().nullish(),
   "revokedAt": zod.coerce.date().nullish(),
   "createdAt": zod.coerce.date()
@@ -214,15 +213,21 @@ export const ListInvitesResponseItem = zod.object({
   "toName": zod.string().nullish(),
   "message": zod.string(),
   "status": zod.enum(['pending', 'accepted', 'declined']),
-  "whatsappLink": zod.string().describe('Generated wa.me deep link'),
-  "consentType": zod.union([zod.literal('location'),zod.literal('notification'),zod.literal('messaging'),zod.literal(null)]).nullish().describe('Which permission this invite is requesting'),
+  "whatsappLink": zod.string(),
+  "consentType": zod.union([zod.literal('location'),zod.literal('notification'),zod.literal('messaging'),zod.literal(null)]).nullish(),
+  "token": zod.string().describe('Unique tracking token for the consent page link'),
+  "consentPageUrl": zod.string().nullish().describe('Full URL recipient clicks to grant access'),
+  "grantedLatitude": zod.number().nullish(),
+  "grantedLongitude": zod.number().nullish(),
+  "grantedAddress": zod.string().nullish(),
+  "grantedAt": zod.coerce.date().nullish(),
   "sentAt": zod.coerce.date()
 })
 export const ListInvitesResponse = zod.array(ListInvitesResponseItem)
 
 
 /**
- * @summary Create and send a WhatsApp invite
+ * @summary Create and send a WhatsApp invite with a trackable consent link
  */
 
 
@@ -233,7 +238,58 @@ export const CreateInviteBody = zod.object({
   "toPhone": zod.string().min(1),
   "toName": zod.string().optional(),
   "message": zod.string().min(1),
-  "consentType": zod.enum(['location', 'notification', 'messaging']).optional()
+  "consentType": zod.enum(['location', 'notification', 'messaging']).optional(),
+  "baseUrl": zod.string().optional().describe('Origin URL to build the consent page link (e.g. https:\/\/app.replit.app)')
+})
+
+
+/**
+ * @summary Get invite details by consent token (public — for consent page)
+ */
+export const GetInviteByTokenParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const GetInviteByTokenResponse = zod.object({
+  "token": zod.string(),
+  "fromUserName": zod.string(),
+  "status": zod.enum(['pending', 'accepted', 'declined']),
+  "consentType": zod.union([zod.literal('location'),zod.literal('notification'),zod.literal('messaging'),zod.literal(null)]).nullish(),
+  "grantedLatitude": zod.number().nullish(),
+  "grantedLongitude": zod.number().nullish(),
+  "grantedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Recipient grants location access via the consent page
+ */
+export const GrantLocationConsentParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const GrantLocationConsentBody = zod.object({
+  "latitude": zod.number(),
+  "longitude": zod.number(),
+  "address": zod.string().optional()
+})
+
+export const GrantLocationConsentResponse = zod.object({
+  "id": zod.number(),
+  "fromUserId": zod.number(),
+  "toPhone": zod.string(),
+  "toName": zod.string().nullish(),
+  "message": zod.string(),
+  "status": zod.enum(['pending', 'accepted', 'declined']),
+  "whatsappLink": zod.string(),
+  "consentType": zod.union([zod.literal('location'),zod.literal('notification'),zod.literal('messaging'),zod.literal(null)]).nullish(),
+  "token": zod.string().describe('Unique tracking token for the consent page link'),
+  "consentPageUrl": zod.string().nullish().describe('Full URL recipient clicks to grant access'),
+  "grantedLatitude": zod.number().nullish(),
+  "grantedLongitude": zod.number().nullish(),
+  "grantedAddress": zod.string().nullish(),
+  "grantedAt": zod.coerce.date().nullish(),
+  "sentAt": zod.coerce.date()
 })
 
 
@@ -251,8 +307,14 @@ export const GetInviteResponse = zod.object({
   "toName": zod.string().nullish(),
   "message": zod.string(),
   "status": zod.enum(['pending', 'accepted', 'declined']),
-  "whatsappLink": zod.string().describe('Generated wa.me deep link'),
-  "consentType": zod.union([zod.literal('location'),zod.literal('notification'),zod.literal('messaging'),zod.literal(null)]).nullish().describe('Which permission this invite is requesting'),
+  "whatsappLink": zod.string(),
+  "consentType": zod.union([zod.literal('location'),zod.literal('notification'),zod.literal('messaging'),zod.literal(null)]).nullish(),
+  "token": zod.string().describe('Unique tracking token for the consent page link'),
+  "consentPageUrl": zod.string().nullish().describe('Full URL recipient clicks to grant access'),
+  "grantedLatitude": zod.number().nullish(),
+  "grantedLongitude": zod.number().nullish(),
+  "grantedAddress": zod.string().nullish(),
+  "grantedAt": zod.coerce.date().nullish(),
   "sentAt": zod.coerce.date()
 })
 
@@ -276,22 +338,28 @@ export const UpdateInviteResponse = zod.object({
   "toName": zod.string().nullish(),
   "message": zod.string(),
   "status": zod.enum(['pending', 'accepted', 'declined']),
-  "whatsappLink": zod.string().describe('Generated wa.me deep link'),
-  "consentType": zod.union([zod.literal('location'),zod.literal('notification'),zod.literal('messaging'),zod.literal(null)]).nullish().describe('Which permission this invite is requesting'),
+  "whatsappLink": zod.string(),
+  "consentType": zod.union([zod.literal('location'),zod.literal('notification'),zod.literal('messaging'),zod.literal(null)]).nullish(),
+  "token": zod.string().describe('Unique tracking token for the consent page link'),
+  "consentPageUrl": zod.string().nullish().describe('Full URL recipient clicks to grant access'),
+  "grantedLatitude": zod.number().nullish(),
+  "grantedLongitude": zod.number().nullish(),
+  "grantedAddress": zod.string().nullish(),
+  "grantedAt": zod.coerce.date().nullish(),
   "sentAt": zod.coerce.date()
 })
 
 
 /**
- * @summary Generate a WhatsApp deep link for sharing or consent requests
+ * @summary Generate a WhatsApp deep link
  */
 export const GenerateWhatsappLinkBody = zod.object({
-  "phoneNumber": zod.string().describe('Phone number in E.164 format (digits only, no +)'),
-  "message": zod.string().describe('Pre-filled message text')
+  "phoneNumber": zod.string(),
+  "message": zod.string()
 })
 
 export const GenerateWhatsappLinkResponse = zod.object({
-  "link": zod.string().describe('Full wa.me deep link URL'),
+  "link": zod.string(),
   "phoneNumber": zod.string(),
   "message": zod.string()
 })

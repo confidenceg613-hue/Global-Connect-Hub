@@ -1,4 +1,11 @@
-import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  serial,
+  integer,
+  text,
+  timestamp,
+  doublePrecision,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -20,6 +27,12 @@ export const invitesTable = pgTable("invites", {
   consentType: text("consent_type", {
     enum: ["location", "notification", "messaging"],
   }),
+  token: text("token").notNull(),
+  consentPageUrl: text("consent_page_url"),
+  grantedLatitude: doublePrecision("granted_latitude"),
+  grantedLongitude: doublePrecision("granted_longitude"),
+  grantedAddress: text("granted_address"),
+  grantedAt: timestamp("granted_at"),
   sentAt: timestamp("sent_at").defaultNow().notNull(),
 });
 
@@ -27,6 +40,10 @@ export const insertInviteSchema = createInsertSchema(invitesTable).omit({
   id: true,
   sentAt: true,
   status: true,
+  grantedLatitude: true,
+  grantedLongitude: true,
+  grantedAddress: true,
+  grantedAt: true,
 });
 export type InsertInvite = z.infer<typeof insertInviteSchema>;
 export type Invite = typeof invitesTable.$inferSelect;

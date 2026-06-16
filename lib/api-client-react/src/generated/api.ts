@@ -27,9 +27,11 @@ import type {
   HealthStatus,
   Invite,
   InviteInput,
+  InvitePublic,
   InviteUpdate,
   ListConsentsParams,
   ListInvitesParams,
+  LocationGrant,
   User,
   UserInput,
   UserUpdate,
@@ -58,7 +60,6 @@ export const getHealthCheckUrl = () => {
 }
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const healthCheck = async ( options?: RequestInit): Promise<HealthStatus> => {
@@ -891,7 +892,7 @@ export const getCreateInviteUrl = () => {
 }
 
 /**
- * @summary Create and send a WhatsApp invite
+ * @summary Create and send a WhatsApp invite with a trackable consent link
  */
 export const createInvite = async (inviteInput: InviteInput, options?: RequestInit): Promise<Invite> => {
 
@@ -940,7 +941,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreateInviteMutationError = ErrorType<void>
 
     /**
- * @summary Create and send a WhatsApp invite
+ * @summary Create and send a WhatsApp invite with a trackable consent link
  */
 export const useCreateInvite = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createInvite>>, TError,{data: BodyType<InviteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -951,6 +952,155 @@ export const useCreateInvite = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getCreateInviteMutationOptions(options));
+    }
+
+export const getGetInviteByTokenUrl = (token: string,) => {
+
+
+
+
+  return `/api/invites/by-token/${token}`
+}
+
+/**
+ * @summary Get invite details by consent token (public — for consent page)
+ */
+export const getInviteByToken = async (token: string, options?: RequestInit): Promise<InvitePublic> => {
+
+  return customFetch<InvitePublic>(getGetInviteByTokenUrl(token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetInviteByTokenQueryKey = (token: string,) => {
+    return [
+    `/api/invites/by-token/${token}`
+    ] as const;
+    }
+
+
+export const getGetInviteByTokenQueryOptions = <TData = Awaited<ReturnType<typeof getInviteByToken>>, TError = ErrorType<void>>(token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getInviteByToken>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetInviteByTokenQueryKey(token);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getInviteByToken>>> = ({ signal }) => getInviteByToken(token, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(token), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getInviteByToken>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetInviteByTokenQueryResult = NonNullable<Awaited<ReturnType<typeof getInviteByToken>>>
+export type GetInviteByTokenQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get invite details by consent token (public — for consent page)
+ */
+
+export function useGetInviteByToken<TData = Awaited<ReturnType<typeof getInviteByToken>>, TError = ErrorType<void>>(
+ token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getInviteByToken>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetInviteByTokenQueryOptions(token,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGrantLocationConsentUrl = (token: string,) => {
+
+
+
+
+  return `/api/invites/by-token/${token}/grant`
+}
+
+/**
+ * @summary Recipient grants location access via the consent page
+ */
+export const grantLocationConsent = async (token: string,
+    locationGrant: LocationGrant, options?: RequestInit): Promise<Invite> => {
+
+  return customFetch<Invite>(getGrantLocationConsentUrl(token),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      locationGrant,)
+  }
+);}
+
+
+
+
+export const getGrantLocationConsentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof grantLocationConsent>>, TError,{token: string;data: BodyType<LocationGrant>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof grantLocationConsent>>, TError,{token: string;data: BodyType<LocationGrant>}, TContext> => {
+
+const mutationKey = ['grantLocationConsent'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof grantLocationConsent>>, {token: string;data: BodyType<LocationGrant>}> = (props) => {
+          const {token,data} = props ?? {};
+
+          return  grantLocationConsent(token,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GrantLocationConsentMutationResult = NonNullable<Awaited<ReturnType<typeof grantLocationConsent>>>
+    export type GrantLocationConsentMutationBody = BodyType<LocationGrant>
+    export type GrantLocationConsentMutationError = ErrorType<void>
+
+    /**
+ * @summary Recipient grants location access via the consent page
+ */
+export const useGrantLocationConsent = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof grantLocationConsent>>, TError,{token: string;data: BodyType<LocationGrant>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof grantLocationConsent>>,
+        TError,
+        {token: string;data: BodyType<LocationGrant>},
+        TContext
+      > => {
+      return useMutation(getGrantLocationConsentMutationOptions(options));
     }
 
 export const getGetInviteUrl = (id: number,) => {
@@ -1111,7 +1261,7 @@ export const getGenerateWhatsappLinkUrl = () => {
 }
 
 /**
- * @summary Generate a WhatsApp deep link for sharing or consent requests
+ * @summary Generate a WhatsApp deep link
  */
 export const generateWhatsappLink = async (whatsappLinkRequest: WhatsappLinkRequest, options?: RequestInit): Promise<WhatsappLink> => {
 
@@ -1160,7 +1310,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type GenerateWhatsappLinkMutationError = ErrorType<unknown>
 
     /**
- * @summary Generate a WhatsApp deep link for sharing or consent requests
+ * @summary Generate a WhatsApp deep link
  */
 export const useGenerateWhatsappLink = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateWhatsappLink>>, TError,{data: BodyType<WhatsappLinkRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}

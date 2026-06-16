@@ -15,4 +15,6 @@ export interface InviteInput {
   /** @minLength 1 */
   message: string;
   consentType?: InviteInputConsentType;
+  /** Origin URL to build the consent page link (e.g. https://app.replit.app) */
+  baseUrl?: string;
 }

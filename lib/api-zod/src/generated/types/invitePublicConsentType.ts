@@ -9,10 +9,10 @@
 /**
  * @nullable
  */
-export type InviteConsentType = typeof InviteConsentType[keyof typeof InviteConsentType] | null;
+export type InvitePublicConsentType = typeof InvitePublicConsentType[keyof typeof InvitePublicConsentType] | null;
 
 
-export const InviteConsentType = {
+export const InvitePublicConsentType = {
   location: 'location',
   notification: 'notification',
   messaging: 'messaging',

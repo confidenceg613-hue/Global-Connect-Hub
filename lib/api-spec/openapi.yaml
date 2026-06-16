@@ -24,7 +24,6 @@ paths:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -248,7 +247,7 @@ paths:
     post:
       operationId: createInvite
       tags: [invites]
-      summary: Create and send a WhatsApp invite
+      summary: Create and send a WhatsApp invite with a trackable consent link
       requestBody:
         required: true
         content:
@@ -257,13 +256,63 @@ paths:
               $ref: "#/components/schemas/InviteInput"
       responses:
         "201":
-          description: Invite created
+          description: Invite created with token and consent URL
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Invite"
         "400":
           description: Invalid input
+
+  /invites/by-token/{token}:
+    get:
+      operationId: getInviteByToken
+      tags: [invites]
+      summary: Get invite details by consent token (public — for consent page)
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Invite found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitePublic"
+        "404":
+          description: Invite not found
+
+  /invites/by-token/{token}/grant:
+    post:
+      operationId: grantLocationConsent
+      tags: [invites]
+      summary: Recipient grants location access via the consent page
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationGrant"
+      responses:
+        "200":
+          description: Location consent recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invite"
+        "404":
+          description: Invite not found
+        "409":
+          description: Already granted
 
   /invites/{id}:
     get:
@@ -315,7 +364,7 @@ paths:
     post:
       operationId: generateWhatsappLink
       tags: [whatsapp]
-      summary: Generate a WhatsApp deep link for sharing or consent requests
+      summary: Generate a WhatsApp deep link
       requestBody:
         required: true
         content:
@@ -350,16 +399,12 @@ components:
           type: string
         phoneNumber:
           type: string
-          description: Local phone number without country code
         countryCode:
           type: string
-          description: E.164 country dial code (e.g. "+1", "+44", "+91")
         countryIso:
           type: ["string", "null"]
-          description: ISO 3166-1 alpha-2 country code (e.g. "US", "GB", "IN")
         fullPhone:
           type: string
-          description: Full phone in E.164 format (e.g. "+14155552671")
         createdAt:
           type: string
           format: date-time
@@ -414,7 +459,6 @@ components:
           enum: [granted, denied, revoked]
         purpose:
           type: ["string", "null"]
-          description: Human-readable reason for this consent
         grantedAt:
           type: ["string", "null"]
           format: date-time
@@ -477,7 +521,7 @@ components:
 
     Invite:
       type: object
-      required: [id, fromUserId, toPhone, message, status, whatsappLink, sentAt]
+      required: [id, fromUserId, toPhone, message, status, whatsappLink, token, sentAt]
       properties:
         id:
           type: integer
@@ -494,13 +538,48 @@ components:
           enum: [pending, accepted, declined]
         whatsappLink:
           type: string
-          description: Generated wa.me deep link
         consentType:
           type: ["string", "null"]
           enum: [location, notification, messaging, null]
-          description: Which permission this invite is requesting
+        token:
+          type: string
+          description: Unique tracking token for the consent page link
+        consentPageUrl:
+          type: ["string", "null"]
+          description: Full URL recipient clicks to grant access
+        grantedLatitude:
+          type: ["number", "null"]
+        grantedLongitude:
+          type: ["number", "null"]
+        grantedAddress:
+          type: ["string", "null"]
+        grantedAt:
+          type: ["string", "null"]
+          format: date-time
         sentAt:
           type: string
+          format: date-time
+
+    InvitePublic:
+      type: object
+      required: [token, fromUserName, status]
+      properties:
+        token:
+          type: string
+        fromUserName:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, declined]
+        consentType:
+          type: ["string", "null"]
+          enum: [location, notification, messaging, null]
+        grantedLatitude:
+          type: ["number", "null"]
+        grantedLongitude:
+          type: ["number", "null"]
+        grantedAt:
+          type: ["string", "null"]
           format: date-time
 
     InviteInput:
@@ -520,6 +599,9 @@ components:
         consentType:
           type: string
           enum: [location, notification, messaging]
+        baseUrl:
+          type: string
+          description: Origin URL to build the consent page link (e.g. https://app.replit.app)
 
     InviteUpdate:
       type: object
@@ -530,16 +612,25 @@ components:
         message:
           type: string
 
+    LocationGrant:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+        longitude:
+          type: number
+        address:
+          type: string
+
     WhatsappLinkRequest:
       type: object
       required: [phoneNumber, message]
       properties:
         phoneNumber:
           type: string
-          description: Phone number in E.164 format (digits only, no +)
         message:
           type: string
-          description: Pre-filled message text
 
     WhatsappLink:
       type: object
@@ -547,7 +638,6 @@ components:
       properties:
         link:
           type: string
-          description: Full wa.me deep link URL
         phoneNumber:
           type: string
         message:
