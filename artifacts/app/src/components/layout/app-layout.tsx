@@ -6,7 +6,8 @@ import {
   Users, 
   UserCircle,
   LogOut,
-  Menu
+  Menu,
+  Navigation
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -25,6 +26,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
     { href: "/permissions", label: "Permissions", icon: ShieldCheck },
     { href: "/invites", label: "Invites", icon: Users },
+    { href: "/shared-coordinates", label: "Shared Coordinates", icon: Navigation },
     { href: "/profile", label: "Profile", icon: UserCircle },
   ];
 
