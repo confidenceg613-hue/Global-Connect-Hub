@@ -14,6 +14,7 @@ import Invites from "@/pages/invites";
 import Profile from "@/pages/profile";
 import ConsentPage from "@/pages/consent";
 import { AppLayout } from "@/components/layout/app-layout";
+import { GrantNotifier } from "@/components/grant-notifier";
 
 const queryClient = new QueryClient();
 
@@ -61,6 +62,7 @@ function App() {
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
           <Router />
         </WouterRouter>
+        <GrantNotifier />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
