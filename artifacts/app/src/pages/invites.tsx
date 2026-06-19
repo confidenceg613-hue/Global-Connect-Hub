@@ -358,18 +358,34 @@ function InviteCard({
 
       {/* Location granted */}
       {accepted && invite.grantedLatitude != null && invite.grantedLongitude != null && (
-        <div className="bg-white border border-emerald-200 rounded-lg p-3 mt-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+        <div className="border border-emerald-200 rounded-xl overflow-hidden mt-2">
+          {/* Map embed */}
+          <div className="relative w-full" style={{ height: 200 }}>
+            <iframe
+              title={`Location for invite #${invite.id}`}
+              src={`https://www.openstreetmap.org/export/embed.html?bbox=${invite.grantedLongitude - 0.01},${invite.grantedLatitude - 0.01},${invite.grantedLongitude + 0.01},${invite.grantedLatitude + 0.01}&layer=mapnik&marker=${invite.grantedLatitude},${invite.grantedLongitude}`}
+              className="w-full h-full border-0"
+              loading="lazy"
+              data-testid={`map-invite-${invite.id}`}
+            />
+          </div>
+
+          {/* Coords + actions bar */}
+          <div className="bg-white px-3 py-2.5 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <MapPin className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-              <div>
-                <p className="text-xs font-semibold text-emerald-700">Location Received</p>
-                <p className="text-xs font-mono text-slate-600">
+              <div className="min-w-0">
+                <p className="text-xs font-mono font-semibold text-slate-700 leading-tight">
                   {invite.grantedLatitude.toFixed(5)}, {invite.grantedLongitude.toFixed(5)}
                 </p>
                 {invite.grantedAddress && (
-                  <p className="text-xs text-slate-500 mt-0.5 truncate max-w-xs">
+                  <p className="text-xs text-slate-500 truncate">
                     {invite.grantedAddress}
+                  </p>
+                )}
+                {invite.grantedAt && (
+                  <p className="text-xs text-muted-foreground">
+                    Granted {format(new Date(invite.grantedAt), "MMM d, yyyy 'at' h:mm a")}
                   </p>
                 )}
               </div>
@@ -387,14 +403,9 @@ function InviteCard({
               data-testid={`button-maps-${invite.id}`}
             >
               <ExternalLink className="h-3 w-3 mr-1" />
-              Maps
+              Open in Maps
             </Button>
           </div>
-          {invite.grantedAt && (
-            <p className="text-xs text-muted-foreground mt-2">
-              Granted {format(new Date(invite.grantedAt), "MMM d, yyyy 'at' h:mm a")}
-            </p>
-          )}
         </div>
       )}
     </div>
