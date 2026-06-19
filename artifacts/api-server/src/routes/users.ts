@@ -22,12 +22,23 @@ router.post("/users", async (req, res): Promise<void> => {
   const { name, phoneNumber, countryCode, countryIso } = parsed.data;
   const fullPhone = `${countryCode}${phoneNumber}`.replace(/\s+/g, "");
 
+  // Return existing user if this phone is already registered (login flow)
+  const [existing] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.fullPhone, fullPhone));
+
+  if (existing) {
+    res.status(200).json({ ...GetUserResponse.parse(existing), isExistingUser: true });
+    return;
+  }
+
   const [user] = await db
     .insert(usersTable)
     .values({ name, phoneNumber, countryCode, countryIso, fullPhone })
     .returning();
 
-  res.status(201).json(GetUserResponse.parse(user));
+  res.status(201).json({ ...GetUserResponse.parse(user), isExistingUser: false });
 });
 
 router.get("/users/:id", async (req, res): Promise<void> => {

@@ -49,11 +49,14 @@ export default function Landing() {
       {
         onSuccess: (user) => {
           login(user.id);
-          toast({ title: "Account created successfully" });
+          const isReturning = (user as any).isExistingUser === true;
+          toast({
+            title: isReturning ? `Welcome back, ${user.name}!` : "Account created successfully",
+          });
           setLocation("/dashboard");
         },
         onError: () => {
-          toast({ title: "Failed to create account", variant: "destructive" });
+          toast({ title: "Failed to sign in. Please try again.", variant: "destructive" });
         },
       }
     );

@@ -8,7 +8,7 @@ export const usersTable = pgTable("users", {
   phoneNumber: text("phone_number").notNull(),
   countryCode: text("country_code").notNull(),
   countryIso: text("country_iso").notNull(),
-  fullPhone: text("full_phone").notNull(),
+  fullPhone: text("full_phone").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
