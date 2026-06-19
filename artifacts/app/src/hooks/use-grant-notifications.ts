@@ -14,7 +14,11 @@ function getSeenIds(): Set<number> {
 }
 
 function saveSeenIds(ids: Set<number>): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids]));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids]));
+  } catch {
+    // ignore — private mode or storage full
+  }
 }
 
 function requestBrowserNotificationPermission(): void {
