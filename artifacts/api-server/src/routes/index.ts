@@ -4,6 +4,7 @@ import usersRouter from "./users";
 import consentsRouter from "./consents";
 import invitesRouter from "./invites";
 import whatsappRouter from "./whatsapp";
+import dangerZonesRouter from "./danger-zones";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(usersRouter);
 router.use(consentsRouter);
 router.use(invitesRouter);
 router.use(whatsappRouter);
+router.use(dangerZonesRouter);
 
 export default router;
