@@ -106,22 +106,22 @@ export default function Invites() {
 
       {/* Success banner after creating invite */}
       {lastCreated?.consentPageUrl && (
-        <Card className="border-emerald-200 bg-emerald-50 shadow-none">
+        <Card className="border-emerald-500/30 bg-emerald-500/10 shadow-none">
           <CardContent className="pt-4 pb-4">
             <div className="flex items-start gap-3">
-              <CheckCircle className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+              <CheckCircle className="h-5 w-5 text-emerald-500 mt-0.5 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-emerald-800 mb-1">
+                <p className="text-sm font-semibold text-emerald-400 mb-1">
                   Invite sent — WhatsApp opened with this consent link:
                 </p>
                 <div className="flex items-center gap-2">
-                  <code className="text-xs bg-white border border-emerald-200 rounded px-2 py-1 truncate flex-1 text-emerald-700">
+                  <code className="text-xs bg-background border border-emerald-500/30 rounded px-2 py-1 truncate flex-1 text-emerald-400">
                     {lastCreated.consentPageUrl}
                   </code>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="flex-shrink-0 border-emerald-300 text-emerald-700 hover:bg-emerald-100 h-7 text-xs"
+                    className="flex-shrink-0 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 h-7 text-xs"
                     onClick={() => copyToClipboard(lastCreated.consentPageUrl!, "Link")}
                     data-testid="button-copy-consent-link"
                   >
@@ -168,7 +168,7 @@ export default function Invites() {
                     defaultCountry="US"
                     value={phone}
                     onChange={(val) => setPhone(val || "")}
-                    className="flex h-10 w-full rounded-md border border-input bg-white px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className="flex h-10 w-full rounded-md border border-input bg-background text-foreground px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     data-testid="input-recipient-phone"
                   />
                 </div>
@@ -289,7 +289,7 @@ function InviteCard({
   return (
     <div
       className={`p-4 border rounded-xl transition-colors ${
-        accepted ? "border-emerald-200 bg-emerald-50/40" : "border-border hover:bg-muted/20"
+        accepted ? "border-emerald-500/30 bg-emerald-500/10" : "border-border hover:bg-muted/20"
       }`}
       data-testid={`card-invite-${invite.id}`}
     >
@@ -319,7 +319,7 @@ function InviteCard({
           variant={
             accepted ? "default" : invite.status === "declined" ? "destructive" : "secondary"
           }
-          className={`capitalize flex-shrink-0 ${accepted ? "bg-emerald-600" : ""}`}
+          className={`capitalize flex-shrink-0 ${accepted ? "bg-emerald-600 text-white" : ""}`}
         >
           {accepted ? (
             <><CheckCircle className="h-3 w-3 mr-1" /> Granted</>
@@ -358,7 +358,7 @@ function InviteCard({
 
       {/* Location granted */}
       {accepted && invite.grantedLatitude != null && invite.grantedLongitude != null && (
-        <div className="border border-emerald-200 rounded-xl overflow-hidden mt-2">
+        <div className="border border-emerald-500/30 rounded-xl overflow-hidden mt-2">
           {/* Map embed */}
           <div className="relative w-full" style={{ height: 200 }}>
             <iframe
@@ -371,15 +371,15 @@ function InviteCard({
           </div>
 
           {/* Coords + actions bar */}
-          <div className="bg-white px-3 py-2.5 flex items-center justify-between gap-2">
+          <div className="bg-muted/40 px-3 py-2.5 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <MapPin className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+              <MapPin className="h-4 w-4 text-emerald-500 flex-shrink-0" />
               <div className="min-w-0">
-                <p className="text-xs font-mono font-semibold text-slate-700 leading-tight">
+                <p className="text-xs font-mono font-semibold text-foreground leading-tight">
                   {invite.grantedLatitude.toFixed(5)}, {invite.grantedLongitude.toFixed(5)}
                 </p>
                 {invite.grantedAddress && (
-                  <p className="text-xs text-slate-500 truncate">
+                  <p className="text-xs text-muted-foreground truncate">
                     {invite.grantedAddress}
                   </p>
                 )}
@@ -393,7 +393,7 @@ function InviteCard({
             <Button
               size="sm"
               variant="outline"
-              className="flex-shrink-0 text-xs h-7 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+              className="flex-shrink-0 text-xs h-7 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
               onClick={() =>
                 window.open(
                   `https://www.google.com/maps?q=${invite.grantedLatitude},${invite.grantedLongitude}`,

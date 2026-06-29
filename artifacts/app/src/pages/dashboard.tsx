@@ -150,7 +150,7 @@ export default function Dashboard() {
                 <p className="text-sm font-medium text-muted-foreground mb-1">Registered Phone</p>
                 <div className="flex items-center gap-2">
                   <p className="font-semibold text-foreground">{user?.fullPhone}</p>
-                  <Badge variant="outline" className="bg-white/50">{user?.countryIso}</Badge>
+                  <Badge variant="outline">{user?.countryIso}</Badge>
                 </div>
               </div>
               <div>

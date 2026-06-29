@@ -96,7 +96,7 @@ export default function Landing() {
           </div>
         </div>
 
-        <Card className="w-full max-w-md shadow-xl border-border/50 bg-white/50 backdrop-blur-sm">
+        <Card className="w-full max-w-md shadow-xl border-border/50 bg-card backdrop-blur-sm">
           <CardContent className="p-8">
             <div className="mb-8">
               <h2 className="text-2xl font-bold mb-2">Get Started</h2>
@@ -111,7 +111,6 @@ export default function Landing() {
                   placeholder="Jane Doe"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="bg-white"
                 />
               </div>
 
@@ -123,7 +122,7 @@ export default function Landing() {
                     defaultCountry="US"
                     value={phone}
                     onChange={(val) => setPhone(val || "")}
-                    className="flex h-10 w-full rounded-md border border-input bg-white px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-10 w-full rounded-md border border-input bg-background text-foreground px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     style={{ 
                       '--PhoneInputCountryFlag-borderColor': 'transparent',
                       '--PhoneInput-color--focus': 'hsl(var(--primary))'

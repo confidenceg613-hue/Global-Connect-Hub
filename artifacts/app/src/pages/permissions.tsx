@@ -190,12 +190,12 @@ export default function Permissions() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-muted-foreground">Current Status:</span>
                   {isGranted ? (
-                    <Badge className="bg-green-100 text-green-800 hover:bg-green-100 border-green-200">
+                    <Badge className="bg-green-600 text-white hover:bg-green-700 border-0">
                       <ShieldCheck size={12} className="mr-1" />
                       Active
                     </Badge>
                   ) : existingConsent?.status === "revoked" ? (
-                    <Badge variant="outline" className="text-amber-600 border-amber-200 bg-amber-50">
+                    <Badge variant="outline" className="text-amber-400 border-amber-400/40 bg-amber-400/10">
                       <ShieldAlert size={12} className="mr-1" />
                       Revoked
                     </Badge>

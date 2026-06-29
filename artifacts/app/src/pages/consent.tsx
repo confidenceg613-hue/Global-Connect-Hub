@@ -93,22 +93,22 @@ export default function ConsentPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
   if (isError || !invite) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <XCircle className="h-14 w-14 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-slate-800 mb-2">
+            <h2 className="text-xl font-semibold text-foreground mb-2">
               Invalid Link
             </h2>
-            <p className="text-slate-500 text-sm">
+            <p className="text-muted-foreground text-sm">
               This consent link is invalid or has expired. Please ask the sender
               to resend the invite.
             </p>
@@ -121,22 +121,22 @@ export default function ConsentPage() {
   // Already granted
   if (invite.status === "accepted" && state !== "granted") {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <CheckCircle className="h-14 w-14 text-emerald-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-slate-800 mb-2">
+            <h2 className="text-xl font-semibold text-foreground mb-2">
               Already Granted
             </h2>
-            <p className="text-slate-500 text-sm">
+            <p className="text-muted-foreground text-sm">
               You have already granted location access to{" "}
-              <span className="font-medium text-slate-700">
+              <span className="font-medium text-foreground">
                 {invite.fromUserName}
               </span>
               .
             </p>
             {invite.grantedLatitude && invite.grantedLongitude && (
-              <p className="text-xs text-slate-400 mt-3">
+              <p className="text-xs text-muted-foreground mt-3">
                 {invite.grantedLatitude.toFixed(5)},{" "}
                 {invite.grantedLongitude.toFixed(5)}
               </p>
@@ -149,36 +149,36 @@ export default function ConsentPage() {
 
   if (state === "granted") {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
-            <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-5">
-              <CheckCircle className="h-9 w-9 text-emerald-600" />
+            <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-5">
+              <CheckCircle className="h-9 w-9 text-emerald-500" />
             </div>
-            <h2 className="text-2xl font-bold text-slate-800 mb-2">
+            <h2 className="text-2xl font-bold text-foreground mb-2">
               Location Shared
             </h2>
-            <p className="text-slate-500 text-sm mb-6">
+            <p className="text-muted-foreground text-sm mb-6">
               You have successfully granted location access to{" "}
-              <span className="font-semibold text-slate-700">
+              <span className="font-semibold text-foreground">
                 {invite.fromUserName}
               </span>
               .
             </p>
             {coords && (
-              <div className="bg-slate-100 rounded-xl p-4 text-left">
+              <div className="bg-muted rounded-xl p-4 text-left">
                 <div className="flex items-center gap-2 mb-2">
-                  <MapPin className="h-4 w-4 text-indigo-500" />
-                  <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                  <MapPin className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Coordinates Shared
                   </span>
                 </div>
-                <p className="text-sm font-mono text-slate-700">
+                <p className="text-sm font-mono text-foreground">
                   {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
                 </p>
               </div>
             )}
-            <p className="text-xs text-slate-400 mt-4">
+            <p className="text-xs text-muted-foreground mt-4">
               You may close this page.
             </p>
           </CardContent>
@@ -189,14 +189,14 @@ export default function ConsentPage() {
 
   if (state === "denied") {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <XCircle className="h-14 w-14 text-amber-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-slate-800 mb-2">
+            <h2 className="text-xl font-semibold text-foreground mb-2">
               Location Access Denied
             </h2>
-            <p className="text-slate-500 text-sm mb-6">
+            <p className="text-muted-foreground text-sm mb-6">
               You blocked location access in your browser. To try again, allow
               location permission in your browser settings and reload this page.
             </p>
@@ -218,14 +218,14 @@ export default function ConsentPage() {
 
   if (state === "error") {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <AlertTriangle className="h-14 w-14 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-slate-800 mb-2">
+            <h2 className="text-xl font-semibold text-foreground mb-2">
               Something Went Wrong
             </h2>
-            <p className="text-slate-500 text-sm mb-6">{errorMsg}</p>
+            <p className="text-muted-foreground text-sm mb-6">{errorMsg}</p>
             <Button
               variant="outline"
               onClick={() => setState("idle")}
@@ -242,28 +242,28 @@ export default function ConsentPage() {
   const isProcessing = state === "requesting" || state === "granting";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-slate-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="max-w-md w-full">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 text-indigo-700 font-bold text-lg mb-2">
+          <div className="inline-flex items-center gap-2 text-primary font-bold text-lg mb-2">
             <Shield className="h-5 w-5" />
             PhoneLink
           </div>
         </div>
 
-        <Card className="shadow-xl border-0">
+        <Card className="shadow-xl border-border">
           <CardContent className="pt-8 pb-8 px-8">
             {/* Sender identity */}
             <div className="text-center mb-8">
-              <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center mx-auto mb-4">
-                <MapPin className="h-8 w-8 text-indigo-600" />
+              <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                <MapPin className="h-8 w-8 text-primary" />
               </div>
-              <h1 className="text-2xl font-bold text-slate-800 mb-2">
+              <h1 className="text-2xl font-bold text-foreground mb-2">
                 Location Request
               </h1>
-              <p className="text-slate-500 text-sm leading-relaxed">
-                <span className="font-semibold text-slate-700">
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                <span className="font-semibold text-foreground">
                   {invite.fromUserName}
                 </span>{" "}
                 is requesting access to your location via PhoneLink.
@@ -271,8 +271,8 @@ export default function ConsentPage() {
             </div>
 
             {/* What they'll share */}
-            <div className="bg-indigo-50 rounded-xl p-4 mb-6">
-              <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-2">
+            <div className="bg-primary/10 rounded-xl p-4 mb-6">
+              <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">
                 What will be shared
               </p>
               <ul className="space-y-1.5">
@@ -281,8 +281,8 @@ export default function ConsentPage() {
                   "Approximate address (city & region)",
                   "One-time — not continuous tracking",
                 ].map((item) => (
-                  <li key={item} className="flex items-center gap-2 text-sm text-slate-600">
-                    <CheckCircle className="h-3.5 w-3.5 text-indigo-500 flex-shrink-0" />
+                  <li key={item} className="flex items-center gap-2 text-sm text-foreground">
+                    <CheckCircle className="h-3.5 w-3.5 text-primary flex-shrink-0" />
                     {item}
                   </li>
                 ))}
@@ -290,7 +290,7 @@ export default function ConsentPage() {
             </div>
 
             {/* Consent notice */}
-            <p className="text-xs text-slate-400 text-center mb-6 leading-relaxed">
+            <p className="text-xs text-muted-foreground text-center mb-6 leading-relaxed">
               By tapping Grant, your browser will ask for location permission.
               Your coordinates are shared only with {invite.fromUserName} and
               stored securely by PhoneLink.
@@ -298,7 +298,7 @@ export default function ConsentPage() {
 
             {/* Grant button */}
             <Button
-              className="w-full h-12 text-base font-semibold bg-indigo-600 hover:bg-indigo-700 text-white"
+              className="w-full h-12 text-base font-semibold"
               onClick={handleGrant}
               disabled={isProcessing}
               data-testid="button-grant-location"
@@ -316,7 +316,7 @@ export default function ConsentPage() {
               )}
             </Button>
 
-            <p className="text-xs text-slate-400 text-center mt-4">
+            <p className="text-xs text-muted-foreground text-center mt-4">
               You can revoke this at any time by contacting {invite.fromUserName}.
             </p>
           </CardContent>

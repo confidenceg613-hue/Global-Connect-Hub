@@ -105,7 +105,7 @@ function CoordinateCard({
   const googleMapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
 
   return (
-    <div className="rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white">
+    <div className="rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-card">
       {/* Map */}
       <div className="relative w-full" style={{ height: 220 }}>
         <iframe
@@ -130,22 +130,22 @@ function CoordinateCard({
             </p>
             <p className="text-sm text-muted-foreground">{invite.toPhone}</p>
           </div>
-          <Badge className="bg-emerald-600 text-white text-xs capitalize flex-shrink-0">
+          <Badge className="bg-emerald-600 text-white text-xs capitalize flex-shrink-0 border-0">
             Granted
           </Badge>
         </div>
 
         {/* Coordinates box */}
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1 flex items-center gap-1">
+        <div className="bg-muted/50 border border-border rounded-xl p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1">
             <MapPin size={10} />
             Coordinates Shared
           </p>
-          <p className="text-lg font-mono font-bold text-slate-800 leading-tight">
+          <p className="text-lg font-mono font-bold text-foreground leading-tight">
             {lat.toFixed(6)},&nbsp;{lng.toFixed(6)}
           </p>
           {invite.grantedAddress && (
-            <p className="text-xs text-slate-500 mt-1 truncate">{invite.grantedAddress}</p>
+            <p className="text-xs text-muted-foreground mt-1 truncate">{invite.grantedAddress}</p>
           )}
         </div>
 
@@ -171,7 +171,7 @@ function CoordinateCard({
             <Button
               size="sm"
               variant="outline"
-              className="h-7 px-2 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+              className="h-7 px-2 text-xs text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10"
               onClick={() => window.open(googleMapsUrl, "_blank")}
             >
               <ExternalLink className="h-3 w-3 mr-1" />

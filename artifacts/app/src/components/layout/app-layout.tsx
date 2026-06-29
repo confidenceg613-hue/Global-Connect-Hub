@@ -31,7 +31,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   ];
 
   const SidebarContent = () => (
-    <div className="flex flex-col h-full bg-white border-r border-border">
+    <div className="flex flex-col h-full bg-sidebar border-r border-border">
       <div className="p-6">
         <div className="flex items-center gap-3">
           <div className="bg-primary text-primary-foreground p-2 rounded-lg">
@@ -86,7 +86,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       {/* Mobile Sidebar & Header */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="md:hidden sticky top-0 z-30 flex items-center justify-between p-4 bg-white border-b border-border">
+        <header className="md:hidden sticky top-0 z-30 flex items-center justify-between p-4 bg-background border-b border-border">
           <div className="flex items-center gap-2">
             <div className="bg-primary text-primary-foreground p-1.5 rounded-md">
               <ShieldCheck size={20} />
