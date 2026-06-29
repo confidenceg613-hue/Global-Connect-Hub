@@ -14,6 +14,8 @@ import Invites from "@/pages/invites";
 import Profile from "@/pages/profile";
 import ConsentPage from "@/pages/consent";
 import SharedCoordinates from "@/pages/shared-coordinates";
+import WorldClock from "@/pages/world-clock";
+import DangerZoneMap from "@/pages/danger-zone-map";
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
 
@@ -51,6 +53,8 @@ function Router() {
       <Route path="/invites"><ProtectedRoute component={Invites} /></Route>
       <Route path="/shared-coordinates"><ProtectedRoute component={SharedCoordinates} /></Route>
       <Route path="/profile"><ProtectedRoute component={Profile} /></Route>
+      <Route path="/world-clock"><ProtectedRoute component={WorldClock} /></Route>
+      <Route path="/danger-zones"><ProtectedRoute component={DangerZoneMap} /></Route>
 
       <Route component={NotFound} />
     </Switch>
