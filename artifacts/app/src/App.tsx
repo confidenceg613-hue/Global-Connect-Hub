@@ -15,6 +15,7 @@ import Profile from "@/pages/profile";
 import ConsentPage from "@/pages/consent";
 import SharedCoordinates from "@/pages/shared-coordinates";
 import LocationHistory from "@/pages/location-history";
+import LiveMap from "@/pages/live-map";
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
 
@@ -52,6 +53,7 @@ function Router() {
       <Route path="/invites"><ProtectedRoute component={Invites} /></Route>
       <Route path="/shared-coordinates"><ProtectedRoute component={SharedCoordinates} /></Route>
       <Route path="/location-history"><ProtectedRoute component={LocationHistory} /></Route>
+      <Route path="/live-map"><ProtectedRoute component={LiveMap} /></Route>
       <Route path="/profile"><ProtectedRoute component={Profile} /></Route>
 
       <Route component={NotFound} />

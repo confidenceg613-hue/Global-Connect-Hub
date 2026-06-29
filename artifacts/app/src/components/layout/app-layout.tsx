@@ -8,7 +8,8 @@ import {
   LogOut,
   Menu,
   Navigation,
-  Clock
+  Clock,
+  Map
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -27,6 +28,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
     { href: "/permissions", label: "Permissions", icon: ShieldCheck },
     { href: "/invites", label: "Invites", icon: Users },
+    { href: "/live-map", label: "Live Map", icon: Map },
     { href: "/shared-coordinates", label: "Shared Coordinates", icon: Navigation },
     { href: "/location-history", label: "Location History", icon: Clock },
     { href: "/profile", label: "Profile", icon: UserCircle },
