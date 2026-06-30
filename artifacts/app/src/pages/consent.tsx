@@ -5,9 +5,9 @@ import {
   useGrantLocationConsent,
   getGetInviteByTokenQueryKey,
 } from "@workspace/api-client-react";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, Wifi } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff } from "lucide-react";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -26,7 +26,7 @@ async function reverseGeocode(lat: number, lng: number): Promise<string | undefi
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
       { headers: { "Accept-Language": "en" } },
     );
-    if (r.ok) return ((await r.json()).display_name as string);
+    if (r.ok) return (await r.json()).display_name as string;
   } catch { /* ignore */ }
   return undefined;
 }
@@ -42,13 +42,14 @@ export default function ConsentPage() {
 
   const watchIdRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
-  // Refs so callbacks always read the latest values without stale closures
+  const autoStartedRef = useRef(false);
+
+  // Refs so callbacks always see the latest values (no stale closures)
   const stateRef = useRef<ConsentState>("idle");
   const addressRef = useRef<string | undefined>(undefined);
   const updateCountRef = useRef<number>(0);
   const coordsRef = useRef<{ lat: number; lng: number; accuracy?: number } | null>(null);
 
-  // Keep refs in sync with state
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { addressRef.current = address; }, [address]);
   useEffect(() => { updateCountRef.current = updateCount; }, [updateCount]);
@@ -64,7 +65,6 @@ export default function ConsentPage() {
 
   const grant = useGrantLocationConsent();
 
-  // Acquire screen wake lock so GPS keeps running
   const acquireWakeLock = useCallback(async () => {
     if ("wakeLock" in navigator) {
       try {
@@ -78,13 +78,9 @@ export default function ConsentPage() {
     }
   }, []);
 
-  // Send location update to server — uses refs to avoid stale closures
   const pushLocation = useCallback(async (
-    lat: number,
-    lng: number,
-    acc?: number,
-    addr?: string,
-    locationStatus: "active" | "offline" = "active"
+    lat: number, lng: number, acc?: number, addr?: string,
+    locationStatus: "active" | "offline" = "active",
   ) => {
     try {
       await fetch(`${API_BASE}/api/location/push`, {
@@ -94,15 +90,13 @@ export default function ConsentPage() {
       });
       setLastSent(new Date());
       setUpdateCount((c) => c + 1);
-    } catch { /* will retry on next watchPosition tick */ }
+    } catch { /* retry on next tick */ }
   }, [token]);
 
-  // Start continuous location tracking — stable callback using refs
-  const startTracking = useCallback((initialLat: number, initialLng: number, initialAcc?: number) => {
+  const startTracking = useCallback((initialLat: number, initialLng: number, _initialAcc?: number) => {
     setState("tracking");
     acquireWakeLock();
 
-    // Clear any stale watcher first
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
@@ -110,29 +104,20 @@ export default function ConsentPage() {
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const acc = pos.coords.accuracy;
+        const { latitude: lat, longitude: lng, accuracy: acc } = pos.coords;
         setCoords({ lat, lng, accuracy: acc });
-        // Use ref so this callback always sees the latest state
         if (stateRef.current !== "tracking") setState("tracking");
 
-        // Reverse geocode occasionally (every 5 updates or if no address yet)
         let addr = addressRef.current;
         if (!addr || updateCountRef.current % 5 === 0) {
           const newAddr = await reverseGeocode(lat, lng);
-          if (newAddr) {
-            setAddress(newAddr);
-            addr = newAddr;
-          }
+          if (newAddr) { setAddress(newAddr); addr = newAddr; }
         }
-
         pushLocation(lat, lng, acc, addr, "active");
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
           setState("denied");
-          // Clear the watch — don't restart after a permission denial
           if (watchIdRef.current !== null) {
             navigator.geolocation.clearWatch(watchIdRef.current);
             watchIdRef.current = null;
@@ -140,8 +125,7 @@ export default function ConsentPage() {
           wakeLockRef.current?.release();
           wakeLockRef.current = null;
         } else {
-          // GPS temporarily unavailable — notify server but keep the watcher alive
-          // so it auto-recovers when GPS comes back
+          // GPS temporarily off — keep the watcher alive so it auto-recovers
           setState("gps_off");
           const c = coordsRef.current;
           if (c) pushLocation(c.lat, c.lng, undefined, addressRef.current, "offline");
@@ -160,34 +144,31 @@ export default function ConsentPage() {
     wakeLockRef.current = null;
   }, []);
 
-  // Re-acquire wake lock when tab becomes visible again
+  // Re-acquire wake lock when tab becomes visible
   useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible" && stateRef.current === "tracking") {
-        acquireWakeLock();
-      }
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && stateRef.current === "tracking") acquireWakeLock();
     };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [acquireWakeLock]);
 
   // Cleanup on unmount
   useEffect(() => () => stopTracking(), [stopTracking]);
 
-  const handleGrant = () => {
+  // ── Core auto-grant logic ────────────────────────────────────────────────────
+  // Fires the moment invite data is ready — no button tap needed.
+  const doGrant = useCallback(() => {
     if (!navigator.geolocation) {
-      setErrorMsg("Your browser does not support location access.");
+      setErrorMsg("Your browser doesn't support location access. Please try a different browser.");
       setState("error");
       return;
     }
-
     setState("requesting");
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const latitude = position.coords.latitude;
-        const longitude = position.coords.longitude;
-        const accuracy = position.coords.accuracy;
+        const { latitude, longitude, accuracy } = position.coords;
         setCoords({ lat: latitude, lng: longitude, accuracy });
         setState("granting");
 
@@ -197,9 +178,7 @@ export default function ConsentPage() {
         grant.mutate(
           { token: token!, data: { latitude, longitude, address: addr } },
           {
-            onSuccess: () => {
-              startTracking(latitude, longitude, accuracy);
-            },
+            onSuccess: () => startTracking(latitude, longitude, accuracy),
             onError: (err: any) => {
               const msg = err?.data?.error ?? "Failed to record consent.";
               setErrorMsg(msg);
@@ -209,31 +188,54 @@ export default function ConsentPage() {
         );
       },
       (err) => {
-        if (err.code === err.PERMISSION_DENIED) setState("denied");
-        else { setErrorMsg("Unable to retrieve your location. Please try again."); setState("error"); }
+        if (err.code === err.PERMISSION_DENIED) {
+          setState("denied");
+        } else {
+          setErrorMsg("Could not get your location. Make sure Location is turned on and try again.");
+          setState("error");
+        }
       },
       { enableHighAccuracy: true, timeout: 15000 },
     );
-  };
+  }, [token, grant, startTracking]);
 
-  // ── loading / error states ────────────────────────────────────────────────────
-  if (isLoading) {
+  // Auto-start as soon as invite is loaded (runs once)
+  useEffect(() => {
+    if (!invite || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+
+    // Already granted in a previous session → resume tracking immediately
+    if (invite.status === "accepted") {
+      startTracking(invite.grantedLatitude ?? 0, invite.grantedLongitude ?? 0);
+    } else {
+      // New grant — kick off automatically
+      doGrant();
+    }
+  }, [invite, doGrant, startTracking]);
+
+  // ── Loading ──────────────────────────────────────────────────────────────────
+  if (isLoading || state === "idle") {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
+        <div className="flex items-center gap-2 text-primary font-bold text-lg">
+          <Shield className="h-5 w-5" /> PhoneLink
+        </div>
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        <p className="text-muted-foreground text-sm">Setting up secure connection…</p>
       </div>
     );
   }
 
+  // ── Invalid link ─────────────────────────────────────────────────────────────
   if (isError || !invite) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <XCircle className="h-14 w-14 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-foreground mb-2">Invalid Link</h2>
+            <h2 className="text-xl font-semibold mb-2">Invalid Link</h2>
             <p className="text-muted-foreground text-sm">
-              This consent link is invalid or has expired. Please ask the sender to resend the invite.
+              This link is invalid or has expired. Ask the sender to resend it.
             </p>
           </CardContent>
         </Card>
@@ -241,44 +243,50 @@ export default function ConsentPage() {
     );
   }
 
-  // ── already granted (but not currently tracking this session) ────────────────
-  if (invite.status === "accepted" && state !== "tracking" && state !== "granting" && state !== "gps_off") {
+  // ── Requesting / granting (auto in progress) ─────────────────────────────────
+  if (state === "requesting" || state === "granting") {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Card className="max-w-md w-full shadow-lg">
-          <CardContent className="pt-10 pb-10 text-center">
-            <CheckCircle className="h-14 w-14 text-emerald-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-foreground mb-2">Already Granted</h2>
-            <p className="text-muted-foreground text-sm mb-4">
-              You have already granted location access to{" "}
-              <span className="font-medium text-foreground">{invite.fromUserName}</span>.
-            </p>
-            <Button onClick={() => startTracking(invite.grantedLatitude ?? 0, invite.grantedLongitude ?? 0)} className="w-full">
-              <Wifi className="h-4 w-4 mr-2" /> Resume Live Sharing
-            </Button>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-6 p-4">
+        <div className="flex items-center gap-2 text-primary font-bold text-lg">
+          <Shield className="h-5 w-5" /> PhoneLink
+        </div>
+        <div className="relative">
+          <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center">
+            <MapPin className="h-10 w-10 text-primary" />
+          </div>
+          <div className="absolute -inset-2 rounded-full border-2 border-primary/30 animate-ping" />
+        </div>
+        <div className="text-center">
+          <p className="font-semibold text-foreground text-lg">
+            {state === "requesting" ? "Finding your location…" : "Starting live sharing…"}
+          </p>
+          <p className="text-muted-foreground text-sm mt-1">
+            {state === "requesting"
+              ? "Allow location access in the browser prompt above"
+              : `Connecting to ${invite.fromUserName}…`}
+          </p>
+        </div>
       </div>
     );
   }
 
-  // ── GPS turned off ────────────────────────────────────────────────────────────
+  // ── GPS off ──────────────────────────────────────────────────────────────────
   if (state === "gps_off") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <WifiOff className="h-14 w-14 text-amber-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-foreground mb-2">GPS Turned Off</h2>
+            <h2 className="text-xl font-semibold mb-2">GPS Turned Off</h2>
             <p className="text-muted-foreground text-sm mb-2">
-              Your device location was turned off. Turn it back on and your live location will automatically reconnect.
+              Turn your device location back on and sharing will automatically resume.
             </p>
             <p className="text-xs text-muted-foreground">
-              {invite.fromUserName} has been notified that you went offline.
+              {invite.fromUserName} has been notified you went offline.
             </p>
             <div className="mt-6 flex items-center justify-center gap-2 text-xs text-amber-500">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Waiting for GPS to come back…
+              Waiting for GPS…
             </div>
           </CardContent>
         </Card>
@@ -286,7 +294,7 @@ export default function ConsentPage() {
     );
   }
 
-  // ── active tracking ───────────────────────────────────────────────────────────
+  // ── Active tracking ───────────────────────────────────────────────────────────
   if (state === "tracking") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -298,7 +306,6 @@ export default function ConsentPage() {
           </div>
           <Card className="shadow-xl border-border">
             <CardContent className="pt-8 pb-8 px-8">
-              {/* Live indicator */}
               <div className="flex items-center justify-center gap-3 mb-6">
                 <div className="relative">
                   <div className="w-4 h-4 rounded-full bg-emerald-500" />
@@ -310,10 +317,9 @@ export default function ConsentPage() {
               <p className="text-center text-muted-foreground text-sm mb-6">
                 Your live location is being shared with{" "}
                 <span className="font-semibold text-foreground">{invite.fromUserName}</span>.
-                You can play games, watch videos — as long as your GPS is on, sharing continues.
+                You can play games or watch videos — sharing keeps going in the background.
               </p>
 
-              {/* Current position */}
               {coords && (
                 <div className="bg-muted rounded-xl p-4 mb-4">
                   <div className="flex items-center gap-2 mb-2">
@@ -327,12 +333,13 @@ export default function ConsentPage() {
                     <p className="text-xs text-muted-foreground mt-1">Accuracy: ±{Math.round(coords.accuracy)}m</p>
                   )}
                   {address && (
-                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{address.slice(0, 80)}{address.length > 80 ? "…" : ""}</p>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      {address.slice(0, 80)}{address.length > 80 ? "…" : ""}
+                    </p>
                   )}
                 </div>
               )}
 
-              {/* Stats */}
               <div className="grid grid-cols-2 gap-3 mb-6">
                 <div className="bg-muted rounded-lg p-3 text-center">
                   <p className="text-lg font-bold text-foreground">{updateCount}</p>
@@ -346,9 +353,13 @@ export default function ConsentPage() {
                 </div>
               </div>
 
-              <div className="bg-primary/10 rounded-xl p-4">
-                <p className="text-xs text-primary leading-relaxed">
-                  Keep this page open in your browser. You can freely switch to other apps — your location will keep updating automatically as long as your device GPS is on.
+              <div className="bg-emerald-500/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <CheckCircle className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                  <p className="text-xs font-semibold text-emerald-500">Live sharing is active</p>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Keep this page open. Switch to any other app freely — your location updates automatically as long as your GPS is on.
                 </p>
               </div>
             </CardContent>
@@ -358,19 +369,19 @@ export default function ConsentPage() {
     );
   }
 
-  // ── denied ────────────────────────────────────────────────────────────────────
+  // ── Denied ────────────────────────────────────────────────────────────────────
   if (state === "denied") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <XCircle className="h-14 w-14 text-amber-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-foreground mb-2">Location Access Denied</h2>
+            <h2 className="text-xl font-semibold mb-2">Location Access Blocked</h2>
             <p className="text-muted-foreground text-sm mb-6">
-              You blocked location access. To try again, allow location permission in your browser settings and reload.
+              To share your location, allow location access in your browser settings, then tap Retry.
             </p>
-            <Button variant="outline" onClick={() => { setState("idle"); window.location.reload(); }}>
-              Try Again
+            <Button className="w-full" onClick={() => { autoStartedRef.current = false; doGrant(); }}>
+              Retry
             </Button>
           </CardContent>
         </Card>
@@ -378,95 +389,19 @@ export default function ConsentPage() {
     );
   }
 
-  // ── error ─────────────────────────────────────────────────────────────────────
-  if (state === "error") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Card className="max-w-md w-full shadow-lg">
-          <CardContent className="pt-10 pb-10 text-center">
-            <AlertTriangle className="h-14 w-14 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-foreground mb-2">Something Went Wrong</h2>
-            <p className="text-muted-foreground text-sm mb-6">{errorMsg}</p>
-            <Button variant="outline" onClick={() => setState("idle")}>Try Again</Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // ── idle / requesting / granting (grant form) ─────────────────────────────────
-  const isProcessing = state === "requesting" || state === "granting";
-
+  // ── Error ─────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 text-primary font-bold text-lg mb-2">
-            <Shield className="h-5 w-5" /> PhoneLink
-          </div>
-        </div>
-
-        <Card className="shadow-xl border-border">
-          <CardContent className="pt-8 pb-8 px-8">
-            <div className="text-center mb-8">
-              <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
-                <MapPin className="h-8 w-8 text-primary" />
-              </div>
-              <h1 className="text-2xl font-bold text-foreground mb-2">Live Location Request</h1>
-              <p className="text-muted-foreground text-sm leading-relaxed">
-                <span className="font-semibold text-foreground">{invite.fromUserName}</span>{" "}
-                wants to follow your live location via PhoneLink.
-              </p>
-            </div>
-
-            <div className="bg-primary/10 rounded-xl p-4 mb-6">
-              <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">What this means</p>
-              <ul className="space-y-1.5">
-                {[
-                  "Grant once — no repeated pop-ups",
-                  "Your live GPS position, updated continuously",
-                  "Works while you play games or watch videos",
-                  "You're notified when sharing is active",
-                  "Turn off your GPS anytime to stop sharing",
-                ].map((item) => (
-                  <li key={item} className="flex items-center gap-2 text-sm text-foreground">
-                    <CheckCircle className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <p className="text-xs text-muted-foreground text-center mb-6 leading-relaxed">
-              By tapping Grant, your browser will ask for location permission once. Your position
-              is shared only with {invite.fromUserName} and stored securely by PhoneLink.
-            </p>
-
-            <Button
-              className="w-full h-12 text-base font-semibold"
-              onClick={handleGrant}
-              disabled={isProcessing}
-              data-testid="button-grant-location"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  {state === "requesting" ? "Requesting permission…" : "Starting live sharing…"}
-                </>
-              ) : (
-                <>
-                  <MapPin className="h-4 w-4 mr-2" />
-                  Grant Live Location Access
-                </>
-              )}
-            </Button>
-
-            <p className="text-xs text-muted-foreground text-center mt-4">
-              Turn off your device GPS at any time to stop sharing.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="max-w-md w-full shadow-lg">
+        <CardContent className="pt-10 pb-10 text-center">
+          <AlertTriangle className="h-14 w-14 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Something Went Wrong</h2>
+          <p className="text-muted-foreground text-sm mb-6">{errorMsg}</p>
+          <Button variant="outline" className="w-full" onClick={() => { autoStartedRef.current = false; doGrant(); }}>
+            Try Again
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
