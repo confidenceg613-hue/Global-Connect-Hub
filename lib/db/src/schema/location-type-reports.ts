@@ -8,6 +8,22 @@ import {
 } from "drizzle-orm/pg-core";
 import { z } from "zod/v4";
 
+// Mirrors the LocationType union in artifacts/app/src/lib/location-intelligence.ts.
+// Kept as a server-side enum (rather than free text) so malicious/garbage values
+// can't be injected into reports or overrides and surfaced back into the map UI.
+export const LOCATION_TYPE_VALUES = [
+  "transport",
+  "healthcare",
+  "educational",
+  "government",
+  "industrial",
+  "commercial",
+  "nature",
+  "religious",
+  "residential",
+  "unknown",
+] as const;
+
 export const locationTypeReportsTable = pgTable("location_type_reports", {
   id: serial("id").primaryKey(),
   inviteToken: text("invite_token").notNull(), // references invites.token (no FK — token is not unique-indexed)
@@ -23,12 +39,16 @@ export const locationTypeReportsTable = pgTable("location_type_reports", {
 export type LocationTypeReport = typeof locationTypeReportsTable.$inferSelect;
 
 export const CreateLocationTypeReportBody = z.object({
-  token: z.string(),
-  latitude: z.number(),
-  longitude: z.number(),
-  reportedType: z.string(),
-  suggestedType: z.string(),
-  comment: z.string().optional(),
+  token: z.string().min(1).max(256),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  reportedType: z.enum(LOCATION_TYPE_VALUES),
+  suggestedType: z.enum(LOCATION_TYPE_VALUES),
+  comment: z.string().max(500).optional(),
+});
+
+export const ResolveReportBody = z.object({
+  userId: z.number().int().positive(),
 });
 
 // Overrides applied to the map once an admin accepts a report's suggested type.

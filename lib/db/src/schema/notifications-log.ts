@@ -7,7 +7,7 @@ export const notificationsLogTable = pgTable("notifications_log", {
     .notNull()
     .references(() => usersTable.id, { onDelete: "cascade" }),
   type: text("type", {
-    enum: ["geofence_enter", "geofence_exit", "location_offline", "location_online", "location_stale", "sos", "grant"],
+    enum: ["geofence_enter", "geofence_exit", "location_offline", "location_online", "location_stale", "sos", "grant", "location_type_report"],
   }).notNull(),
   title: text("title").notNull(),
   body: text("body").notNull(),
