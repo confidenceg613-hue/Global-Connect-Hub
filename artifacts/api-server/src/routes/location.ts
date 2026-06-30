@@ -130,6 +130,35 @@ router.get("/location/latest/:token", async (req, res): Promise<void> => {
   res.json(update);
 });
 
+// GET /api/location/history/:token  — full GPS trail for a token
+router.get("/location/history/:token", async (req, res): Promise<void> => {
+  const { token } = req.params;
+  const { from, to, limit: limitParam } = req.query as { from?: string; to?: string; limit?: string };
+
+  const conditions: ReturnType<typeof eq>[] = [eq(locationUpdatesTable.token, token)];
+
+  if (from) {
+    const { gte } = await import("drizzle-orm");
+    conditions.push(gte(locationUpdatesTable.createdAt, new Date(from)));
+  }
+  if (to) {
+    const { lte } = await import("drizzle-orm");
+    conditions.push(lte(locationUpdatesTable.createdAt, new Date(to)));
+  }
+
+  const limitN = Math.min(parseInt(limitParam ?? "2000", 10), 5000);
+
+  const { and } = await import("drizzle-orm");
+  const updates = await db
+    .select()
+    .from(locationUpdatesTable)
+    .where(conditions.length > 1 ? and(...conditions) : conditions[0])
+    .orderBy(locationUpdatesTable.createdAt)
+    .limit(limitN);
+
+  res.json(updates);
+});
+
 // GET /api/location/stream/:token  — SSE stream for real-time location
 router.get("/location/stream/:token", async (req, res): Promise<void> => {
   const { token } = req.params;
