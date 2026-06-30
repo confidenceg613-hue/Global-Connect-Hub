@@ -1,9 +1,12 @@
 import { useAuth } from "@/hooks/use-auth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Flag, MapPin, User, Clock, MessageSquare } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Flag, MapPin, User, Clock, MessageSquare, Check, X } from "lucide-react";
 import { TYPE_CONFIG, type LocationType } from "@/lib/location-intelligence";
+import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -14,6 +17,7 @@ interface LocationTypeReport {
   reportedType: string;
   suggestedType: string;
   comment: string | null;
+  status: "pending" | "resolved" | "dismissed";
   createdAt: string;
   inviteToken: string;
   toName: string | null;
@@ -40,8 +44,21 @@ function formatTime(iso: string) {
   });
 }
 
+function statusBadge(status: LocationTypeReport["status"]) {
+  if (status === "resolved") {
+    return <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Resolved</Badge>;
+  }
+  if (status === "dismissed") {
+    return <Badge className="bg-zinc-500/15 text-zinc-400 border-zinc-500/30 hover:bg-zinc-500/15">Dismissed</Badge>;
+  }
+  return <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Pending</Badge>;
+}
+
 export default function LocationReports() {
   const { userId } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [actingOn, setActingOn] = useState<number | null>(null);
 
   const { data: reports = [], isLoading } = useQuery<LocationTypeReport[]>({
     queryKey: ["location-reports", userId],
@@ -53,6 +70,28 @@ export default function LocationReports() {
     enabled: !!userId,
     refetchInterval: 30_000,
   });
+
+  async function handleAction(id: number, action: "resolve" | "dismiss") {
+    setActingOn(id);
+    try {
+      const r = await fetch(`${API_BASE}/api/location-reports/${id}/${action}`, { method: "POST" });
+      if (!r.ok) throw new Error("Request failed");
+      queryClient.setQueryData<LocationTypeReport[]>(["location-reports", userId], (old) =>
+        (old ?? []).map((rep) => (rep.id === id ? { ...rep, status: action === "resolve" ? "resolved" : "dismissed" } : rep)),
+      );
+      toast({
+        title: action === "resolve" ? "Type updated on the map" : "Report dismissed",
+        description:
+          action === "resolve"
+            ? "Future map views for this spot will use the corrected type."
+            : "No changes were made to the location type.",
+      });
+    } catch {
+      toast({ title: "Couldn't update report", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setActingOn(null);
+    }
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -91,9 +130,12 @@ export default function LocationReports() {
                     {r.toName ?? "Unknown"}
                     <span className="text-xs text-muted-foreground font-mono font-normal">{r.toPhone}</span>
                   </CardTitle>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Clock className="h-3 w-3" /> {formatTime(r.createdAt)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {statusBadge(r.status)}
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Clock className="h-3 w-3" /> {formatTime(r.createdAt)}
+                    </span>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -118,14 +160,38 @@ export default function LocationReports() {
                   </div>
                 )}
 
-                <a
-                  href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-block text-xs font-medium text-primary hover:underline"
-                >
-                  View on Google Maps ↗
-                </a>
+                <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
+                  <a
+                    href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-block text-xs font-medium text-primary hover:underline"
+                  >
+                    View on Google Maps ↗
+                  </a>
+
+                  {r.status === "pending" && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2.5 text-xs gap-1 border-zinc-700 text-zinc-400 hover:text-zinc-200"
+                        disabled={actingOn === r.id}
+                        onClick={() => handleAction(r.id, "dismiss")}
+                      >
+                        <X className="h-3 w-3" /> Dismiss
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 px-2.5 text-xs gap-1 bg-emerald-600 hover:bg-emerald-500 text-white"
+                        disabled={actingOn === r.id}
+                        onClick={() => handleAction(r.id, "resolve")}
+                      >
+                        <Check className="h-3 w-3" /> Accept & update map
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}

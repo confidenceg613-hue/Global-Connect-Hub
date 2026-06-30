@@ -98,6 +98,51 @@ export default function LiveMap() {
     { query: { enabled: !!userId, queryKey: getListInvitesQueryKey({ userId: userId! }), refetchInterval: 20000 } },
   );
 
+  const [overridesByToken, setOverridesByToken] = useState<Map<string, Map<string, string>>>(new Map());
+
+  useEffect(() => {
+    const tokens: string[] = Array.from(new Set((invites ?? []).map((inv: Invite) => inv.token as string)));
+    if (tokens.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const next = new Map<string, Map<string, string>>();
+      await Promise.all(
+        tokens.map(async (token) => {
+          try {
+            const r = await fetch(`${API_BASE}/api/location-overrides/by-token/${token}`);
+            if (!r.ok) return;
+            const rows: { latKey: number; lngKey: number; overrideType: string }[] = await r.json();
+            const m = new Map<string, string>();
+            rows.forEach((o) => m.set(`${o.latKey},${o.lngKey}`, o.overrideType));
+            next.set(token, m);
+          } catch { /* non-critical */ }
+        }),
+      );
+      if (!cancelled) setOverridesByToken(next);
+    })();
+    return () => { cancelled = true; };
+  }, [(invites ?? []).map((inv: Invite) => inv.token).join(","), tick]);
+
+  function roundCoordKey(v: number) {
+    return Math.round(v * 10000) / 10000;
+  }
+
+  function applyOverride(token: string, lat: number, lng: number, intel: ReturnType<typeof analyzeLocation>) {
+    const m = overridesByToken.get(token);
+    const key = `${roundCoordKey(lat)},${roundCoordKey(lng)}`;
+    const overrideType = m?.get(key);
+    if (!overrideType || !(overrideType in TYPE_CONFIG)) return intel;
+    const cfg = TYPE_CONFIG[overrideType as keyof typeof TYPE_CONFIG];
+    return {
+      ...intel,
+      locationType: overrideType as typeof intel.locationType,
+      typeLabel: cfg.label,
+      typeIcon: cfg.icon,
+      pinColor: cfg.color,
+      riskLevel: cfg.risk,
+    };
+  }
+
   const granted = (invites ?? []).filter(
     (inv: Invite) => inv.status === "accepted" && inv.grantedLatitude != null && inv.grantedLongitude != null,
   );
@@ -250,7 +295,7 @@ export default function LiveMap() {
       if (!isFinite(lat) || !isFinite(lng)) return;
 
       try {
-        const intel = analyzeLocation(inv.grantedAddress, lat, lng);
+        const intel = applyOverride(inv.token, lat, lng, analyzeLocation(inv.grantedAddress, lat, lng));
         const pinColor = isLive ? "#10b981" : intel.pinColor;
         const grantCount = allByPhone[inv.toPhone]?.length ?? 1;
 
