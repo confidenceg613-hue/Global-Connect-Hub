@@ -8,6 +8,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag, Siren } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, getLocalTime } from "@/hooks/use-weather";
+import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
 import { analyzeLocation, findClusters } from "@/lib/location-intelligence";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -311,6 +312,7 @@ export default function LiveMap() {
                 <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noreferrer" style="padding:5px 12px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.3);border-radius:6px;color:#818cf8;font-size:11px;font-weight:600;text-decoration:none;">Maps ↗</a>
               </div>
               <div id="wx-${inv.id}" style="margin-top:10px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:8px;padding:9px 11px;font-size:12px;color:#818cf8;"><span style="opacity:.5;">Loading weather…</span></div>
+              <div id="area-${inv.id}" style="margin-top:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:9px 11px;font-size:11px;color:#a1a1aa;"><span style="opacity:.5;">Loading area info…</span></div>
             </div>`);
 
           fetchWeather(lat, lng).then((wx) => {
@@ -321,6 +323,36 @@ export default function LiveMap() {
             } else {
               el.innerHTML = `<span style="font-size:10px;opacity:.4;">Weather unavailable</span>`;
             }
+          }).catch(() => {});
+
+          fetchAreaInfo(lat, lng).then((area) => {
+            const el = document.getElementById(`area-${inv.id}`);
+            if (!el) return;
+            if (!area) {
+              el.innerHTML = `<span style="font-size:10px;opacity:.4;">Area info unavailable</span>`;
+              return;
+            }
+            const flag = area.countryCode
+              ? String.fromCodePoint(
+                  ...[...area.countryCode].map((c) => 127397 + c.charCodeAt(0)),
+                )
+              : "🌐";
+            const place = [area.county, area.state, area.country].filter(Boolean).join(", ");
+            const aq = area.aqi != null ? aqiLabel(area.aqi) : null;
+            el.innerHTML = `
+              <div style="font-size:9px;font-weight:600;letter-spacing:.1em;color:#71717a;text-transform:uppercase;margin-bottom:5px;">Area Info</div>
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+                <span style="font-size:14px;">${flag}</span>
+                <span style="font-size:11px;color:#f4f4f5;font-weight:600;">${place || "Unknown area"}</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;font-size:10px;">
+                ${area.placeType ? `<div>🏷️ <span style="color:#d4d4d8;">${area.placeType}</span></div>` : ""}
+                ${area.elevation != null ? `<div>⛰️ <span style="color:#d4d4d8;">${area.elevation} m</span></div>` : ""}
+                ${aq ? `<div>🌬️ AQI <span style="color:${aq.color};font-weight:700;">${area.aqi}</span> <span style="color:#71717a;">(${aq.label})</span></div>` : ""}
+                ${area.postcode ? `<div>📮 <span style="color:#d4d4d8;">${area.postcode}</span></div>` : ""}
+                ${area.sunrise ? `<div>🌅 <span style="color:#d4d4d8;">${area.sunrise}</span></div>` : ""}
+                ${area.sunset ? `<div>🌇 <span style="color:#d4d4d8;">${area.sunset}</span></div>` : ""}
+              </div>`;
           }).catch(() => {});
         });
 
