@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -35,13 +35,24 @@ function useNotificationBell(userId: number | null) {
   const { toast } = useToast();
   const [state, setState] = useState<NotifState>("default");
 
-  useEffect(() => {
+  const refreshState = useCallback(() => {
     if (!("Notification" in window) || !("serviceWorker" in navigator)) {
       setState("unsupported");
-      return;
+    } else {
+      setState(Notification.permission as NotifState);
     }
-    setState(Notification.permission as NotifState);
   }, []);
+
+  useEffect(() => {
+    refreshState();
+
+    // Re-check whenever the tab becomes visible (user may have changed permissions in settings)
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshState();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [refreshState]);
 
   const subscribe = useCallback(async () => {
     if (!userId) {
@@ -54,6 +65,39 @@ function useNotificationBell(userId: number | null) {
     }
     if (Notification.permission === "denied") {
       toast({ title: "Notifications blocked", description: "Open browser settings and allow notifications for this site.", variant: "destructive" });
+      return;
+    }
+    if (Notification.permission === "granted") {
+      // Already granted — just re-subscribe push to make sure it's registered
+      try {
+        const base = import.meta.env.BASE_URL;
+        const reg = await navigator.serviceWorker.register(`${base}sw.js`, { scope: base });
+        const existing = await reg.pushManager.getSubscription();
+        const sub = existing ?? await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+        const p256dh = sub.getKey("p256dh");
+        const auth = sub.getKey("auth");
+        if (p256dh && auth) {
+          await fetch(`${API_BASE}/api/push/subscribe`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId,
+              endpoint: sub.endpoint,
+              keys: {
+                auth: btoa(String.fromCharCode(...new Uint8Array(auth))),
+                p256dh: btoa(String.fromCharCode(...new Uint8Array(p256dh))),
+              },
+            }),
+          });
+        }
+        toast({ title: "🔔 Notifications already active", description: "Push subscription refreshed." });
+      } catch {
+        toast({ title: "Could not refresh push subscription", variant: "destructive" });
+      }
+      setState("granted");
       return;
     }
 
@@ -71,13 +115,10 @@ function useNotificationBell(userId: number | null) {
       const reg = await navigator.serviceWorker.register(`${base}sw.js`, { scope: base });
 
       const existing = await reg.pushManager.getSubscription();
-      let sub = existing;
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-        });
-      }
+      const sub = existing ?? await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
 
       const p256dh = sub.getKey("p256dh");
       const auth = sub.getKey("auth");
@@ -110,21 +151,21 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
+const NAV_ITEMS = [
+  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/permissions", label: "Permissions", icon: ShieldCheck },
+  { href: "/invites", label: "Invites", icon: Users },
+  { href: "/live-map", label: "Live Map", icon: Map },
+  { href: "/shared-coordinates", label: "Shared Coordinates", icon: Navigation },
+  { href: "/location-history", label: "Location History", icon: Clock },
+  { href: "/profile", label: "Profile", icon: UserCircle },
+];
+
 export function AppLayout({ children }: AppLayoutProps) {
   const [location] = useLocation();
   const { logout, userId } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { state: notifState, subscribe } = useNotificationBell(userId);
-
-  const navItems = [
-    { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-    { href: "/permissions", label: "Permissions", icon: ShieldCheck },
-    { href: "/invites", label: "Invites", icon: Users },
-    { href: "/live-map", label: "Live Map", icon: Map },
-    { href: "/shared-coordinates", label: "Shared Coordinates", icon: Navigation },
-    { href: "/location-history", label: "Location History", icon: Clock },
-    { href: "/profile", label: "Profile", icon: UserCircle },
-  ];
 
   const BellIcon = notifState === "granted" ? BellRing : notifState === "denied" ? BellOff : Bell;
   const bellColor =
@@ -138,11 +179,14 @@ export function AppLayout({ children }: AppLayoutProps) {
     notifState === "unsupported" ? "Push notifications not supported" :
     "Enable push notifications";
 
-  const NotificationButton = () => (
+  // Rendered as plain JSX — NOT a nested component function — so React never
+  // unmounts/remounts it on parent re-renders (which was causing click loss).
+  const notificationButton = (
     <button
       onClick={subscribe}
       disabled={notifState === "unsupported" || notifState === "loading"}
       title={bellTitle}
+      aria-label={bellTitle}
       className={`relative p-2 rounded-lg transition-all hover:bg-secondary ${bellColor}`}
     >
       <BellIcon size={20} />
@@ -155,7 +199,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     </button>
   );
 
-  const SidebarContent = () => (
+  const sidebarContent = (
     <div className="flex flex-col h-full bg-sidebar border-r border-border">
       <div className="p-6">
         <div className="flex items-center justify-between gap-3">
@@ -165,12 +209,12 @@ export function AppLayout({ children }: AppLayoutProps) {
             </div>
             <span className="font-bold text-xl tracking-tight text-foreground">PhoneLink</span>
           </div>
-          <NotificationButton />
+          {notificationButton}
         </div>
       </div>
 
       <div className="flex-1 px-4 py-2 space-y-1">
-        {navItems.map((item) => {
+        {NAV_ITEMS.map((item) => {
           const isActive = location === item.href;
           return (
             <Link key={item.href} href={item.href}>
@@ -208,7 +252,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Desktop Sidebar */}
       <div className="hidden md:block w-72 shrink-0">
         <div className="fixed inset-y-0 w-72">
-          <SidebarContent />
+          {sidebarContent}
         </div>
       </div>
 
@@ -222,7 +266,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             <span className="font-bold text-lg text-foreground">PhoneLink</span>
           </div>
           <div className="flex items-center gap-1">
-            <NotificationButton />
+            {notificationButton}
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon">
@@ -230,7 +274,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 </Button>
               </SheetTrigger>
               <SheetContent side="left" className="p-0 w-72">
-                <SidebarContent />
+                {sidebarContent}
               </SheetContent>
             </Sheet>
           </div>

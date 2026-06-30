@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "wouter";
 import {
   useGetInviteByToken,
@@ -42,6 +42,17 @@ export default function ConsentPage() {
 
   const watchIdRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  // Refs so callbacks always read the latest values without stale closures
+  const stateRef = useRef<ConsentState>("idle");
+  const addressRef = useRef<string | undefined>(undefined);
+  const updateCountRef = useRef<number>(0);
+  const coordsRef = useRef<{ lat: number; lng: number; accuracy?: number } | null>(null);
+
+  // Keep refs in sync with state
+  useEffect(() => { stateRef.current = state; }, [state]);
+  useEffect(() => { addressRef.current = address; }, [address]);
+  useEffect(() => { updateCountRef.current = updateCount; }, [updateCount]);
+  useEffect(() => { coordsRef.current = coords; }, [coords]);
 
   const { data: invite, isLoading, isError } = useGetInviteByToken(token!, {
     query: {
@@ -54,20 +65,27 @@ export default function ConsentPage() {
   const grant = useGrantLocationConsent();
 
   // Acquire screen wake lock so GPS keeps running
-  async function acquireWakeLock() {
+  const acquireWakeLock = useCallback(async () => {
     if ("wakeLock" in navigator) {
       try {
         wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
         wakeLockRef.current?.addEventListener("release", () => {
-          // Re-acquire if the tab is still visible
-          if (document.visibilityState === "visible") acquireWakeLock();
+          if (document.visibilityState === "visible" && stateRef.current === "tracking") {
+            acquireWakeLock();
+          }
         });
       } catch { /* not critical */ }
     }
-  }
+  }, []);
 
-  // Send location update to server
-  async function pushLocation(lat: number, lng: number, acc?: number, addr?: string, locationStatus: "active" | "offline" = "active") {
+  // Send location update to server — uses refs to avoid stale closures
+  const pushLocation = useCallback(async (
+    lat: number,
+    lng: number,
+    acc?: number,
+    addr?: string,
+    locationStatus: "active" | "offline" = "active"
+  ) => {
     try {
       await fetch(`${API_BASE}/api/location/push`, {
         method: "POST",
@@ -77,12 +95,18 @@ export default function ConsentPage() {
       setLastSent(new Date());
       setUpdateCount((c) => c + 1);
     } catch { /* will retry on next watchPosition tick */ }
-  }
+  }, [token]);
 
-  // Start continuous location tracking
-  function startTracking(initialLat: number, initialLng: number, initialAcc?: number) {
+  // Start continuous location tracking — stable callback using refs
+  const startTracking = useCallback((initialLat: number, initialLng: number, initialAcc?: number) => {
     setState("tracking");
     acquireWakeLock();
+
+    // Clear any stale watcher first
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
@@ -90,13 +114,17 @@ export default function ConsentPage() {
         const lng = pos.coords.longitude;
         const acc = pos.coords.accuracy;
         setCoords({ lat, lng, accuracy: acc });
-        if (state !== "tracking") setState("tracking");
+        // Use ref so this callback always sees the latest state
+        if (stateRef.current !== "tracking") setState("tracking");
 
         // Reverse geocode occasionally (every 5 updates or if no address yet)
-        let addr = address;
-        if (!addr || updateCount % 5 === 0) {
-          addr = await reverseGeocode(lat, lng);
-          if (addr) setAddress(addr);
+        let addr = addressRef.current;
+        if (!addr || updateCountRef.current % 5 === 0) {
+          const newAddr = await reverseGeocode(lat, lng);
+          if (newAddr) {
+            setAddress(newAddr);
+            addr = newAddr;
+          }
         }
 
         pushLocation(lat, lng, acc, addr, "active");
@@ -104,58 +132,47 @@ export default function ConsentPage() {
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
           setState("denied");
-          stopTracking();
+          // Clear the watch — don't restart after a permission denial
+          if (watchIdRef.current !== null) {
+            navigator.geolocation.clearWatch(watchIdRef.current);
+            watchIdRef.current = null;
+          }
+          wakeLockRef.current?.release();
+          wakeLockRef.current = null;
         } else {
-          // GPS temporarily unavailable (user turned off device location)
+          // GPS temporarily unavailable — notify server but keep the watcher alive
+          // so it auto-recovers when GPS comes back
           setState("gps_off");
-          if (coords) pushLocation(coords.lat, coords.lng, undefined, address, "offline");
+          const c = coordsRef.current;
+          if (c) pushLocation(c.lat, c.lng, undefined, addressRef.current, "offline");
         }
       },
       { enableHighAccuracy: true, timeout: 30000, maximumAge: 5000 },
     );
-  }
+  }, [acquireWakeLock, pushLocation]);
 
-  function stopTracking() {
+  const stopTracking = useCallback(() => {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
     wakeLockRef.current?.release();
     wakeLockRef.current = null;
-  }
+  }, []);
 
   // Re-acquire wake lock when tab becomes visible again
   useEffect(() => {
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible" && state === "tracking") acquireWakeLock();
+      if (document.visibilityState === "visible" && stateRef.current === "tracking") {
+        acquireWakeLock();
+      }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [state]);
-
-  // When GPS comes back after being off, watchPosition will call success again
-  useEffect(() => {
-    if (state === "gps_off" && watchIdRef.current === null && coords) {
-      // Restart watching
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        async (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          const acc = pos.coords.accuracy;
-          setCoords({ lat, lng, accuracy: acc });
-          setState("tracking");
-          const addr = await reverseGeocode(lat, lng);
-          if (addr) setAddress(addr);
-          pushLocation(lat, lng, acc, addr, "active");
-        },
-        () => { setState("gps_off"); },
-        { enableHighAccuracy: true, timeout: 30000, maximumAge: 5000 },
-      );
-    }
-  }, [state]);
+  }, [acquireWakeLock]);
 
   // Cleanup on unmount
-  useEffect(() => () => stopTracking(), []);
+  useEffect(() => () => stopTracking(), [stopTracking]);
 
   const handleGrant = () => {
     if (!navigator.geolocation) {
@@ -181,7 +198,6 @@ export default function ConsentPage() {
           { token: token!, data: { latitude, longitude, address: addr } },
           {
             onSuccess: () => {
-              // After recording consent, start continuous tracking
               startTracking(latitude, longitude, accuracy);
             },
             onError: (err: any) => {
