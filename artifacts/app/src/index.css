@@ -199,3 +199,37 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+/* ── PhoneLink map HUD components ───────────────────────────────────────────── */
+.pl-hud-card {
+  background: rgba(9, 9, 11, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  padding: 10px 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.05);
+  pointer-events: auto;
+}
+
+.pl-command-bar {
+  background: rgba(9, 9, 11, 0.88);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+/* ── Tech grid background on dark mode ──────────────────────────────────────── */
+.dark body {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0);
+  background-size: 28px 28px;
+}
+
+/* ── Monospace data values ──────────────────────────────────────────────────── */
+.font-data {
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  font-variant-numeric: tabular-nums;
+}
