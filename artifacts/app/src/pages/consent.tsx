@@ -7,7 +7,7 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff } from "lucide-react";
+import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, ExternalLink } from "lucide-react";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -18,22 +18,39 @@ type ConsentState =
   | "tracking"
   | "gps_off"
   | "denied"
-  | "error";
+  | "error"
+  | "webview_blocked";
+
+function detectWebView(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return (
+    // Instagram, Facebook, WhatsApp, LinkedIn in-app browsers
+    /FBAN|FBAV|Instagram|WhatsApp|LinkedInApp/.test(ua) ||
+    // Generic WebView indicators on iOS
+    (/iPhone|iPod|iPad/.test(ua) && !/Safari\//.test(ua) && /WebKit/.test(ua)) ||
+    // Android WebView (has wv flag or no Chrome version)
+    (/Android/.test(ua) && /wv\)/.test(ua))
+  );
+}
 
 async function reverseGeocode(lat: number, lng: number): Promise<string | undefined> {
   try {
     const r = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
-      { headers: { "Accept-Language": "en" } },
+      { headers: { "Accept-Language": "en" }, signal: AbortSignal.timeout(8000) },
     );
     if (r.ok) return (await r.json()).display_name as string;
-  } catch { /* ignore */ }
+  } catch { /* ignore — geocoding is optional */ }
   return undefined;
 }
 
 export default function ConsentPage() {
   const { token } = useParams<{ token: string }>();
-  const [state, setState] = useState<ConsentState>("idle");
+
+  // Detect WebView (WhatsApp, Instagram, FB) immediately — these block geolocation
+  const isWebView = detectWebView();
+  const [state, setState] = useState<ConsentState>(isWebView ? "webview_blocked" : "idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const [address, setAddress] = useState<string | undefined>();
@@ -44,8 +61,7 @@ export default function ConsentPage() {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const autoStartedRef = useRef(false);
 
-  // Refs so callbacks always see the latest values (no stale closures)
-  const stateRef = useRef<ConsentState>("idle");
+  const stateRef = useRef<ConsentState>(isWebView ? "webview_blocked" : "idle");
   const addressRef = useRef<string | undefined>(undefined);
   const updateCountRef = useRef<number>(0);
   const coordsRef = useRef<{ lat: number; lng: number; accuracy?: number } | null>(null);
@@ -57,9 +73,10 @@ export default function ConsentPage() {
 
   const { data: invite, isLoading, isError } = useGetInviteByToken(token!, {
     query: {
-      enabled: !!token,
+      enabled: !!token && !isWebView,
       queryKey: getGetInviteByTokenQueryKey(token!),
-      retry: false,
+      retry: 2,
+      retryDelay: 1500,
     },
   });
 
@@ -74,7 +91,7 @@ export default function ConsentPage() {
             acquireWakeLock();
           }
         });
-      } catch { /* not critical */ }
+      } catch { /* wake lock not critical */ }
     }
   }, []);
 
@@ -87,10 +104,11 @@ export default function ConsentPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, latitude: lat, longitude: lng, accuracy: acc, address: addr, status: locationStatus }),
+        signal: AbortSignal.timeout(10000),
       });
       setLastSent(new Date());
       setUpdateCount((c) => c + 1);
-    } catch { /* retry on next tick */ }
+    } catch { /* retry on next position update */ }
   }, [token]);
 
   const startTracking = useCallback((initialLat: number, initialLng: number, _initialAcc?: number) => {
@@ -125,7 +143,6 @@ export default function ConsentPage() {
           wakeLockRef.current?.release();
           wakeLockRef.current = null;
         } else {
-          // GPS temporarily off — keep the watcher alive so it auto-recovers
           setState("gps_off");
           const c = coordsRef.current;
           if (c) pushLocation(c.lat, c.lng, undefined, addressRef.current, "offline");
@@ -144,7 +161,6 @@ export default function ConsentPage() {
     wakeLockRef.current = null;
   }, []);
 
-  // Re-acquire wake lock when tab becomes visible
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === "visible" && stateRef.current === "tracking") acquireWakeLock();
@@ -153,14 +169,11 @@ export default function ConsentPage() {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [acquireWakeLock]);
 
-  // Cleanup on unmount
   useEffect(() => () => stopTracking(), [stopTracking]);
 
-  // ── Core auto-grant logic ────────────────────────────────────────────────────
-  // Fires the moment invite data is ready — no button tap needed.
   const doGrant = useCallback(() => {
     if (!navigator.geolocation) {
-      setErrorMsg("Your browser doesn't support location access. Please try a different browser.");
+      setErrorMsg("Your browser doesn't support location access. Please open this link in Chrome or Safari.");
       setState("error");
       return;
     }
@@ -180,7 +193,7 @@ export default function ConsentPage() {
           {
             onSuccess: () => startTracking(latitude, longitude, accuracy),
             onError: (err: any) => {
-              const msg = err?.data?.error ?? "Failed to record consent.";
+              const msg = err?.data?.error ?? "Failed to record consent. Please try again.";
               setErrorMsg(msg);
               setState("error");
             },
@@ -191,7 +204,7 @@ export default function ConsentPage() {
         if (err.code === err.PERMISSION_DENIED) {
           setState("denied");
         } else {
-          setErrorMsg("Could not get your location. Make sure Location is turned on and try again.");
+          setErrorMsg("Could not get your location. Make sure Location is enabled in your device settings and try again.");
           setState("error");
         }
       },
@@ -199,19 +212,53 @@ export default function ConsentPage() {
     );
   }, [token, grant, startTracking]);
 
-  // Auto-start as soon as invite is loaded (runs once)
   useEffect(() => {
-    if (!invite || autoStartedRef.current) return;
+    if (!invite || autoStartedRef.current || isWebView) return;
     autoStartedRef.current = true;
-
-    // Already granted in a previous session → resume tracking immediately
     if (invite.status === "accepted") {
       startTracking(invite.grantedLatitude ?? 0, invite.grantedLongitude ?? 0);
     } else {
-      // New grant — kick off automatically
       doGrant();
     }
-  }, [invite, doGrant, startTracking]);
+  }, [invite, doGrant, startTracking, isWebView]);
+
+  // ── WebView blocked (WhatsApp / Instagram / Facebook in-app browser) ──────────
+  if (state === "webview_blocked") {
+    const currentUrl = typeof window !== "undefined" ? window.location.href : "";
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="max-w-md w-full shadow-xl">
+          <CardContent className="pt-10 pb-10 text-center">
+            <div className="flex items-center gap-2 justify-center text-primary font-bold text-lg mb-6">
+              <Shield className="h-5 w-5" /> PhoneLink
+            </div>
+            <ExternalLink className="h-14 w-14 text-primary mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Open in Your Browser</h2>
+            <p className="text-muted-foreground text-sm mb-6">
+              Location access requires your phone's browser (Chrome, Safari, Firefox). Tap the menu button and choose "Open in browser".
+            </p>
+            <div className="bg-muted rounded-lg p-3 mb-4 flex flex-col gap-2 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">How to open:</p>
+              <p>• <strong>WhatsApp:</strong> Tap ⋮ menu → "Open in browser"</p>
+              <p>• <strong>Instagram:</strong> Tap ··· → "Open in external browser"</p>
+              <p>• <strong>Facebook:</strong> Tap ⋮ → "Open in Chrome" / "Open in Safari"</p>
+            </div>
+            {currentUrl && (
+              <Button
+                className="w-full"
+                onClick={() => {
+                  // Try to force open in system browser
+                  window.location.href = currentUrl;
+                }}
+              >
+                Copy Link &amp; Open Browser
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // ── Loading ──────────────────────────────────────────────────────────────────
   if (isLoading || state === "idle") {
@@ -243,7 +290,7 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Requesting / granting (auto in progress) ─────────────────────────────────
+  // ── Requesting / granting ────────────────────────────────────────────────────
   if (state === "requesting" || state === "granting") {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-6 p-4">
@@ -262,7 +309,7 @@ export default function ConsentPage() {
           </p>
           <p className="text-muted-foreground text-sm mt-1">
             {state === "requesting"
-              ? "Allow location access in the browser prompt above"
+              ? "Allow location access when prompted"
               : `Connecting to ${invite.fromUserName}…`}
           </p>
         </div>
@@ -378,7 +425,7 @@ export default function ConsentPage() {
             <XCircle className="h-14 w-14 text-amber-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Location Access Blocked</h2>
             <p className="text-muted-foreground text-sm mb-6">
-              To share your location, allow location access in your browser settings, then tap Retry.
+              To share your location, go to your browser settings and allow location access for this site, then tap Retry.
             </p>
             <Button className="w-full" onClick={() => { autoStartedRef.current = false; doGrant(); }}>
               Retry

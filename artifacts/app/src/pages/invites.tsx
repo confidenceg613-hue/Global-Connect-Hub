@@ -57,8 +57,9 @@ export default function Invites() {
       return;
     }
 
-    // Pass the current origin so the server builds a fully-qualified consent URL
-    const baseUrl = window.location.origin;
+    // Pass the current origin + base path so the server builds a fully-qualified consent URL
+    const basePath = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+    const baseUrl = window.location.origin + basePath;
 
     createInvite.mutate(
       {
