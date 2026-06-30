@@ -16,6 +16,7 @@ import ConsentPage from "@/pages/consent";
 import SharedCoordinates from "@/pages/shared-coordinates";
 import LocationHistory from "@/pages/location-history";
 import LiveMap from "@/pages/live-map";
+import GeoBoard from "@/pages/geoboard";
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -153,6 +154,7 @@ function Router() {
       <Route path="/location-history"><ProtectedRoute component={LocationHistory} /></Route>
       <Route path="/live-map"><ProtectedRoute component={LiveMap} /></Route>
       <Route path="/profile"><ProtectedRoute component={Profile} /></Route>
+      <Route path="/geoboard"><ProtectedRoute component={GeoBoard} /></Route>
 
       <Route component={NotFound} />
     </Switch>

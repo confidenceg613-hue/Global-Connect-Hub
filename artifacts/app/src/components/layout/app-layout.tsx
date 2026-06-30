@@ -13,6 +13,7 @@ import {
   Bell,
   BellOff,
   BellRing,
+  Camera,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -154,6 +155,7 @@ const NAV_ITEMS = [
   { href: "/permissions", label: "Permissions", icon: ShieldCheck },
   { href: "/invites", label: "Invites", icon: Users },
   { href: "/live-map", label: "Live Map", icon: Map },
+  { href: "/geoboard", label: "GeoBoard", icon: Camera },
   { href: "/shared-coordinates", label: "Shared Coordinates", icon: Navigation },
   { href: "/location-history", label: "Location History", icon: Clock },
   { href: "/profile", label: "Profile", icon: UserCircle },

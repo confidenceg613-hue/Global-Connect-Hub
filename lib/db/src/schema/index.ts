@@ -5,3 +5,4 @@ export * from "./location-updates";
 export * from "./push-subscriptions";
 export * from "./geofences";
 export * from "./notifications-log";
+export * from "./geo-photos";
