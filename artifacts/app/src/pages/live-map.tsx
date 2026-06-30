@@ -9,7 +9,7 @@ import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellit
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, getLocalTime } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
-import { analyzeLocation, findClusters } from "@/lib/location-intelligence";
+import { analyzeLocation, findClusters, TYPE_CONFIG } from "@/lib/location-intelligence";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -313,7 +313,65 @@ export default function LiveMap() {
               </div>
               <div id="wx-${inv.id}" style="margin-top:10px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:8px;padding:9px 11px;font-size:12px;color:#818cf8;"><span style="opacity:.5;">Loading weather…</span></div>
               <div id="area-${inv.id}" style="margin-top:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:9px 11px;font-size:11px;color:#a1a1aa;"><span style="opacity:.5;">Loading area info…</span></div>
+              <div id="report-wrap-${inv.id}" style="margin-top:8px;text-align:right;">
+                <button id="report-btn-${inv.id}" style="background:none;border:none;color:#71717a;font-size:10px;cursor:pointer;text-decoration:underline;padding:2px;">🚩 Report incorrect type</button>
+              </div>
+              <div id="report-form-${inv.id}" style="display:none;margin-top:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:9px 11px;">
+                <div style="font-size:10px;color:#a1a1aa;margin-bottom:6px;">Flag "${intel.typeLabel}" as wrong — what should it be?</div>
+                <select id="report-select-${inv.id}" style="width:100%;background:#18181b;color:#f4f4f5;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px 6px;font-size:11px;margin-bottom:6px;">
+                  ${Object.entries(TYPE_CONFIG)
+                    .filter(([key]) => key !== intel.locationType)
+                    .map(([key, cfg]) => `<option value="${key}">${cfg.icon} ${cfg.label}</option>`)
+                    .join("")}
+                </select>
+                <input id="report-comment-${inv.id}" type="text" placeholder="Optional comment…" style="width:100%;background:#18181b;color:#f4f4f5;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:5px 6px;font-size:11px;margin-bottom:6px;box-sizing:border-box;" />
+                <div style="display:flex;gap:6px;justify-content:flex-end;">
+                  <button id="report-cancel-${inv.id}" style="background:none;border:1px solid rgba(255,255,255,.12);border-radius:6px;color:#a1a1aa;font-size:10px;padding:4px 10px;cursor:pointer;">Cancel</button>
+                  <button id="report-submit-${inv.id}" style="background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.3);border-radius:6px;color:#818cf8;font-size:10px;font-weight:600;padding:4px 10px;cursor:pointer;">Submit</button>
+                </div>
+              </div>
             </div>`);
+
+          const reportBtn = document.getElementById(`report-btn-${inv.id}`);
+          const reportForm = document.getElementById(`report-form-${inv.id}`);
+          const reportWrap = document.getElementById(`report-wrap-${inv.id}`);
+          const reportCancel = document.getElementById(`report-cancel-${inv.id}`);
+          const reportSubmit = document.getElementById(`report-submit-${inv.id}`);
+          reportBtn?.addEventListener("click", () => {
+            if (reportForm) reportForm.style.display = "block";
+            if (reportWrap) reportWrap.style.display = "none";
+          });
+          reportCancel?.addEventListener("click", () => {
+            if (reportForm) reportForm.style.display = "none";
+            if (reportWrap) reportWrap.style.display = "block";
+          });
+          reportSubmit?.addEventListener("click", async () => {
+            const select = document.getElementById(`report-select-${inv.id}`) as HTMLSelectElement | null;
+            const commentInput = document.getElementById(`report-comment-${inv.id}`) as HTMLInputElement | null;
+            if (!select || !reportForm) return;
+            (reportSubmit as HTMLButtonElement).disabled = true;
+            try {
+              const r = await fetch(`${API_BASE}/api/location-reports`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  token: inv.token,
+                  latitude: lat,
+                  longitude: lng,
+                  reportedType: intel.locationType,
+                  suggestedType: select.value,
+                  comment: commentInput?.value || undefined,
+                }),
+              });
+              if (r.ok) {
+                reportForm.innerHTML = `<div style="font-size:11px;color:#22c55e;">Thanks! Report submitted ✓</div>`;
+              } else {
+                reportForm.innerHTML = `<div style="font-size:11px;color:#ef4444;">Couldn't submit — try again later.</div>`;
+              }
+            } catch {
+              reportForm.innerHTML = `<div style="font-size:11px;color:#ef4444;">Couldn't submit — try again later.</div>`;
+            }
+          });
 
           fetchWeather(lat, lng).then((wx) => {
             const el = document.getElementById(`wx-${inv.id}`);

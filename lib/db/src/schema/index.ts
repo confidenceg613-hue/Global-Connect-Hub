@@ -6,3 +6,4 @@ export * from "./push-subscriptions";
 export * from "./geofences";
 export * from "./notifications-log";
 export * from "./geo-photos";
+export * from "./location-type-reports";
