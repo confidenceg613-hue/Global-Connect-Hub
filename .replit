@@ -33,3 +33,10 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+VAPID_PUBLIC_KEY = "BC25lK-LutnB0q-o9jd7PV8jo5dzFELRDBfpbUFcJRs632OKi1cx81ghTwK_mpV3AbtEk7SLLKIQroAHFkWaamM"
+VAPID_PRIVATE_KEY = "LZsOitNxHZ68DMQ0RMgDwjGkUONFcx9Ukn7oymygasE"
+VAPID_SUBJECT = "mailto:phonelink@app.local"

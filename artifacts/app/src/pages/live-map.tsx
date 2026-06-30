@@ -5,11 +5,21 @@ import type { Invite } from "@workspace/api-client-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { format, formatDistanceToNow } from "date-fns";
-import { Users, Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag } from "lucide-react";
+import { Users, Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag, Radio } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, getLocalTime } from "@/hooks/use-weather";
 import { analyzeLocation, findClusters, TYPE_CONFIG } from "@/lib/location-intelligence";
 import type { LocationIntelligence } from "@/lib/location-intelligence";
+
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+interface LivePos {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  status: "active" | "offline";
+  timestamp: string;
+}
 
 // ─── tile layers ───────────────────────────────────────────────────────────────
 const SATELLITE_URL =
@@ -246,6 +256,8 @@ export default function LiveMap() {
   const [myPos,         setMyPos        ] = useState<{ lat: number; lng: number } | null>(null);
   const [locating,      setLocating     ] = useState(false);
   const [refreshing,    setRefreshing   ] = useState(false);
+  const [livePositions, setLivePositions] = useState<Map<string, LivePos>>(new Map());
+  const sseRefs = useRef<Map<string, EventSource>>(new Map());
 
   const { data: invites, refetch } = useListInvites(
     { userId: userId! },
@@ -255,6 +267,41 @@ export default function LiveMap() {
   const granted = (invites ?? []).filter(
     (inv: Invite) => inv.status === "accepted" && inv.grantedLatitude != null && inv.grantedLongitude != null,
   );
+
+  // ── SSE: subscribe to live location stream for each accepted invite ──────────
+  useEffect(() => {
+    const tokens = new Set(granted.map((inv: Invite) => inv.token).filter(Boolean));
+    const existing = new Set(sseRefs.current.keys());
+
+    // Close SSE for tokens no longer in the list
+    for (const t of existing) {
+      if (!tokens.has(t)) {
+        sseRefs.current.get(t)?.close();
+        sseRefs.current.delete(t);
+      }
+    }
+
+    // Open SSE for new tokens
+    for (const t of tokens) {
+      if (sseRefs.current.has(t)) continue;
+      const es = new EventSource(`${API_BASE}/api/location/stream/${t}`);
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data) as LivePos & { timestamp: string };
+          setLivePositions((prev) => new Map(prev).set(t, data));
+        } catch { /* ignore */ }
+      };
+      es.onerror = () => { /* will auto-reconnect */ };
+      sseRefs.current.set(t, es);
+    }
+
+    return () => {
+      for (const es of sseRefs.current.values()) es.close();
+      sseRefs.current.clear();
+    };
+  }, [granted.map((inv: Invite) => inv.token).join(",")]);
+
+  const liveCount = Array.from(livePositions.values()).filter((p) => p.status === "active").length;
 
   const latestByPhone = granted.reduce<Record<string, Invite>>((acc, inv: Invite) => {
     const ex = acc[inv.toPhone];
@@ -302,9 +349,22 @@ export default function LiveMap() {
     clusterMarkers.current.forEach((m) => m.remove()); clusterMarkers.current = [];
     clusterRings.current.forEach((c) => c.remove()); clusterRings.current = [];
 
+    // Merge live positions into invite data
+    const latestWithLive = latest.map((inv: Invite) => {
+      const live = livePositions.get(inv.token);
+      if (!live) return inv;
+      return {
+        ...inv,
+        grantedLatitude: live.lat,
+        grantedLongitude: live.lng,
+        _isLive: live.status === "active",
+        _liveTs: live.timestamp,
+      };
+    }) as (Invite & { _isLive?: boolean; _liveTs?: string })[];
+
     // Run location intelligence for all contacts
     const intelMap = new Map<string, LocationIntelligence>();
-    latest.forEach((inv: Invite) => {
+    latestWithLive.forEach((inv) => {
       intelMap.set(inv.toPhone, analyzeLocation(inv.grantedAddress, inv.grantedLatitude!, inv.grantedLongitude!));
     });
 
@@ -329,13 +389,28 @@ export default function LiveMap() {
     setClusterCount(allFlaggedPhones.size);
 
     // Place markers
-    latest.forEach((inv: Invite) => {
+    latestWithLive.forEach((inv) => {
       const lat = inv.grantedLatitude!;
       const lng = inv.grantedLongitude!;
       const intel = intelMap.get(inv.toPhone)!;
       const grantCount = allByPhone[inv.toPhone]?.length ?? 1;
+      const isLive = (inv as any)._isLive === true;
 
-      const pin = makePin(intel.pinColor, initials(inv.toName));
+      // Pulsing live ring for actively tracked contacts
+      if (isLive) {
+        const ring = L.circle([lat, lng], {
+          radius: 60,
+          color: "#10b981",
+          fillColor: "#10b981",
+          fillOpacity: 0.12,
+          weight: 2,
+          dashArray: undefined,
+        }).addTo(map);
+        clusterRings.current.push(ring);
+      }
+
+      const pinColor = isLive ? "#10b981" : intel.pinColor;
+      const pin = makePin(pinColor, initials(inv.toName));
       const marker = L.marker([lat, lng], { icon: pin }).addTo(map);
 
       marker.bindPopup("", { className: "pl-popup", maxWidth: 300, minWidth: 280 });
@@ -415,7 +490,7 @@ export default function LiveMap() {
       );
       map.fitBounds(bounds.pad(0.3), { maxZoom: 13 });
     }
-  }, [latest, allByPhone, myPos, showClusters]);
+  }, [latest, allByPhone, myPos, showClusters, livePositions]);
 
   // ── journey lines ─────────────────────────────────────────────────────────────
   const renderJourneys = useCallback(() => {
@@ -526,10 +601,16 @@ export default function LiveMap() {
               <StatCell icon="⚠️" value={clusterCount} label="Flagged" accent="#f59e0b" />
             </>
           )}
+          {liveCount > 0 && (
+            <>
+              <div className="w-px h-8 bg-white/10" />
+              <StatCell icon="🔴" value={liveCount} label="Live" accent="#10b981" />
+            </>
+          )}
           {myPos && (
             <>
               <div className="w-px h-8 bg-white/10" />
-              <StatCell icon="🎯" value="LIVE" label="You" accent="#10b981" />
+              <StatCell icon="🎯" value="YOU" label="Located" accent="#a78bfa" />
             </>
           )}
         </div>
