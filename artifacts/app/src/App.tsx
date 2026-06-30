@@ -92,12 +92,14 @@ function ServiceWorkerManager({ userId }: { userId: number | null }) {
       .catch(() => { /* non-critical */ });
   }, [userId]);
 
-  // Listen for notification click messages from SW (focus the live map)
+  // Listen for notification click messages from SW — deep link by notification type
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     const onMessage = (e: MessageEvent) => {
       if (e.data?.type === "NOTIFICATION_CLICK") {
-        window.location.href = `${import.meta.env.BASE_URL}live-map`;
+        const target: string = e.data.targetPath ?? "/live-map";
+        const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+        window.location.href = `${base}${target}`;
       }
     };
     navigator.serviceWorker.addEventListener("message", onMessage);

@@ -1,8 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, desc } from "drizzle-orm";
-import { db, locationUpdatesTable, invitesTable, pushSubscriptionsTable } from "@workspace/db";
-import webpush from "web-push";
+import { eq, desc, and, lt, gte } from "drizzle-orm";
+import { db, locationUpdatesTable, invitesTable, geofencesTable } from "@workspace/db";
 import { z } from "zod";
+import { sendPushAndLog, haversineMeters } from "../lib/notifications";
 
 const router: IRouter = Router();
 
@@ -18,30 +18,41 @@ function broadcastToToken(token: string, data: object) {
   }
 }
 
-// Helper to send a push notification to all subscriptions for a user
-export async function sendPushToUser(userId: number, payload: { title: string; body: string; tag?: string }) {
-  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
+async function checkGeofences(
+  userId: number,
+  contactName: string,
+  prevLat: number | null,
+  prevLng: number | null,
+  curLat: number,
+  curLng: number,
+): Promise<void> {
+  const fences = await db.select().from(geofencesTable).where(eq(geofencesTable.userId, userId));
+  if (!fences.length) return;
 
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT ?? "mailto:app@phonelink.local",
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY,
-  );
+  for (const fence of fences) {
+    const curDist = haversineMeters(curLat, curLng, fence.latitude, fence.longitude);
+    const curInside = curDist <= fence.radiusMeters;
 
-  const subs = await db.select().from(pushSubscriptionsTable).where(eq(pushSubscriptionsTable.userId, userId));
-  for (const sub of subs) {
-    try {
-      await webpush.sendNotification(
-        {
-          endpoint: sub.endpoint,
-          keys: { auth: sub.keysAuth, p256dh: sub.keysP256dh },
-        },
-        JSON.stringify(payload),
-      );
-    } catch (err: any) {
-      // 410 Gone means the subscription is no longer valid — clean it up
-      if (err?.statusCode === 410 || err?.statusCode === 404) {
-        await db.delete(pushSubscriptionsTable).where(eq(pushSubscriptionsTable.endpoint, sub.endpoint));
+    if (prevLat != null && prevLng != null) {
+      const prevDist = haversineMeters(prevLat, prevLng, fence.latitude, fence.longitude);
+      const prevInside = prevDist <= fence.radiusMeters;
+
+      if (!prevInside && curInside) {
+        await sendPushAndLog(userId, {
+          type: "geofence_enter",
+          title: `📍 Entered ${fence.name}`,
+          body: `${contactName} arrived at ${fence.name}`,
+          tag: `geofence-enter-${fence.id}`,
+          data: { fenceId: fence.id, fenceName: fence.name, latitude: curLat, longitude: curLng },
+        });
+      } else if (prevInside && !curInside) {
+        await sendPushAndLog(userId, {
+          type: "geofence_exit",
+          title: `🚪 Left ${fence.name}`,
+          body: `${contactName} departed from ${fence.name}`,
+          tag: `geofence-exit-${fence.id}`,
+          data: { fenceId: fence.id, fenceName: fence.name, latitude: curLat, longitude: curLng },
+        });
       }
     }
   }
@@ -56,7 +67,7 @@ const PushLocationBody = z.object({
   status: z.enum(["active", "offline"]).default("active"),
 });
 
-// POST /api/location/push  — sister posts her live GPS
+// POST /api/location/push  — contact posts their live GPS
 router.post("/location/push", async (req, res): Promise<void> => {
   const parsed = PushLocationBody.safeParse(req.body);
   if (!parsed.success) {
@@ -66,7 +77,6 @@ router.post("/location/push", async (req, res): Promise<void> => {
 
   const { token, latitude, longitude, accuracy, address, status } = parsed.data;
 
-  // Check previous status to detect online/offline transitions
   const [prev] = await db
     .select()
     .from(locationUpdatesTable)
@@ -74,45 +84,56 @@ router.post("/location/push", async (req, res): Promise<void> => {
     .orderBy(desc(locationUpdatesTable.createdAt))
     .limit(1);
 
-  // Save the location update
   const [update] = await db
     .insert(locationUpdatesTable)
     .values({ token, latitude, longitude, accuracy, address, status })
     .returning();
 
-  // Look up invite to find the owner and contact name
   const [invite] = await db
     .select()
     .from(invitesTable)
     .where(eq(invitesTable.token, token));
 
-  // Broadcast real-time to SSE clients watching this token
   broadcastToToken(token, { latitude, longitude, accuracy, address, status, timestamp: update.createdAt });
 
-  // Send push notifications on status transitions
   if (invite) {
     const contactName = invite.toName ?? invite.toPhone;
     const prevStatus = prev?.status ?? "active";
 
     if (status === "offline" && prevStatus === "active") {
-      sendPushToUser(invite.fromUserId, {
+      sendPushAndLog(invite.fromUserId, {
+        type: "location_offline",
         title: "📴 Location went offline",
         body: `${contactName}'s device GPS turned off`,
         tag: `offline-${token}`,
+        data: { token, contactName },
       }).catch(() => {});
     } else if (status === "active" && prevStatus === "offline") {
-      sendPushToUser(invite.fromUserId, {
+      sendPushAndLog(invite.fromUserId, {
+        type: "location_online",
         title: "📍 Location back online",
         body: `${contactName} is online again — tap to track`,
         tag: `online-${token}`,
+        data: { token, contactName },
       }).catch(() => {});
+    }
+
+    if (status === "active") {
+      checkGeofences(
+        invite.fromUserId,
+        contactName,
+        prev?.latitude ?? null,
+        prev?.longitude ?? null,
+        latitude,
+        longitude,
+      ).catch(() => {});
     }
   }
 
   res.json({ ok: true });
 });
 
-// GET /api/location/latest/:token  — get last known location
+// GET /api/location/latest/:token
 router.get("/location/latest/:token", async (req, res): Promise<void> => {
   const { token } = req.params;
   const [update] = await db
@@ -130,36 +151,33 @@ router.get("/location/latest/:token", async (req, res): Promise<void> => {
   res.json(update);
 });
 
-// GET /api/location/history/:token  — full GPS trail for a token
+// GET /api/location/history/:token
 router.get("/location/history/:token", async (req, res): Promise<void> => {
   const { token } = req.params;
   const { from, to, limit: limitParam } = req.query as { from?: string; to?: string; limit?: string };
 
   const conditions: ReturnType<typeof eq>[] = [eq(locationUpdatesTable.token, token)];
 
-  if (from) {
-    const { gte } = await import("drizzle-orm");
-    conditions.push(gte(locationUpdatesTable.createdAt, new Date(from)));
-  }
+  if (from) conditions.push(gte(locationUpdatesTable.createdAt, new Date(from)));
   if (to) {
     const { lte } = await import("drizzle-orm");
     conditions.push(lte(locationUpdatesTable.createdAt, new Date(to)));
   }
 
   const limitN = Math.min(parseInt(limitParam ?? "2000", 10), 5000);
+  const { and: andFn } = await import("drizzle-orm");
 
-  const { and } = await import("drizzle-orm");
   const updates = await db
     .select()
     .from(locationUpdatesTable)
-    .where(conditions.length > 1 ? and(...conditions) : conditions[0])
+    .where(conditions.length > 1 ? andFn(...conditions) : conditions[0])
     .orderBy(locationUpdatesTable.createdAt)
     .limit(limitN);
 
   res.json(updates);
 });
 
-// GET /api/location/stream/:token  — SSE stream for real-time location
+// GET /api/location/stream/:token — SSE stream
 router.get("/location/stream/:token", async (req, res): Promise<void> => {
   const { token } = req.params;
 
@@ -169,7 +187,6 @@ router.get("/location/stream/:token", async (req, res): Promise<void> => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
-  // Send the latest known position immediately on connect
   const [latest] = await db
     .select()
     .from(locationUpdatesTable)
@@ -188,12 +205,10 @@ router.get("/location/stream/:token", async (req, res): Promise<void> => {
     })}\n\n`);
   }
 
-  // Heartbeat every 20s to keep connection alive
   const heartbeat = setInterval(() => {
     try { res.write(": heartbeat\n\n"); } catch { clearInterval(heartbeat); }
   }, 20000);
 
-  // Register this client
   if (!sseClients.has(token)) sseClients.set(token, new Set());
   sseClients.get(token)!.add(res);
 
@@ -203,5 +218,53 @@ router.get("/location/stream/:token", async (req, res): Promise<void> => {
     if (sseClients.get(token)?.size === 0) sseClients.delete(token);
   });
 });
+
+// Staleness detector — runs every 5 minutes, alerts if no update for >15 min
+export function startStalenessDetector() {
+  const STALE_MS = 15 * 60 * 1000;
+  const CHECK_MS = 5 * 60 * 1000;
+
+  setInterval(async () => {
+    try {
+      const cutoff = new Date(Date.now() - STALE_MS);
+
+      const staleInvites = await db
+        .select({
+          token: invitesTable.token,
+          fromUserId: invitesTable.fromUserId,
+          toName: invitesTable.toName,
+          toPhone: invitesTable.toPhone,
+        })
+        .from(invitesTable)
+        .where(eq(invitesTable.status, "accepted"));
+
+      for (const inv of staleInvites) {
+        const [last] = await db
+          .select()
+          .from(locationUpdatesTable)
+          .where(eq(locationUpdatesTable.token, inv.token))
+          .orderBy(desc(locationUpdatesTable.createdAt))
+          .limit(1);
+
+        if (!last) continue;
+        if (last.status === "offline") continue;
+
+        const lastTime = new Date(last.createdAt).getTime();
+        if (Date.now() - lastTime < STALE_MS) continue;
+
+        const minutesAgo = Math.round((Date.now() - lastTime) / 60000);
+        const contactName = inv.toName ?? inv.toPhone;
+
+        await sendPushAndLog(inv.fromUserId, {
+          type: "location_stale",
+          title: "⏱ No location update",
+          body: `${contactName} hasn't updated in ${minutesAgo} min`,
+          tag: `stale-${inv.token}`,
+          data: { token: inv.token, contactName, minutesAgo },
+        });
+      }
+    } catch { /* non-critical */ }
+  }, CHECK_MS);
+}
 
 export default router;

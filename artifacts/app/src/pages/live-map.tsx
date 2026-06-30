@@ -5,7 +5,7 @@ import type { Invite } from "@workspace/api-client-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { format, formatDistanceToNow } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag, Siren } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, getLocalTime } from "@/hooks/use-weather";
 import { analyzeLocation, findClusters } from "@/lib/location-intelligence";
@@ -374,6 +374,36 @@ export default function LiveMap() {
     toast({ title: "Map refreshed" });
   };
 
+  const [sosSending, setSosSending] = useState(false);
+  const handleSOS = () => {
+    if (!userId) return;
+    setSosSending(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          await fetch(`${API_BASE}/api/sos`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId,
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+            }),
+          });
+          toast({ title: "🆘 SOS sent", description: "Emergency alert broadcast to your group." });
+        } catch {
+          toast({ title: "SOS failed to send", variant: "destructive" });
+        }
+        setSosSending(false);
+      },
+      () => {
+        toast({ title: "Could not get location for SOS", variant: "destructive" });
+        setSosSending(false);
+      },
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  };
+
   const clusterCount = findClusters(
     latest
       .filter((inv) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
@@ -424,6 +454,16 @@ export default function LiveMap() {
           <CmdBtn active={false} onClick={handleRefresh} disabled={refreshing} icon={<RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />} label="Refresh" />
           <div className="w-px h-5 bg-white/10 mx-1" />
           <CmdBtn active={false} onClick={() => { csvExport(granted); toast({ title: `Exported ${granted.length} grants` }); }} disabled={granted.length === 0} icon={<Download size={13} />} label="Export" />
+          <div className="w-px h-5 bg-white/10 mx-1" />
+          <button
+            onClick={handleSOS}
+            disabled={sosSending}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/40 bg-red-500/20 text-red-400 text-[11px] font-bold font-mono transition-all hover:bg-red-500/30 disabled:opacity-40 animate-pulse-once"
+            title="Broadcast SOS emergency alert to your group"
+          >
+            <Siren size={13} className={sosSending ? "animate-spin" : ""} />
+            <span>{sosSending ? "Sending…" : "SOS"}</span>
+          </button>
         </div>
       </div>
 

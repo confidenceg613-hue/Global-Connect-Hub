@@ -1,0 +1,1 @@
+- [Notification architecture](notification-arch.md) — sendPushAndLog in api-server/src/lib/notifications.ts is the single source for all push + DB logging; invites.ts imports from there, not location.ts.

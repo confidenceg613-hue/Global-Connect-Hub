@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { db, invitesTable, usersTable } from "@workspace/db";
-import { sendPushToUser } from "./location.js";
+import { sendPushAndLog } from "../lib/notifications.js";
 import {
   ListInvitesQueryParams,
   CreateInviteBody,
@@ -159,10 +159,12 @@ router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> =>
     .returning();
 
   // Notify the requester that consent was granted
-  sendPushToUser(existing.fromUserId, {
+  sendPushAndLog(existing.fromUserId, {
+    type: "grant",
     title: "✅ Location access granted",
     body: `${existing.toName ?? existing.toPhone} just shared their live location`,
     tag: `granted-${existing.id}`,
+    data: { inviteId: existing.id, contactName: existing.toName ?? existing.toPhone },
   }).catch(() => {});
 
   res.json(GetInviteResponse.parse(updated));

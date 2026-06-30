@@ -3,3 +3,5 @@ export * from "./consents";
 export * from "./invites";
 export * from "./location-updates";
 export * from "./push-subscriptions";
+export * from "./geofences";
+export * from "./notifications-log";

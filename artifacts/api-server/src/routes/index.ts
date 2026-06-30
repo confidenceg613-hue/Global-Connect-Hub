@@ -6,6 +6,9 @@ import invitesRouter from "./invites";
 import whatsappRouter from "./whatsapp";
 import locationRouter from "./location";
 import pushRouter from "./push-notifications";
+import geofencesRouter from "./geofences";
+import notificationsRouter from "./notifications";
+import sosRouter from "./sos";
 
 const router: IRouter = Router();
 
@@ -16,5 +19,8 @@ router.use(invitesRouter);
 router.use(whatsappRouter);
 router.use(locationRouter);
 router.use(pushRouter);
+router.use(geofencesRouter);
+router.use(notificationsRouter);
+router.use(sosRouter);
 
 export default router;

@@ -1,4 +1,5 @@
 import { useAuth } from "@/hooks/use-auth";
+import { GeofenceManager } from "@/components/geofence-manager";
 import { 
   useListConsents, 
   useCreateConsent, 
@@ -220,6 +221,16 @@ export default function Permissions() {
           );
         })}
       </div>
+
+      {userId && (
+        <div className="mt-8">
+          <h2 className="text-lg font-semibold text-foreground mb-1">Geofence Alerts</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Get notified when a contact enters or leaves a defined area like home, school, or work.
+          </p>
+          <GeofenceManager userId={userId} />
+        </div>
+      )}
     </div>
   );
 }

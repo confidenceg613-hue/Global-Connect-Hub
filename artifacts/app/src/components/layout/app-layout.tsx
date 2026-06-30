@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { NotificationPanel, useNotificationCount } from "@/components/notification-panel";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const VAPID_PUBLIC_KEY = "BC25lK-LutnB0q-o9jd7PV8jo5dzFELRDBfpbUFcJRs632OKi1cx81ghTwK_mpV3AbtEk7SLLKIQroAHFkWaamM";
@@ -45,8 +46,6 @@ function useNotificationBell(userId: number | null) {
 
   useEffect(() => {
     refreshState();
-
-    // Re-check whenever the tab becomes visible (user may have changed permissions in settings)
     const onVisibility = () => {
       if (document.visibilityState === "visible") refreshState();
     };
@@ -68,7 +67,6 @@ function useNotificationBell(userId: number | null) {
       return;
     }
     if (Notification.permission === "granted") {
-      // Already granted — just re-subscribe push to make sure it's registered
       try {
         const base = import.meta.env.BASE_URL;
         const reg = await navigator.serviceWorker.register(`${base}sw.js`, { scope: base });
@@ -165,7 +163,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [location] = useLocation();
   const { logout, userId } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const { state: notifState, subscribe } = useNotificationBell(userId);
+  const { count: unreadCount, setCount: setUnreadCount } = useNotificationCount(userId);
 
   const BellIcon = notifState === "granted" ? BellRing : notifState === "denied" ? BellOff : Bell;
   const bellColor =
@@ -173,24 +173,37 @@ export function AppLayout({ children }: AppLayoutProps) {
     notifState === "denied" ? "text-red-400" :
     notifState === "loading" ? "text-yellow-400 animate-pulse" :
     "text-muted-foreground";
+
+  const handleBellClick = useCallback(() => {
+    if (notifState !== "granted") {
+      subscribe();
+    } else {
+      setPanelOpen((v) => !v);
+      if (!panelOpen) setUnreadCount(0);
+    }
+  }, [notifState, subscribe, panelOpen, setUnreadCount]);
+
   const bellTitle =
-    notifState === "granted" ? "Notifications ON — click to re-subscribe" :
+    notifState === "granted" ? (unreadCount > 0 ? `${unreadCount} unread — click to view` : "View notifications") :
     notifState === "denied" ? "Notifications blocked — open browser settings" :
     notifState === "unsupported" ? "Push notifications not supported" :
     "Enable push notifications";
 
-  // Rendered as plain JSX — NOT a nested component function — so React never
-  // unmounts/remounts it on parent re-renders (which was causing click loss).
   const notificationButton = (
     <button
-      onClick={subscribe}
+      onClick={handleBellClick}
       disabled={notifState === "unsupported" || notifState === "loading"}
       title={bellTitle}
       aria-label={bellTitle}
       className={`relative p-2 rounded-lg transition-all hover:bg-secondary ${bellColor}`}
     >
       <BellIcon size={20} />
-      {notifState === "granted" && (
+      {notifState === "granted" && unreadCount > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-1 ring-1 ring-background">
+          {unreadCount > 99 ? "99+" : unreadCount}
+        </span>
+      )}
+      {notifState === "granted" && unreadCount === 0 && (
         <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400 ring-1 ring-background" />
       )}
       {notifState === "default" && (
@@ -284,6 +297,15 @@ export function AppLayout({ children }: AppLayoutProps) {
           {children}
         </main>
       </div>
+
+      {panelOpen && (
+        <NotificationPanel
+          onClose={() => {
+            setPanelOpen(false);
+            setUnreadCount(0);
+          }}
+        />
+      )}
     </div>
   );
 }
