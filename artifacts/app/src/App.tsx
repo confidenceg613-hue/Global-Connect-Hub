@@ -18,6 +18,7 @@ import LocationHistory from "@/pages/location-history";
 import LiveMap from "@/pages/live-map";
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 const queryClient = new QueryClient();
 
@@ -82,9 +83,9 @@ function ServiceWorkerManager({ userId }: { userId: number | null }) {
     navigator.serviceWorker
       .register(`${base}sw.js`, { scope: base })
       .then(async (registration) => {
+        // Only auto-subscribe if permission was already granted (not requesting it here)
         if (!userId) return;
-        const permission = await Notification.requestPermission();
-        if (permission === "granted") {
+        if (Notification.permission === "granted") {
           registerPushSubscription(userId, registration);
         }
       })
@@ -106,6 +107,14 @@ function ServiceWorkerManager({ userId }: { userId: number | null }) {
   return null;
 }
 
+function PageErrorBoundary({ children }: { children: React.ReactNode }) {
+  return (
+    <ErrorBoundary>
+      {children}
+    </ErrorBoundary>
+  );
+}
+
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { userId } = useAuth();
   const [, setLocation] = useLocation();
@@ -120,7 +129,9 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
   return (
     <AppLayout>
-      <Component />
+      <PageErrorBoundary>
+        <Component />
+      </PageErrorBoundary>
     </AppLayout>
   );
 }

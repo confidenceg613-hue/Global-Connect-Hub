@@ -585,7 +585,7 @@ export default function LiveMap() {
 
   // ── render ────────────────────────────────────────────────────────────────────
   return (
-    <div className="relative flex flex-col h-[calc(100dvh-4rem)] md:h-[calc(100dvh-2rem)] -m-4 md:-m-8">
+    <div className="relative flex flex-col -m-4 md:-m-8" style={{ height: "calc(100vh - 64px)" }}>
       {/* Map canvas */}
       <div ref={mapRef} className="flex-1 w-full" style={{ zIndex: 0 }} />
 

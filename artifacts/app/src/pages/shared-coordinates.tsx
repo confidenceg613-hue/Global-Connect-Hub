@@ -101,7 +101,7 @@ function CoordinateCard({
   const lng = invite.grantedLongitude!;
   const delta = 0.012;
 
-  const osmEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${lng - delta},${lat - delta},${lng + delta},${lat + delta}&layer=mapnik&marker=${lat},${lng}`;
+  const osmEmbedUrl = `https://maps.google.com/maps?q=${lat},${lng}&t=k&z=16&output=embed`;
   const googleMapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
 
   return (
