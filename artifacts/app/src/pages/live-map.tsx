@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useListInvites, getListInvitesQueryKey } from "@workspace/api-client-react";
 import type { Invite } from "@workspace/api-client-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "leaflet.heat";
 import { format, formatDistanceToNow } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag, Siren } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag, Siren, Flame } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, getLocalTime } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -87,11 +88,16 @@ export default function LiveMap() {
   const [showLabels,   setShowLabels  ] = useState(true);
   const [showJourneys, setShowJourneys] = useState(false);
   const [showClusters, setShowClusters] = useState(false);
+  const [showHeatmap,  setShowHeatmap ] = useState(false);
   const [liveCount,    setLiveCount   ] = useState(0);
   const [myPos,        setMyPos       ] = useState<{ lat: number; lng: number } | null>(null);
   const [locating,     setLocating    ] = useState(false);
   const [refreshing,   setRefreshing  ] = useState(false);
   const [tick,         setTick        ] = useState(0); // forces marker refresh
+  const [heatLoading,  setHeatLoading ] = useState(false);
+
+  const heatLayerRef = useRef<L.HeatLayer | null>(null);
+  const heatPoints   = useRef<L.HeatLatLngTuple[]>([]);
 
   const { data: invites, refetch } = useListInvites(
     { userId: userId! },
@@ -209,6 +215,85 @@ export default function LiveMap() {
       else layer.remove();
     } catch { /* ignore */ }
   }, [showLabels]);
+
+  // ── Heatmap fetch & render ────────────────────────────────────────────────────
+  const buildHeatmap = useCallback(async (tokens: string[], basePoints: L.HeatLatLngTuple[]) => {
+    setHeatLoading(true);
+    const now = Date.now();
+    const allPoints: L.HeatLatLngTuple[] = [...basePoints];
+
+    await Promise.all(
+      tokens.map(async (token) => {
+        try {
+          const r = await fetch(`${API_BASE}/api/location/history/${token}`);
+          if (!r.ok) return;
+          const rows: { latitude: number; longitude: number; timestamp?: string }[] = await r.json();
+          rows.forEach((row) => {
+            if (!isFinite(row.latitude) || !isFinite(row.longitude)) return;
+            const ageSec = row.timestamp
+              ? (now - new Date(row.timestamp).getTime()) / 1000
+              : 86400;
+            // Newer = more intense (max 1.0 within last hour, fades to 0.2 after 7d)
+            const intensity = Math.max(0.2, Math.min(1.0, 1 - ageSec / (7 * 86400)));
+            allPoints.push([row.latitude, row.longitude, intensity]);
+          });
+        } catch { /* non-critical */ }
+      }),
+    );
+
+    heatPoints.current = allPoints;
+    setHeatLoading(false);
+
+    const map = mapInst.current;
+    if (!map) return;
+
+    if (heatLayerRef.current) {
+      heatLayerRef.current.setLatLngs(allPoints).redraw();
+    } else {
+      const layer = L.heatLayer(allPoints, {
+        radius: 28,
+        blur: 22,
+        maxZoom: 17,
+        max: 1.0,
+        minOpacity: 0.35,
+        gradient: { 0.0: "#0ea5e9", 0.25: "#22c55e", 0.5: "#f59e0b", 0.75: "#f97316", 1.0: "#ef4444" },
+      });
+      layer.addTo(map);
+      heatLayerRef.current = layer;
+    }
+  }, []);
+
+  useEffect(() => {
+    const map = mapInst.current;
+    if (!map) return;
+
+    if (!showHeatmap) {
+      if (heatLayerRef.current) {
+        try { heatLayerRef.current.remove(); } catch { /* */ }
+        heatLayerRef.current = null;
+      }
+      return;
+    }
+
+    // Seed with grant positions immediately, then enrich with full GPS history
+    const acceptedTokens = (invites ?? [])
+      .filter((inv: Invite) => inv.status === "accepted")
+      .map((inv: Invite) => inv.token as string)
+      .filter(Boolean);
+
+    const basePoints: L.HeatLatLngTuple[] = granted
+      .filter((inv) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
+      .map((inv) => [inv.grantedLatitude!, inv.grantedLongitude!, 0.6] as L.HeatLatLngTuple);
+
+    buildHeatmap(acceptedTokens, basePoints);
+
+    return () => {
+      if (heatLayerRef.current) {
+        try { heatLayerRef.current.remove(); } catch { /* */ }
+        heatLayerRef.current = null;
+      }
+    };
+  }, [showHeatmap, (invites ?? []).map((inv: Invite) => inv.token).join(","), buildHeatmap]);
 
   // ── SSE subscriptions ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -584,6 +669,7 @@ export default function LiveMap() {
         <div className="pl-command-bar flex items-center gap-1 px-3 py-2">
           <CmdBtn active={showJourneys} onClick={() => setShowJourneys((v) => !v)} icon={<Layers size={13} />} label="Journeys" activeClass="bg-primary/20 border-primary/40 text-primary" />
           <CmdBtn active={showClusters} onClick={() => setShowClusters((v) => !v)} icon={<AlertTriangle size={13} />} label={showClusters && clusterCount > 0 ? `Flags (${clusterCount})` : "Flags"} activeClass="bg-amber-500/20 border-amber-400/40 text-amber-400" />
+          <CmdBtn active={showHeatmap} onClick={() => setShowHeatmap((v) => !v)} disabled={heatLoading} icon={<Flame size={13} className={heatLoading ? "animate-pulse" : ""} />} label={heatLoading ? "Loading…" : "Heatmap"} activeClass="bg-orange-500/20 border-orange-400/40 text-orange-400" />
           <div className="w-px h-5 bg-white/10 mx-1" />
           <CmdBtn active={!!myPos} onClick={handleFindMe} disabled={locating} icon={<Crosshair size={13} className={locating ? "animate-spin" : ""} />} label={locating ? "Locating…" : myPos ? "Located" : "Find Me"} activeClass="bg-emerald-500/20 border-emerald-400/40 text-emerald-400" />
           <CmdBtn active={false} onClick={handleRefresh} disabled={refreshing} icon={<RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />} label="Refresh" />
