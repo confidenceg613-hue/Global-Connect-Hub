@@ -193,6 +193,8 @@ export default function LocationHistory() {
   const [updates, setUpdates] = useState<LocationUpdate[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [visibleCount, setVisibleCount] = useState(25);
+  const TIMELINE_PAGE_SIZE = 25;
 
   // Auto-select first contact
   useEffect(() => {
@@ -224,6 +226,13 @@ export default function LocationHistory() {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
+  // Reset pagination whenever the contact or date range changes so we don't
+  // carry over a stale "load more" position from a different data set.
+  useEffect(() => {
+    setVisibleCount(TIMELINE_PAGE_SIZE);
+    setExpandedIdx(null);
+  }, [selectedToken, dateFilter]);
+
   const selectedContact = contacts.find((c) => c.token === selectedToken);
   const stats = computeStats(updates);
 
@@ -243,17 +252,11 @@ export default function LocationHistory() {
     segments.push(seg);
   }
 
-  // For timeline: show every Nth point + status changes
-  const timelinePoints: LocationUpdate[] = [];
-  const TIMELINE_MAX = 50;
-  if (updates.length <= TIMELINE_MAX) {
-    timelinePoints.push(...updates);
-  } else {
-    const step = Math.floor(updates.length / TIMELINE_MAX);
-    for (let i = 0; i < updates.length; i += step) timelinePoints.push(updates[i]);
-    const last = updates[updates.length - 1];
-    if (timelinePoints[timelinePoints.length - 1] !== last) timelinePoints.push(last);
-  }
+  // Timeline is paginated (newest-first) rather than downsampled, so every
+  // single GPS point is reachable via "Load more" instead of skipping points.
+  const updatesDesc = [...updates].reverse();
+  const timelinePoints: LocationUpdate[] = updatesDesc.slice(0, visibleCount);
+  const hasMoreTimeline = visibleCount < updatesDesc.length;
 
   const copyCoords = (u: LocationUpdate) => {
     navigator.clipboard.writeText(`${u.latitude.toFixed(6)}, ${u.longitude.toFixed(6)}`)
@@ -418,7 +421,7 @@ export default function LocationHistory() {
               <Clock size={13} /> Waypoint Timeline
               {timelinePoints.length < updates.length && (
                 <span className="text-xs font-normal text-muted-foreground normal-case tracking-normal">
-                  (showing {timelinePoints.length} of {updates.length} points)
+                  (showing {timelinePoints.length} of {updates.length} points, newest first)
                 </span>
               )}
             </h2>
@@ -436,11 +439,13 @@ export default function LocationHistory() {
                 <div className="absolute left-5 top-0 bottom-0 w-px bg-border" />
                 <div className="space-y-2">
                   {timelinePoints.map((u, idx) => {
-                    const isFirst = idx === 0;
-                    const isLast = idx === timelinePoints.length - 1;
+                    // timelinePoints is newest-first, so idx 0 is always the latest point.
+                    // "Start" only applies once every point has actually been loaded.
+                    const isLast = idx === 0;
+                    const isFirst = !hasMoreTimeline && idx === timelinePoints.length - 1;
                     const isOffline = u.status === "offline";
-                    const distFromPrev = idx > 0
-                      ? haversineKm(timelinePoints[idx - 1].latitude, timelinePoints[idx - 1].longitude, u.latitude, u.longitude)
+                    const distFromPrev = idx < timelinePoints.length - 1
+                      ? haversineKm(timelinePoints[idx + 1].latitude, timelinePoints[idx + 1].longitude, u.latitude, u.longitude)
                       : null;
                     const expanded = expandedIdx === idx;
 
@@ -521,6 +526,21 @@ export default function LocationHistory() {
                     );
                   })}
                 </div>
+                {hasMoreTimeline && (
+                  <div className="flex justify-center mt-4 pl-12">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setVisibleCount((c) => c + TIMELINE_PAGE_SIZE)}
+                      className="gap-2"
+                    >
+                      Load more
+                      <span className="text-xs text-muted-foreground font-mono">
+                        ({updatesDesc.length - timelinePoints.length} remaining)
+                      </span>
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
