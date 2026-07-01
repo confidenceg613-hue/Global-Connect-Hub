@@ -15,6 +15,7 @@ import {
   BellRing,
   Camera,
   Flag,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -161,6 +162,7 @@ const NAV_ITEMS = [
   { href: "/shared-coordinates", label: "Shared Coordinates", icon: Navigation },
   { href: "/location-history", label: "Location History", icon: Clock },
   { href: "/profile", label: "Profile", icon: UserCircle },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
