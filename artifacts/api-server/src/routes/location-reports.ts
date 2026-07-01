@@ -1,15 +1,27 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { db } from "@workspace/db";
 import {
   locationTypeReportsTable,
   locationTypeOverridesTable,
   CreateLocationTypeReportBody,
+  ResolveReportBody,
   invitesTable,
   roundCoordKey,
 } from "@workspace/db/schema";
 import { eq, desc, and } from "drizzle-orm";
+import { sendPushAndLog } from "../lib/notifications";
 
 const router = Router();
+
+// Cap report submissions per IP to prevent spam/abuse of the report pipeline.
+const createReportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many reports submitted. Please try again later." },
+});
 
 // GET /api/location-reports/by-user/:userId — all reports for invites sent by a user
 router.get("/location-reports/by-user/:userId", async (req, res): Promise<void> => {
@@ -42,7 +54,7 @@ router.get("/location-reports/by-user/:userId", async (req, res): Promise<void> 
 });
 
 // POST /api/location-reports — flag an auto-detected location type as incorrect
-router.post("/location-reports", async (req, res): Promise<void> => {
+router.post("/location-reports", createReportLimiter, async (req, res): Promise<void> => {
   const parsed = CreateLocationTypeReportBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -52,7 +64,7 @@ router.post("/location-reports", async (req, res): Promise<void> => {
   const { token, latitude, longitude, reportedType, suggestedType, comment } = parsed.data;
 
   const [invite] = await db
-    .select({ token: invitesTable.token })
+    .select({ token: invitesTable.token, fromUserId: invitesTable.fromUserId, toName: invitesTable.toName, toPhone: invitesTable.toPhone })
     .from(invitesTable)
     .where(eq(invitesTable.token, token));
 
@@ -72,6 +84,14 @@ router.post("/location-reports", async (req, res): Promise<void> => {
       comment,
     })
     .returning();
+
+  sendPushAndLog(invite.fromUserId, {
+    type: "location_type_report",
+    title: "📍 Location type report",
+    body: `${invite.toName ?? invite.toPhone} flagged a pin as "${reportedType}" — suggested "${suggestedType}"`,
+    tag: `location-report-${report.id}`,
+    data: { reportId: report.id, inviteToken: token },
+  }).catch(() => {});
 
   res.status(201).json({ id: report.id, createdAt: report.createdAt });
 });
@@ -94,6 +114,12 @@ router.post("/location-reports/:id/resolve", async (req, res): Promise<void> => 
     return;
   }
 
+  const parsedBody = ResolveReportBody.safeParse(req.body);
+  if (!parsedBody.success) {
+    res.status(400).json({ error: parsedBody.error.message });
+    return;
+  }
+
   const [report] = await db
     .select()
     .from(locationTypeReportsTable)
@@ -101,6 +127,18 @@ router.post("/location-reports/:id/resolve", async (req, res): Promise<void> => 
 
   if (!report) {
     res.status(404).json({ error: "Report not found" });
+    return;
+  }
+
+  // Only the invite owner (the person who sent the invite this report belongs to)
+  // may resolve/dismiss it — prevents any caller with a report id from mutating state.
+  const [owningInvite] = await db
+    .select({ fromUserId: invitesTable.fromUserId })
+    .from(invitesTable)
+    .where(eq(invitesTable.token, report.inviteToken));
+
+  if (!owningInvite || owningInvite.fromUserId !== parsedBody.data.userId) {
+    res.status(403).json({ error: "Not authorized to act on this report" });
     return;
   }
 
@@ -149,13 +187,29 @@ router.post("/location-reports/:id/dismiss", async (req, res): Promise<void> => 
     return;
   }
 
+  const parsedBody = ResolveReportBody.safeParse(req.body);
+  if (!parsedBody.success) {
+    res.status(400).json({ error: parsedBody.error.message });
+    return;
+  }
+
   const [report] = await db
-    .select({ id: locationTypeReportsTable.id })
+    .select({ id: locationTypeReportsTable.id, inviteToken: locationTypeReportsTable.inviteToken })
     .from(locationTypeReportsTable)
     .where(eq(locationTypeReportsTable.id, id));
 
   if (!report) {
     res.status(404).json({ error: "Report not found" });
+    return;
+  }
+
+  const [owningInvite] = await db
+    .select({ fromUserId: invitesTable.fromUserId })
+    .from(invitesTable)
+    .where(eq(invitesTable.token, report.inviteToken));
+
+  if (!owningInvite || owningInvite.fromUserId !== parsedBody.data.userId) {
+    res.status(403).json({ error: "Not authorized to act on this report" });
     return;
   }
 

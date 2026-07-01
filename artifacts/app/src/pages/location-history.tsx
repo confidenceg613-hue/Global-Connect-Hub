@@ -55,8 +55,9 @@ function computeStats(updates: LocationUpdate[]) {
   }
   const first = new Date(updates[0].createdAt);
   const last = new Date(updates[updates.length - 1].createdAt);
-  const durationMin = differenceInMinutes(last, first);
-  const avgSpeedKmh = durationMin > 0 ? (totalKm / (durationMin / 60)) : 0;
+  const durationSec = differenceInSeconds(last, first);
+  const durationMin = Math.round(durationSec / 60);
+  const avgSpeedKmh = durationSec > 0 ? totalKm / (durationSec / 3600) : 0;
   return { totalKm, durationMin, avgSpeedKmh, updateCount: updates.length };
 }
 
@@ -180,7 +181,7 @@ export default function LocationHistory() {
   const accepted = (invites ?? []).filter((inv: Invite) => inv.status === "accepted");
 
   // Latest accepted invite per phone (for the contact picker)
-  const latestPerPhone = accepted.reduce<Record<string, Invite>>((acc, inv: Invite) => {
+  const latestPerPhone = accepted.reduce<Record<string, Invite>>((acc: Record<string, Invite>, inv: Invite) => {
     const ex = acc[inv.toPhone];
     if (!ex || (inv.grantedAt ?? inv.sentAt) > (ex.grantedAt ?? ex.sentAt)) acc[inv.toPhone] = inv;
     return acc;

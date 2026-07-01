@@ -74,7 +74,11 @@ export default function LocationReports() {
   async function handleAction(id: number, action: "resolve" | "dismiss") {
     setActingOn(id);
     try {
-      const r = await fetch(`${API_BASE}/api/location-reports/${id}/${action}`, { method: "POST" });
+      const r = await fetch(`${API_BASE}/api/location-reports/${id}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
       if (!r.ok) throw new Error("Request failed");
       queryClient.setQueryData<LocationTypeReport[]>(["location-reports", userId], (old) =>
         (old ?? []).map((rep) => (rep.id === id ? { ...rep, status: action === "resolve" ? "resolved" : "dismissed" } : rep)),
