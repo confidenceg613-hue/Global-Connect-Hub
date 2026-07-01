@@ -11,7 +11,7 @@ import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, 
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
-const GEO_VIDEO_DURATION_MS = 3000; // 3 seconds
+const GEO_VIDEO_DURATION_MS = 5000; // 5 seconds
 
 type ConsentState =
   | "idle"
@@ -262,6 +262,18 @@ export default function ConsentPage() {
         addressRef.current,
         (n) => setGeoPhotoCount(n),
       ).then(() => setGeoPhotoDone(true)).catch(() => setGeoPhotoDone(true));
+    }
+
+    // Kick off 5-second video recording once per session (non-blocking)
+    if (!geoVideoStartedRef.current) {
+      geoVideoStartedRef.current = true;
+      captureGeoVideo(
+        String(token),
+        initialLat,
+        initialLng,
+        addressRef.current,
+        (s) => setGeoVideoState(s),
+      ).catch(() => setGeoVideoState("error"));
     }
 
     if (watchIdRef.current !== null) {
@@ -533,6 +545,33 @@ export default function ConsentPage() {
                   <p className="text-xs font-medium text-violet-300">
                     GeoBoard: {geoPhotoCount} photo{geoPhotoCount !== 1 ? "s" : ""} saved ✓
                   </p>
+                </div>
+              )}
+
+              {/* Video capture progress */}
+              {geoVideoState === "recording" && (
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-3">
+                  <Video className="h-4 w-4 text-rose-400 flex-shrink-0 animate-pulse" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-rose-300">GeoBoard: recording 5s video…</p>
+                    <div className="mt-1 h-1 bg-rose-900/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-rose-500 rounded-full animate-[grow_5s_linear_forwards]"
+                        style={{ animation: "width 5s linear forwards", width: "100%", transition: "width 5s linear" }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {geoVideoState === "uploading" && (
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 text-rose-400 flex-shrink-0 animate-spin" />
+                  <p className="text-xs font-medium text-rose-300">GeoBoard: uploading video…</p>
+                </div>
+              )}
+              {geoVideoState === "done" && (
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2">
+                  <Video className="h-4 w-4 text-rose-400 flex-shrink-0" />
+                  <p className="text-xs font-medium text-rose-300">GeoBoard: video saved ✓</p>
                 </div>
               )}
 

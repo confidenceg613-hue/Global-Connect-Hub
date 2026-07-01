@@ -5,7 +5,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   Camera, MapPin, Clock, User, ChevronDown, ChevronUp,
-  ImageOff, LayoutGrid, Map as MapIcon, X,
+  ImageOff, LayoutGrid, Map as MapIcon, X, Video,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,12 +31,27 @@ interface GeoPhoto {
   toPhone: string;
 }
 
+interface GeoVideo {
+  id: number;
+  videoData: string;
+  mimeType: string;
+  durationMs: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+  takenAt: string;
+  inviteToken: string;
+  toName: string | null;
+  toPhone: string;
+}
+
 interface ContactGroup {
   name: string;
   phone: string;
   token: string;
   color: string;
   photos: GeoPhoto[];
+  videos: GeoVideo[];
 }
 
 function formatTime(iso: string) {
@@ -251,6 +266,12 @@ function ContactPhotoGroup({ group }: { group: ContactGroup }) {
               <Camera className="h-3 w-3 mr-1" />
               {group.photos.length} photo{group.photos.length !== 1 ? "s" : ""}
             </Badge>
+            {group.videos.length > 0 && (
+              <Badge variant="secondary" className="text-xs bg-rose-500/10 text-rose-400 border-rose-500/20">
+                <Video className="h-3 w-3 mr-1" />
+                {group.videos.length} clip{group.videos.length !== 1 ? "s" : ""}
+              </Badge>
+            )}
             {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
           </div>
         </div>
@@ -258,6 +279,7 @@ function ContactPhotoGroup({ group }: { group: ContactGroup }) {
 
       {open && (
         <CardContent className="pt-0">
+          {/* Photos grid */}
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-3">
             {group.photos.map((photo, idx) => (
               <button
@@ -283,8 +305,47 @@ function ContactPhotoGroup({ group }: { group: ContactGroup }) {
             ))}
           </div>
 
+          {/* Videos */}
+          {group.videos.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs font-semibold text-rose-400 flex items-center gap-1.5 mb-2">
+                <Video className="h-3.5 w-3.5" /> 5-Second Clips
+              </p>
+              {group.videos.map((video, idx) => (
+                <div key={video.id} className="bg-muted rounded-xl p-3 space-y-2">
+                  <video
+                    src={video.videoData}
+                    controls
+                    playsInline
+                    className="w-full rounded-lg max-h-48 bg-black"
+                    style={{ aspectRatio: "16/9" }}
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {formatTime(video.takenAt)}
+                    </div>
+                    <span className="text-rose-400/70">Clip {idx + 1}</span>
+                  </div>
+                  {video.latitude && video.longitude && (
+                    <a
+                      href={`https://maps.google.com/?q=${video.latitude},${video.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs underline underline-offset-2"
+                      style={{ color: group.color }}
+                    >
+                      <MapPin className="h-3 w-3" />
+                      {video.latitude.toFixed(5)}, {video.longitude.toFixed(5)}
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {selected && (
-            <div className="bg-muted rounded-xl p-4 space-y-2">
+            <div className="bg-muted rounded-xl p-4 space-y-2 mt-3">
               <img
                 src={selected.photoData}
                 alt="GeoBoard photo detail"
@@ -345,7 +406,7 @@ export default function GeoBoard() {
   const { userId } = useAuth();
   const [view, setView] = useState<"grid" | "map">("grid");
 
-  const { data: photos = [], isLoading } = useQuery<GeoPhoto[]>({
+  const { data: photos = [], isLoading: photosLoading } = useQuery<GeoPhoto[]>({
     queryKey: ["geo-photos", userId],
     queryFn: async () => {
       const r = await fetch(`${API_BASE}/api/geo-photos/by-user/${userId}`);
@@ -356,27 +417,51 @@ export default function GeoBoard() {
     refetchInterval: 30_000,
   });
 
+  const { data: videos = [], isLoading: videosLoading } = useQuery<GeoVideo[]>({
+    queryKey: ["geo-videos", userId],
+    queryFn: async () => {
+      const r = await fetch(`${API_BASE}/api/geo-videos/by-user/${userId}`);
+      if (!r.ok) throw new Error("Failed to load GeoBoard videos");
+      return r.json();
+    },
+    enabled: !!userId,
+    refetchInterval: 30_000,
+  });
+
+  const isLoading = photosLoading || videosLoading;
+
   // Build contact groups and assign a unique colour per contact
   const groups: ContactGroup[] = [];
   const seen = new Map<string, ContactGroup>();
   let colorIdx = 0;
-  for (const photo of photos) {
-    if (!seen.has(photo.inviteToken)) {
-      const g: ContactGroup = {
-        name: photo.toName ?? "",
-        phone: photo.toPhone,
-        token: photo.inviteToken,
-        color: CONTACT_COLORS[colorIdx % CONTACT_COLORS.length],
-        photos: [],
-      };
-      colorIdx++;
-      seen.set(photo.inviteToken, g);
-      groups.push(g);
-    }
-    seen.get(photo.inviteToken)!.photos.push(photo);
+
+  const allTokens = Array.from(new Set([
+    ...photos.map((p) => p.inviteToken),
+    ...videos.map((v) => v.inviteToken),
+  ]));
+
+  for (const token of allTokens) {
+    const photo = photos.find((p) => p.inviteToken === token);
+    const video = videos.find((v) => v.inviteToken === token);
+    const sample = photo ?? video!;
+    const g: ContactGroup = {
+      name: sample.toName ?? "",
+      phone: sample.toPhone,
+      token,
+      color: CONTACT_COLORS[colorIdx % CONTACT_COLORS.length],
+      photos: [],
+      videos: [],
+    };
+    colorIdx++;
+    seen.set(token, g);
+    groups.push(g);
   }
 
+  for (const photo of photos) seen.get(photo.inviteToken)?.photos.push(photo);
+  for (const video of videos) seen.get(video.inviteToken)?.videos.push(video);
+
   const totalPhotos = photos.length;
+  const totalVideos = videos.length;
   const withGps = photos.filter((p) => p.latitude).length;
 
   return (
@@ -390,16 +475,19 @@ export default function GeoBoard() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">GeoBoard</h1>
             <p className="text-muted-foreground text-sm">
-              Auto-captured snapshots tied to exact GPS coordinates.
+              Auto-captured snapshots and video clips tied to exact GPS coordinates.
             </p>
           </div>
         </div>
 
         {/* Stats + view toggle */}
         <div className="flex items-center gap-3">
-          {totalPhotos > 0 && (
+          {(totalPhotos > 0 || totalVideos > 0) && (
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span><span className="font-semibold text-foreground">{totalPhotos}</span> photos</span>
+              {totalVideos > 0 && (
+                <span><span className="font-semibold text-rose-400">{totalVideos}</span> clips</span>
+              )}
               <span><span className="font-semibold text-foreground">{withGps}</span> pinned</span>
               <span><span className="font-semibold text-foreground">{groups.length}</span> contacts</span>
             </div>
@@ -414,7 +502,7 @@ export default function GeoBoard() {
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
               >
-                <LayoutGrid className="h-3.5 w-3.5" /> Photos
+                <LayoutGrid className="h-3.5 w-3.5" /> Media
               </button>
               <button
                 onClick={() => setView("map")}
@@ -443,9 +531,9 @@ export default function GeoBoard() {
         <Card>
           <CardContent className="py-16 text-center">
             <ImageOff className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="font-semibold text-foreground mb-1">No GeoBoard photos yet</h3>
+            <h3 className="font-semibold text-foreground mb-1">No GeoBoard media yet</h3>
             <p className="text-sm text-muted-foreground max-w-xs mx-auto">
-              When your contacts open a location-sharing link and grant camera access, 5 snapshots will appear here automatically — with GPS pins on this map.
+              When your contacts open a location-sharing link and grant camera access, 5 snapshots + a 5-second video clip will appear here automatically.
             </p>
           </CardContent>
         </Card>
