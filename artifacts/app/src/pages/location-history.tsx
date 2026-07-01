@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import {
   Clock, MapPin, User, Navigation, ChevronDown, BarChart3,
   ExternalLink, Copy, Wifi, WifiOff, Route, CalendarDays,
-  Gauge, Timer, TrendingUp, RefreshCw,
+  Gauge, Timer, TrendingUp, RefreshCw, Download,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,7 +62,7 @@ function computeStats(updates: LocationUpdate[]) {
 }
 
 // ── Trail map component ──────────────────────────────────────────────────────
-function TrailMap({ updates, contactName }: { updates: LocationUpdate[]; contactName: string }) {
+function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[]; contactName: string; isLive: boolean }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInst = useRef<L.Map | null>(null);
   const layersRef = useRef<L.Layer[]>([]);
@@ -108,9 +108,11 @@ function TrailMap({ updates, contactName }: { updates: LocationUpdate[]; contact
       .addTo(map);
     layersRef.current.push(startM);
 
-    // End marker (red or pulse if latest is active)
+    // End marker (red or pulse if the contact is currently live) — driven by
+    // the independently-fetched live status, not the filtered updates list,
+    // so it stays accurate even when the selected date range has stale data.
     const last = updates[updates.length - 1];
-    const isActive = last.status === "active";
+    const isActive = isLive;
     const endHtml = isActive
       ? `<div style="position:relative;width:16px;height:16px;">
            <div style="position:absolute;inset:0;border-radius:50%;background:#ef4444;opacity:0.4;animation:pl-pulse 1.4s ease-in-out infinite;"></div>
@@ -195,6 +197,11 @@ export default function LocationHistory() {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [visibleCount, setVisibleCount] = useState(25);
   const TIMELINE_PAGE_SIZE = 25;
+  // True current online/offline state, fetched independently of the date filter —
+  // the last item in a filtered `updates` window (e.g. "Today") can be empty even
+  // while the device is actively sharing right now, which previously made the
+  // badge wrongly show "Offline".
+  const [liveStatus, setLiveStatus] = useState<{ status: "active" | "offline"; createdAt: string } | null>(null);
 
   // Auto-select first contact
   useEffect(() => {
@@ -233,6 +240,33 @@ export default function LocationHistory() {
     setExpandedIdx(null);
   }, [selectedToken, dateFilter]);
 
+  const fetchLiveStatus = useCallback(async () => {
+    if (!selectedToken) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/location/latest/${selectedToken}`);
+      if (res.ok) {
+        const data = await res.json();
+        setLiveStatus({ status: data.status, createdAt: data.createdAt });
+      } else {
+        setLiveStatus(null);
+      }
+    } catch {
+      setLiveStatus(null);
+    }
+  }, [selectedToken]);
+
+  useEffect(() => { fetchLiveStatus(); }, [fetchLiveStatus]);
+
+  // Poll for the true live/offline state every 15s so the badge stays accurate
+  // even when the selected date filter has no fresh points in it.
+  useEffect(() => {
+    if (!selectedToken) return;
+    const id = setInterval(fetchLiveStatus, 15_000);
+    return () => clearInterval(id);
+  }, [selectedToken, fetchLiveStatus]);
+
+  const isLive = liveStatus?.status === "active";
+
   const selectedContact = contacts.find((c) => c.token === selectedToken);
   const stats = computeStats(updates);
 
@@ -263,6 +297,34 @@ export default function LocationHistory() {
       .then(() => toast({ title: "Coordinates copied" }));
   };
 
+  const exportCsv = () => {
+    if (updates.length === 0) {
+      toast({ title: "Nothing to export", description: "No GPS points in the current range.", variant: "destructive" });
+      return;
+    }
+    const header = ["timestamp", "latitude", "longitude", "accuracy_m", "status", "address"];
+    const rows = updates.map((u) => [
+      u.createdAt,
+      u.latitude.toFixed(6),
+      u.longitude.toFixed(6),
+      u.accuracy != null ? Math.round(u.accuracy).toString() : "",
+      u.status,
+      u.address ? `"${u.address.replace(/"/g, '""')}"` : "",
+    ]);
+    const csv = [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const contactSlug = (selectedContact?.toName ?? selectedContact?.toPhone ?? "contact").replace(/[^a-z0-9]+/gi, "-");
+    a.href = url;
+    a.download = `location-history-${contactSlug}-${dateFilter}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: "Export ready", description: `Downloaded ${updates.length} GPS points as CSV.` });
+  };
+
   if (invitesLoading) {
     return (
       <div className="space-y-6">
@@ -284,10 +346,16 @@ export default function LocationHistory() {
           </h1>
           <p className="text-muted-foreground mt-1">Full GPS trail — every position update from live tracking.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchHistory} disabled={loading} className="gap-2">
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={exportCsv} disabled={loading || updates.length === 0} className="gap-2">
+            <Download size={13} />
+            Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={fetchHistory} disabled={loading} className="gap-2">
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {contacts.length === 0 ? (
@@ -340,13 +408,13 @@ export default function LocationHistory() {
             {selectedContact && (
               <Badge
                 className={`gap-1.5 font-mono text-xs ${
-                  updates.length > 0 && updates[updates.length - 1]?.status === "active"
+                  isLive
                     ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                     : "bg-muted text-muted-foreground"
                 }`}
               >
-                <span className={`w-1.5 h-1.5 rounded-full ${updates.length > 0 && updates[updates.length - 1]?.status === "active" ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"}`} />
-                {updates.length > 0 && updates[updates.length - 1]?.status === "active" ? "Live" : "Offline"}
+                <span className={`w-1.5 h-1.5 rounded-full ${isLive ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"}`} />
+                {isLive ? "Live" : "Offline"}
               </Badge>
             )}
           </div>
@@ -379,7 +447,7 @@ export default function LocationHistory() {
             {loading ? (
               <div className="w-full rounded-xl bg-muted/40 border border-border animate-pulse" style={{ height: 320 }} />
             ) : (
-              <TrailMap updates={updates} contactName={selectedContact?.toName ?? selectedContact?.toPhone ?? ""} />
+              <TrailMap updates={updates} contactName={selectedContact?.toName ?? selectedContact?.toPhone ?? ""} isLive={isLive} />
             )}
           </div>
 
