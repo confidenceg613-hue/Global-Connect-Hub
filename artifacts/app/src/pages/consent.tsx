@@ -269,10 +269,14 @@ export default function ConsentPage() {
       (err) => {
         if (!earlyGeoReadyRef.current) {
           earlyGeoErrRef.current = err;
-          earlyGeoReadyRef.current = true;
+          // Only mark ready on PERMISSION_DENIED — a timeout/unavailable here
+          // means we should retry fresh when the user taps, not fail immediately.
+          if (err.code === err.PERMISSION_DENIED) {
+            earlyGeoReadyRef.current = true;
+          }
         }
       },
-      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
     );
     // In parallel, request a high-accuracy fix too — if the fast fix hasn't
     // landed yet by the time this resolves, use it instead.
@@ -483,12 +487,12 @@ export default function ConsentPage() {
           setState("error");
         }
       },
-      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
     );
     navigator.geolocation.getCurrentPosition(
       (position) => { if (!settled) { settled = true; processGeoPosition(position); } },
       () => { /* ignore — the fast fix above already handles the error path */ },
-      { enableHighAccuracy: true, timeout: 15000 },
+      { enableHighAccuracy: true, timeout: 20000 },
     );
   }, [processGeoPosition]);
 
