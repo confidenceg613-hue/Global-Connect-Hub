@@ -95,7 +95,8 @@ router.post("/location/push", async (req, res): Promise<void> => {
     .from(invitesTable)
     .where(eq(invitesTable.token, token));
 
-  broadcastToToken(token, { latitude, longitude, accuracy, source, address, status, timestamp: update.createdAt });
+  // broadcast uses lat/lng to match the LivePos interface on the frontend
+  broadcastToToken(token, { lat: latitude, lng: longitude, accuracy, source, address, status, timestamp: update.createdAt });
 
   if (invite) {
     const contactName = invite.toName ?? invite.toPhone;
@@ -231,9 +232,10 @@ router.get("/location/stream/:token", async (req, res): Promise<void> => {
     .limit(1);
 
   if (latest) {
+    // use lat/lng to match the LivePos interface on the frontend
     res.write(`data: ${JSON.stringify({
-      latitude: latest.latitude,
-      longitude: latest.longitude,
+      lat: latest.latitude,
+      lng: latest.longitude,
       accuracy: latest.accuracy,
       address: latest.address,
       status: latest.status,

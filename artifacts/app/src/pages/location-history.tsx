@@ -144,7 +144,7 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
     } else {
       map.fitBounds(L.latLngBounds(latlngs).pad(0.2), { maxZoom: 16 });
     }
-  }, [updates]);
+  }, [updates, isLive]);
 
   // Add pulse keyframe once
   useEffect(() => {
@@ -202,6 +202,7 @@ export default function LocationHistory() {
   // while the device is actively sharing right now, which previously made the
   // badge wrongly show "Offline".
   const [liveStatus, setLiveStatus] = useState<{ status: "active" | "offline"; createdAt: string } | null>(null);
+  const sseRef = useRef<EventSource | null>(null);
 
   // Auto-select first contact
   useEffect(() => {
@@ -257,15 +258,72 @@ export default function LocationHistory() {
 
   useEffect(() => { fetchLiveStatus(); }, [fetchLiveStatus]);
 
-  // Poll for the true live/offline state every 15s so the badge stays accurate
-  // even when the selected date filter has no fresh points in it.
+  // Poll every 15s as a fallback (handles edge cases where SSE doesn't fire)
   useEffect(() => {
     if (!selectedToken) return;
     const id = setInterval(fetchLiveStatus, 15_000);
     return () => clearInterval(id);
   }, [selectedToken, fetchLiveStatus]);
 
-  const isLive = liveStatus?.status === "active";
+  // SSE subscription — flips the badge instantly and appends new points to the
+  // trail in real time so the user sees the location automatically when active.
+  useEffect(() => {
+    if (!selectedToken) return;
+
+    // Close any previous connection
+    sseRef.current?.close();
+    sseRef.current = null;
+
+    try {
+      const es = new EventSource(`${API_BASE}/api/location/stream/${selectedToken}`);
+      sseRef.current = es;
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data) as { lat: number; lng: number; accuracy?: number; address?: string; status: "active" | "offline"; timestamp: string };
+          if (typeof data.lat !== "number" || typeof data.lng !== "number") return;
+
+          // Update live badge immediately
+          setLiveStatus({ status: data.status, createdAt: data.timestamp });
+
+          // Append new location point to the trail if it's an active fix
+          if (data.status === "active") {
+            setUpdates((prev) => {
+              const newPoint: LocationUpdate = {
+                id: Date.now(), // ephemeral id for the key prop
+                token: selectedToken,
+                latitude: data.lat,
+                longitude: data.lng,
+                accuracy: data.accuracy ?? null,
+                address: data.address ?? null,
+                status: "active",
+                createdAt: data.timestamp,
+              };
+              // De-duplicate: don't add if the most recent point is identical
+              if (prev.length > 0) {
+                const last = prev[prev.length - 1];
+                if (last.latitude === data.lat && last.longitude === data.lng) return prev;
+              }
+              return [...prev, newPoint];
+            });
+          }
+        } catch { /* ignore malformed SSE frames */ }
+      };
+
+      es.onerror = () => { /* auto-reconnects; fetchLiveStatus poll covers gaps */ };
+    } catch { /* ignore SSE setup errors */ }
+
+    return () => {
+      sseRef.current?.close();
+      sseRef.current = null;
+    };
+  }, [selectedToken]);
+
+  // A device is truly live only if the last update is recent (≤2 min).
+  // Handles cases where the device loses connectivity without sending "offline".
+  const isLive =
+    liveStatus?.status === "active" &&
+    differenceInMinutes(new Date(), new Date(liveStatus.createdAt)) < 2;
 
   const selectedContact = contacts.find((c) => c.token === selectedToken);
   const stats = computeStats(updates);

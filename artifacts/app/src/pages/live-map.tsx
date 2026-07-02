@@ -5,7 +5,7 @@ import type { Invite } from "@workspace/api-client-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
-import { format, formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
 import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag, Siren, Flame, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
@@ -13,6 +13,13 @@ import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
 import { analyzeLocation, findClusters, TYPE_CONFIG } from "@/lib/location-intelligence";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// A live position is considered stale (and treated as offline) if the last
+// "active" update arrived more than 2 minutes ago — handles devices that
+// lose connectivity without sending an explicit "offline" ping.
+function isLiveStale(timestamp: string): boolean {
+  return differenceInMinutes(new Date(), new Date(timestamp)) >= 2;
+}
 
 interface LivePos {
   lat: number;
@@ -318,7 +325,7 @@ export default function LiveMap() {
             if (typeof data.lat !== "number" || typeof data.lng !== "number") return;
             if (!isFinite(data.lat) || !isFinite(data.lng)) return;
             livePos.current.set(token, data);
-            setLiveCount(Array.from(livePos.current.values()).filter((p) => p.status === "active").length);
+            setLiveCount(Array.from(livePos.current.values()).filter((p) => p.status === "active" && !isLiveStale(p.timestamp)).length);
             setTick((n) => n + 1);
           } catch { /* ignore bad SSE data */ }
         };
@@ -332,6 +339,21 @@ export default function LiveMap() {
       sseRefs.current.clear();
     };
   }, [(invites ?? []).map((inv: Invite) => inv.token).join(",")]);
+
+  // ── Staleness recompute timer ─────────────────────────────────────────────────
+  // Recomputes active count and triggers marker redraw every 30s so that
+  // devices that silently drop connection (without sending "offline") transition
+  // from green→grey at the 2-minute threshold without waiting for a new SSE frame.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const count = Array.from(livePos.current.values()).filter(
+        (p) => p.status === "active" && !isLiveStale(p.timestamp),
+      ).length;
+      setLiveCount(count);
+      setTick((n) => n + 1); // force marker layer redraw
+    }, 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   // ── Render markers ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -375,7 +397,7 @@ export default function LiveMap() {
       const rawLive = livePos.current.get(inv.token);
       const lat = rawLive ? rawLive.lat : inv.grantedLatitude!;
       const lng = rawLive ? rawLive.lng : inv.grantedLongitude!;
-      const isLive = rawLive?.status === "active";
+      const isLive = rawLive?.status === "active" && !isLiveStale(rawLive.timestamp);
 
       if (!isFinite(lat) || !isFinite(lng)) return;
 
