@@ -8,6 +8,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, ExternalLink, Camera, Video } from "lucide-react";
+import { classifySource, type LocationSource } from "@/hooks/use-fused-location";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
@@ -230,6 +231,10 @@ export default function ConsentPage() {
   const earlyGeoRef = useRef<GeolocationPosition | null>(null);
   const earlyGeoErrRef = useRef<GeolocationPositionError | null>(null);
   const earlyGeoReadyRef = useRef(false);
+  // Fused-location bookkeeping: tracks which provider types (network vs GPS)
+  // have reported a fix so we can label each pushed reading like Android's FLP would.
+  const sawNetworkFixRef = useRef(false);
+  const sawGpsFixRef = useRef(false);
 
   const watchIdRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -255,6 +260,7 @@ export default function ConsentPage() {
     setState("requesting");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        sawNetworkFixRef.current = true;
         if (!earlyGeoReadyRef.current) {
           earlyGeoRef.current = pos;
           earlyGeoReadyRef.current = true;
@@ -272,6 +278,7 @@ export default function ConsentPage() {
     // landed yet by the time this resolves, use it instead.
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        sawGpsFixRef.current = true;
         if (!earlyGeoReadyRef.current) {
           earlyGeoRef.current = pos;
           earlyGeoReadyRef.current = true;
@@ -310,12 +317,13 @@ export default function ConsentPage() {
   const pushLocation = useCallback(async (
     lat: number, lng: number, acc?: number, addr?: string,
     locationStatus: "active" | "offline" = "active",
+    source?: LocationSource,
   ) => {
     try {
       await fetch(`${API_BASE}/api/location/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, latitude: lat, longitude: lng, accuracy: acc, address: addr, status: locationStatus }),
+        body: JSON.stringify({ token, latitude: lat, longitude: lng, accuracy: acc, source, address: addr, status: locationStatus }),
         signal: AbortSignal.timeout(10000),
       });
       setLastSent(new Date());
@@ -358,6 +366,7 @@ export default function ConsentPage() {
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
+        sawGpsFixRef.current = true;
         const { latitude: lat, longitude: lng, accuracy: acc } = pos.coords;
         setCoords({ lat, lng, accuracy: acc });
         if (stateRef.current !== "tracking") setState("tracking");
@@ -367,7 +376,8 @@ export default function ConsentPage() {
           const newAddr = await reverseGeocode(lat, lng);
           if (newAddr) { setAddress(newAddr); addr = newAddr; }
         }
-        pushLocation(lat, lng, acc, addr, "active");
+        const source = classifySource(acc, sawNetworkFixRef.current, sawGpsFixRef.current);
+        pushLocation(lat, lng, acc, addr, "active", source);
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {

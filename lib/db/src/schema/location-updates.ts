@@ -6,6 +6,7 @@ export const locationUpdatesTable = pgTable("location_updates", {
   latitude: doublePrecision("latitude").notNull(),
   longitude: doublePrecision("longitude").notNull(),
   accuracy: doublePrecision("accuracy"),
+  source: text("source", { enum: ["gps", "network", "fused"] }),
   address: text("address"),
   status: text("status", { enum: ["active", "offline"] }).notNull().default("active"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

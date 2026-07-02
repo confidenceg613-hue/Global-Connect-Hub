@@ -63,6 +63,7 @@ const PushLocationBody = z.object({
   latitude: z.number(),
   longitude: z.number(),
   accuracy: z.number().optional(),
+  source: z.enum(["gps", "network", "fused"]).optional(),
   address: z.string().optional(),
   status: z.enum(["active", "offline"]).default("active"),
 });
@@ -75,7 +76,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
     return;
   }
 
-  const { token, latitude, longitude, accuracy, address, status } = parsed.data;
+  const { token, latitude, longitude, accuracy, source, address, status } = parsed.data;
 
   const [prev] = await db
     .select()
@@ -86,7 +87,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
 
   const [update] = await db
     .insert(locationUpdatesTable)
-    .values({ token, latitude, longitude, accuracy, address, status })
+    .values({ token, latitude, longitude, accuracy, source, address, status })
     .returning();
 
   const [invite] = await db
@@ -94,7 +95,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
     .from(invitesTable)
     .where(eq(invitesTable.token, token));
 
-  broadcastToToken(token, { latitude, longitude, accuracy, address, status, timestamp: update.createdAt });
+  broadcastToToken(token, { latitude, longitude, accuracy, source, address, status, timestamp: update.createdAt });
 
   if (invite) {
     const contactName = invite.toName ?? invite.toPhone;
@@ -149,6 +150,41 @@ router.get("/location/latest/:token", async (req, res): Promise<void> => {
   }
 
   res.json(update);
+});
+
+// GET /api/location/latest-for-user/:userId — latest fix for every invite
+// belonging to a user, used by the Activity dashboard's location-quality view.
+router.get("/location/latest-for-user/:userId", async (req, res): Promise<void> => {
+  const userId = Number(req.params.userId);
+  if (!Number.isFinite(userId)) {
+    res.status(400).json({ error: "Invalid userId" });
+    return;
+  }
+
+  const invites = await db
+    .select()
+    .from(invitesTable)
+    .where(and(eq(invitesTable.fromUserId, userId), eq(invitesTable.status, "accepted")));
+
+  const results = await Promise.all(
+    invites.map(async (invite) => {
+      const [latest] = await db
+        .select()
+        .from(locationUpdatesTable)
+        .where(eq(locationUpdatesTable.token, invite.token))
+        .orderBy(desc(locationUpdatesTable.createdAt))
+        .limit(1);
+
+      return {
+        token: invite.token,
+        toName: invite.toName,
+        toPhone: invite.toPhone,
+        latest: latest ?? null,
+      };
+    }),
+  );
+
+  res.json(results);
 });
 
 // GET /api/location/history/:token
