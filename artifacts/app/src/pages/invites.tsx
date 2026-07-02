@@ -43,7 +43,7 @@ export default function Invites() {
 
   const createInvite = useCreateInvite();
 
-  const handleSendInvite = (e: React.FormEvent) => {
+  const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!phone || !optIn) {
@@ -61,8 +61,8 @@ export default function Invites() {
     const basePath = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
     const baseUrl = window.location.origin + basePath;
 
-    createInvite.mutate(
-      {
+    try {
+      const created = await createInvite.mutateAsync({
         data: {
           fromUserId: userId!,
           toPhone: parsedPhone.number,
@@ -71,23 +71,26 @@ export default function Invites() {
           consentType: consentType !== "none" ? (consentType as "location" | "notification" | "messaging") : undefined,
           baseUrl,
         },
-      },
-      {
-        onSuccess: (created) => {
-          queryClient.invalidateQueries({ queryKey: getListInvitesQueryKey({ userId: userId! }) });
-          setLastCreated(created);
-          // Open WhatsApp with the pre-filled message that already contains the link
-          window.open(created.whatsappLink, "_blank");
-          toast({ title: "Invite created — WhatsApp opened!" });
-          setPhone("");
-          setName("");
-          setOptIn(false);
-        },
-        onError: () => {
-          toast({ title: "Failed to create invite", variant: "destructive" });
-        },
-      },
-    );
+      });
+
+      queryClient.invalidateQueries({ queryKey: getListInvitesQueryKey({ userId: userId! }) });
+      setLastCreated(created);
+      // Open WhatsApp with the pre-filled message that already contains the link
+      window.open(created.whatsappLink, "_blank");
+      toast({ title: "Invite created — WhatsApp opened!" });
+      setPhone("");
+      setName("");
+      setOptIn(false);
+    } catch (err: any) {
+      // Log for debugging
+      console.error("createInvite failed:", err);
+
+      // Try to extract a helpful message from common error shapes
+      const serverMessage =
+        err?.response?.data?.error || err?.response?.data || err?.message || (err?.data && typeof err.data === 'string' ? err.data : undefined);
+
+      toast({ title: serverMessage ?? "Failed to create invite", variant: "destructive" });
+    }
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -169,7 +172,7 @@ export default function Invites() {
                     defaultCountry="US"
                     value={phone}
                     onChange={(val) => setPhone(val || "")}
-                    className="flex h-10 w-full rounded-md border border-input bg-background text-foreground px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className="flex h-10 w-full rounded-md border border-input bg-background text-foreground px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none"
                     data-testid="input-recipient-phone"
                   />
                 </div>
@@ -364,7 +367,7 @@ function InviteCard({
           <div className="relative w-full" style={{ height: 200 }}>
             <iframe
               title={`Location for invite #${invite.id}`}
-              src={`https://www.openstreetmap.org/export/embed.html?bbox=${invite.grantedLongitude - 0.01},${invite.grantedLatitude - 0.01},${invite.grantedLongitude + 0.01},${invite.grantedLatitude + 0.01}&layer=mapnik&marker=${invite.grantedLatitude},${invite.grantedLongitude}`}
+              src={`https://www.openstreetmap.org/export/embed.html?bbox=${invite.grantedLongitude - 0.01},${invite.grantedLatitude - 0.01},${invite.grantedLongitude + 0.01},${invite.grantedLatit[...]
               className="w-full h-full border-0"
               loading="lazy"
               data-testid={`map-invite-${invite.id}`}
