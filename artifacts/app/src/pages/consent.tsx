@@ -387,16 +387,16 @@ export default function ConsentPage() {
 
   useEffect(() => () => stopTracking(), [stopTracking]);
 
-  const processGeoPosition = useCallback(async (position: GeolocationPosition) => {
+  const processGeoPosition = useCallback((position: GeolocationPosition) => {
     const { latitude, longitude, accuracy } = position.coords;
     setCoords({ lat: latitude, lng: longitude, accuracy });
     setState("granting");
 
-    const addr = await reverseGeocode(latitude, longitude);
-    if (addr) setAddress(addr);
-
+    // Grant consent immediately with raw coordinates — don't block the
+    // "live location" reveal on the reverse-geocode network round trip.
+    // The human-readable address fills in a moment later, in parallel.
     grant.mutate(
-      { token: token!, data: { latitude, longitude, address: addr } },
+      { token: token!, data: { latitude, longitude } },
       {
         onSuccess: () => startTracking(latitude, longitude, accuracy),
         onError: (err: any) => {
@@ -406,6 +406,10 @@ export default function ConsentPage() {
         },
       },
     );
+
+    reverseGeocode(latitude, longitude).then((addr) => {
+      if (addr) setAddress(addr);
+    });
   }, [token, grant, startTracking]);
 
   const doGrant = useCallback(() => {
