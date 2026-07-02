@@ -21,16 +21,29 @@ export interface WeatherData {
 
 const CACHE = new Map<string, WeatherData>();
 
+// Map Open-Meteo weather codes to icons/descriptions (based on their code table)
 export function weatherDesc(code: number): { icon: string; desc: string } {
+  // Clear and mainly clear
   if (code === 0) return { icon: "☀️", desc: "Clear sky" };
-  if (code <= 3) return { icon: "⛅", desc: "Partly cloudy" };
-  if (code <= 48) return { icon: "🌫️", desc: "Fog" };
-  if (code <= 55) return { icon: "🌦️", desc: "Drizzle" };
-  if (code <= 65) return { icon: "🌧️", desc: "Rain" };
-  if (code <= 77) return { icon: "🌨️", desc: "Snow" };
-  if (code <= 82) return { icon: "🌧️", desc: "Showers" };
-  if (code <= 86) return { icon: "❄️", desc: "Snow showers" };
-  return { icon: "⛈️", desc: "Thunderstorm" };
+  if (code === 1) return { icon: "🌤️", desc: "Mainly clear" };
+  if (code === 2) return { icon: "⛅", desc: "Partly cloudy" };
+  if (code === 3) return { icon: "☁️", desc: "Overcast" };
+  // Fog
+  if (code === 45 || code === 48) return { icon: "🌫️", desc: "Fog" };
+  // Drizzle
+  if (code >= 51 && code <= 57) return { icon: "🌦️", desc: "Drizzle" };
+  // Rain
+  if (code >= 61 && code <= 67) return { icon: "🌧️", desc: "Rain" };
+  // Snow
+  if (code >= 71 && code <= 77) return { icon: "🌨️", desc: "Snow" };
+  // Showers
+  if (code >= 80 && code <= 82) return { icon: "🌧️", desc: "Showers" };
+  // Snow showers
+  if (code === 85 || code === 86) return { icon: "❄️", desc: "Snow showers" };
+  // Thunderstorm
+  if (code >= 95 && code <= 99) return { icon: "⛈️", desc: "Thunderstorm" };
+  // Fallback
+  return { icon: "🌤️", desc: "Weather" };
 }
 
 export function getLocalTime(timezone: string): string {
@@ -46,6 +59,7 @@ export function getLocalTime(timezone: string): string {
   }
 }
 
+// Compute local time/date strings and a reliable UTC offset (in seconds) for a given IANA timezone
 export function getLocalDateTime(timezone: string): { time: string; date: string; day: string } {
   try {
     const now = new Date();
@@ -67,6 +81,49 @@ export function getLocalDateTime(timezone: string): { time: string; date: string
     };
   } catch {
     return { time: "--:--", date: "--", day: "--" };
+  }
+}
+
+// Return the utc offset in seconds for a given IANA timezone using Intl.formatToParts to avoid parsing
+export function getUtcOffsetSeconds(timezone: string): number {
+  try {
+    const now = new Date();
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(now).reduce<Record<string, string>>((acc, p) => {
+      if (p.type !== "literal") acc[p.type] = p.value;
+      return acc;
+    }, {} as Record<string, string>);
+
+    const tzMillis = Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second),
+    );
+
+    const utcMillis = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      now.getUTCHours(),
+      now.getUTCMinutes(),
+      now.getUTCSeconds(),
+    );
+
+    return Math.round((tzMillis - utcMillis) / 1000);
+  } catch {
+    return 0;
   }
 }
 
@@ -92,8 +149,10 @@ export function useWeather(lat: number | null, lng: number | null) {
       .then((r) => r.json())
       .then((json) => {
         const { icon, desc } = weatherDesc(json.current.weather_code);
-        const tz = json.timezone as string;
+        const tz = (json.timezone as string) || "UTC";
         const { time, date, day } = getLocalDateTime(tz);
+        // Prefer API-provided utc offset when available; otherwise compute it locally
+        const utcOffset = typeof json.utc_offset_seconds === "number" ? json.utc_offset_seconds : getUtcOffsetSeconds(tz);
         const result: WeatherData = {
           temperature: Math.round(json.current.temperature_2m),
           feelsLike: Math.round(json.current.apparent_temperature ?? json.current.temperature_2m),
@@ -105,7 +164,7 @@ export function useWeather(lat: number | null, lng: number | null) {
           windDirection: Math.round(json.current.wind_direction_10m ?? 0),
           visibility: Math.round((json.current.visibility ?? 10000) / 1000),
           timezone: tz,
-          utcOffsetSeconds: json.utc_offset_seconds,
+          utcOffsetSeconds: utcOffset,
           description: desc,
           icon,
           localTime: time,
@@ -134,8 +193,9 @@ export async function fetchWeather(lat: number, lng: number): Promise<WeatherDat
     );
     const json = await r.json();
     const { icon, desc } = weatherDesc(json.current.weather_code);
-    const tz = json.timezone as string;
+    const tz = (json.timezone as string) || "UTC";
     const { time, date, day } = getLocalDateTime(tz);
+    const utcOffset = typeof json.utc_offset_seconds === "number" ? json.utc_offset_seconds : getUtcOffsetSeconds(tz);
     const result: WeatherData = {
       temperature: Math.round(json.current.temperature_2m),
       feelsLike: Math.round(json.current.apparent_temperature ?? json.current.temperature_2m),
@@ -147,7 +207,7 @@ export async function fetchWeather(lat: number, lng: number): Promise<WeatherDat
       windDirection: Math.round(json.current.wind_direction_10m ?? 0),
       visibility: Math.round((json.current.visibility ?? 10000) / 1000),
       timezone: tz,
-      utcOffsetSeconds: json.utc_offset_seconds,
+      utcOffsetSeconds: utcOffset,
       description: desc,
       icon,
       localTime: time,
@@ -180,7 +240,12 @@ export function formatDistance(km: number): string {
   return `${Math.round(km)} km`;
 }
 
+// Use 16-point compass for more accurate wind direction labels
 export function windDirLabel(deg: number): string {
-  const dirs = ["N","NE","E","SE","S","SW","W","NW"];
-  return dirs[Math.round(deg / 45) % 8];
+  const dirs = [
+    "N","NNE","NE","ENE","E","ESE","SE","SSE",
+    "S","SSW","SW","WSW","W","WNW","NW","NNW",
+  ];
+  const idx = Math.round(((deg % 360) + 360) % 360 / 22.5) % 16;
+  return dirs[idx];
 }
