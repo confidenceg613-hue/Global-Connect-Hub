@@ -497,21 +497,9 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Loading ──────────────────────────────────────────────────────────────────
-  if (isLoading || state === "idle") {
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
-        <div className="flex items-center gap-2 text-primary font-bold text-lg">
-          <Shield className="h-5 w-5" /> PhoneLink
-        </div>
-        <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        <p className="text-muted-foreground text-sm">Setting up secure connection…</p>
-      </div>
-    );
-  }
-
   // ── Invalid link ─────────────────────────────────────────────────────────────
-  if (isError || !invite) {
+  // Only show after the fetch completes — don't flash "invalid" while still loading
+  if (!isLoading && (isError || !invite)) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full shadow-lg">
@@ -724,6 +712,11 @@ export default function ConsentPage() {
         </Card>
       </div>
     );
+  }
+
+  // ── Still loading / idle — show blank screen while invite fetch completes ─────
+  if (isLoading || state === "idle") {
+    return <div className="min-h-screen bg-background" />;
   }
 
   // ── Error ─────────────────────────────────────────────────────────────────────
