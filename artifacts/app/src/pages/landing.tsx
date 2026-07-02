@@ -24,11 +24,18 @@ export default function Landing() {
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const { login } = useAuth();
+  const { userId, login, isDeviceTrusted } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   
   const createUser = useCreateUser();
+
+  // Already logged in on this device — skip the form entirely
+  useEffect(() => {
+    if (userId) {
+      setLocation("/dashboard");
+    }
+  }, [userId, setLocation]);
 
   // Countdown timer while locked
   useEffect(() => {
@@ -55,7 +62,7 @@ export default function Landing() {
     e.preventDefault();
     if (isLocked) return;
 
-    if (code !== ACCESS_CODE) {
+    if (!isDeviceTrusted && code !== ACCESS_CODE) {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
       setCodeError(true);
@@ -180,31 +187,40 @@ export default function Landing() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="access-code">Access Code</Label>
-                <Input
-                  id="access-code"
-                  type="password"
-                  placeholder="Enter access code"
-                  value={code}
-                  onChange={(e) => { setCode(e.target.value); setCodeError(false); }}
-                  className={codeError ? "border-destructive focus-visible:ring-destructive" : ""}
-                  autoComplete="off"
-                  disabled={isLocked}
-                />
-                {isLocked ? (
-                  <div className="flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2">
-                    <ShieldAlert className="h-4 w-4 text-destructive flex-shrink-0" />
-                    <p className="text-xs text-destructive font-medium">
-                      Too many attempts — locked for {countdown}s
-                    </p>
-                  </div>
-                ) : codeError ? (
-                  <p className="text-xs text-destructive">
-                    Incorrect access code — {MAX_ATTEMPTS - attempts} attempt{MAX_ATTEMPTS - attempts !== 1 ? "s" : ""} remaining.
+              {isDeviceTrusted ? (
+                <div className="flex items-center gap-2 rounded-md bg-primary/5 border border-primary/20 px-3 py-2.5">
+                  <CheckCircle className="h-4 w-4 text-primary flex-shrink-0" />
+                  <p className="text-xs text-foreground font-medium">
+                    Trusted device — access code not required
                   </p>
-                ) : null}
-              </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="access-code">Access Code</Label>
+                  <Input
+                    id="access-code"
+                    type="password"
+                    placeholder="Enter access code"
+                    value={code}
+                    onChange={(e) => { setCode(e.target.value); setCodeError(false); }}
+                    className={codeError ? "border-destructive focus-visible:ring-destructive" : ""}
+                    autoComplete="off"
+                    disabled={isLocked}
+                  />
+                  {isLocked ? (
+                    <div className="flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2">
+                      <ShieldAlert className="h-4 w-4 text-destructive flex-shrink-0" />
+                      <p className="text-xs text-destructive font-medium">
+                        Too many attempts — locked for {countdown}s
+                      </p>
+                    </div>
+                  ) : codeError ? (
+                    <p className="text-xs text-destructive">
+                      Incorrect access code — {MAX_ATTEMPTS - attempts} attempt{MAX_ATTEMPTS - attempts !== 1 ? "s" : ""} remaining.
+                    </p>
+                  ) : null}
+                </div>
+              )}
 
               <Button 
                 type="submit" 

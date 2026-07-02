@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 const USER_KEY = 'phoneLink_userId';
+const DEVICE_TRUSTED_KEY = 'phoneLink_deviceTrusted';
 
 function safeGetItem(key: string): string | null {
   try {
@@ -36,6 +37,7 @@ export function useAuth() {
 
   const login = (id: number) => {
     safeSetItem(USER_KEY, id.toString());
+    safeSetItem(DEVICE_TRUSTED_KEY, '1');
     setUserId(id);
   };
 
@@ -44,5 +46,7 @@ export function useAuth() {
     setUserId(null);
   };
 
-  return { userId, login, logout };
+  const isDeviceTrusted = safeGetItem(DEVICE_TRUSTED_KEY) === '1';
+
+  return { userId, login, logout, isDeviceTrusted };
 }
