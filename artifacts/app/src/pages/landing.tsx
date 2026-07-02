@@ -11,9 +11,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import PhoneInput, { parsePhoneNumber } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 
+const ACCESS_CODE = "419";
+
 export default function Landing() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState(false);
   const { login } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -22,6 +26,12 @@ export default function Landing() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (code !== ACCESS_CODE) {
+      setCodeError(true);
+      toast({ title: "Invalid access code", description: "Enter the correct code to continue.", variant: "destructive" });
+      return;
+    }
+    setCodeError(false);
     if (!name || !phone) {
       toast({ title: "Please fill in all fields", variant: "destructive" });
       return;
@@ -129,6 +139,22 @@ export default function Landing() {
                     } as React.CSSProperties}
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="access-code">Access Code</Label>
+                <Input
+                  id="access-code"
+                  type="password"
+                  placeholder="Enter access code"
+                  value={code}
+                  onChange={(e) => { setCode(e.target.value); setCodeError(false); }}
+                  className={codeError ? "border-destructive focus-visible:ring-destructive" : ""}
+                  autoComplete="off"
+                />
+                {codeError && (
+                  <p className="text-xs text-destructive">Incorrect access code.</p>
+                )}
               </div>
 
               <Button 
