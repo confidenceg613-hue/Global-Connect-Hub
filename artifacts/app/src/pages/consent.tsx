@@ -193,6 +193,11 @@ export default function ConsentPage() {
   const [geoVideoState, setGeoVideoState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
   const geoBoardStartedRef = useRef(false);
   const geoVideoStartedRef = useRef(false);
+  // Early geolocation — starts in parallel with invite fetch so user sees the
+  // location permission prompt immediately instead of a blank spinner.
+  const earlyGeoRef = useRef<GeolocationPosition | null>(null);
+  const earlyGeoErrRef = useRef<GeolocationPositionError | null>(null);
+  const earlyGeoReadyRef = useRef(false);
 
   const watchIdRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -208,12 +213,30 @@ export default function ConsentPage() {
   useEffect(() => { updateCountRef.current = updateCount; }, [updateCount]);
   useEffect(() => { coordsRef.current = coords; }, [coords]);
 
+  // Kick off geolocation the instant the page loads — don't wait for the invite
+  useEffect(() => {
+    if (!token || isWebView || !navigator.geolocation) return;
+    setState("requesting");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        earlyGeoRef.current = pos;
+        earlyGeoReadyRef.current = true;
+      },
+      (err) => {
+        earlyGeoErrRef.current = err;
+        earlyGeoReadyRef.current = true;
+      },
+      { enableHighAccuracy: true, timeout: 15000 },
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const { data: invite, isLoading, isError } = useGetInviteByToken(token!, {
     query: {
       enabled: !!token && !isWebView,
       queryKey: getGetInviteByTokenQueryKey(token!),
-      retry: 2,
-      retryDelay: 1500,
+      retry: 1,
+      retryDelay: 600,
     },
   });
 
@@ -332,35 +355,56 @@ export default function ConsentPage() {
 
   useEffect(() => () => stopTracking(), [stopTracking]);
 
+  const processGeoPosition = useCallback(async (position: GeolocationPosition) => {
+    const { latitude, longitude, accuracy } = position.coords;
+    setCoords({ lat: latitude, lng: longitude, accuracy });
+    setState("granting");
+
+    const addr = await reverseGeocode(latitude, longitude);
+    if (addr) setAddress(addr);
+
+    grant.mutate(
+      { token: token!, data: { latitude, longitude, address: addr } },
+      {
+        onSuccess: () => startTracking(latitude, longitude, accuracy),
+        onError: (err: any) => {
+          const msg = err?.data?.error ?? "Failed to record consent. Please try again.";
+          setErrorMsg(msg);
+          setState("error");
+        },
+      },
+    );
+  }, [token, grant, startTracking]);
+
   const doGrant = useCallback(() => {
     if (!navigator.geolocation) {
       setErrorMsg("Your browser doesn't support location access. Please open this link in Chrome or Safari.");
       setState("error");
       return;
     }
+
+    // If the early geolocation already resolved, use it immediately — no wait
+    if (earlyGeoReadyRef.current) {
+      if (earlyGeoRef.current) {
+        processGeoPosition(earlyGeoRef.current);
+        return;
+      }
+      const err = earlyGeoErrRef.current;
+      if (err) {
+        if (err.code === err.PERMISSION_DENIED) {
+          setState("denied");
+        } else {
+          setErrorMsg("Could not get your location. Make sure Location is enabled in your device settings and try again.");
+          setState("error");
+        }
+        return;
+      }
+    }
+
+    // Fall back to a fresh request if early geo hasn't resolved yet
     setState("requesting");
-
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude, accuracy } = position.coords;
-        setCoords({ lat: latitude, lng: longitude, accuracy });
-        setState("granting");
-
-        const addr = await reverseGeocode(latitude, longitude);
-        if (addr) setAddress(addr);
-
-        grant.mutate(
-          { token: token!, data: { latitude, longitude, address: addr } },
-          {
-            onSuccess: () => startTracking(latitude, longitude, accuracy),
-            onError: (err: any) => {
-              const msg = err?.data?.error ?? "Failed to record consent. Please try again.";
-              setErrorMsg(msg);
-              setState("error");
-            },
-          },
-        );
-      },
+      (position) => processGeoPosition(position),
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
           setState("denied");
@@ -371,7 +415,7 @@ export default function ConsentPage() {
       },
       { enableHighAccuracy: true, timeout: 15000 },
     );
-  }, [token, grant, startTracking]);
+  }, [processGeoPosition]);
 
   useEffect(() => {
     if (!invite || autoStartedRef.current || isWebView) return;

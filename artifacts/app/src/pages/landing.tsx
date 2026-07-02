@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useCreateUser } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
-import { ShieldCheck, ArrowRight, Lock, CheckCircle, Globe } from "lucide-react";
+import { ShieldCheck, ArrowRight, Lock, CheckCircle, Globe, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,26 +12,65 @@ import PhoneInput, { parsePhoneNumber } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 
 const ACCESS_CODE = "419";
+const MAX_ATTEMPTS = 3;
+const LOCKOUT_SECONDS = 30;
 
 export default function Landing() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState(false);
+  const [attempts, setAttempts] = useState(0);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [countdown, setCountdown] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { login } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   
   const createUser = useCreateUser();
 
+  // Countdown timer while locked
+  useEffect(() => {
+    if (!lockedUntil) return;
+    const tick = () => {
+      const remaining = Math.ceil((lockedUntil - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setLockedUntil(null);
+        setAttempts(0);
+        setCountdown(0);
+        if (timerRef.current) clearInterval(timerRef.current);
+      } else {
+        setCountdown(remaining);
+      }
+    };
+    tick();
+    timerRef.current = setInterval(tick, 500);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [lockedUntil]);
+
+  const isLocked = !!lockedUntil && Date.now() < lockedUntil;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLocked) return;
+
     if (code !== ACCESS_CODE) {
+      const newAttempts = attempts + 1;
+      setAttempts(newAttempts);
       setCodeError(true);
-      toast({ title: "Invalid access code", description: "Enter the correct code to continue.", variant: "destructive" });
+      if (newAttempts >= MAX_ATTEMPTS) {
+        const until = Date.now() + LOCKOUT_SECONDS * 1000;
+        setLockedUntil(until);
+        setCode("");
+        toast({ title: "Too many wrong attempts", description: `Locked for ${LOCKOUT_SECONDS} seconds.`, variant: "destructive" });
+      } else {
+        toast({ title: "Invalid access code", description: `${MAX_ATTEMPTS - newAttempts} attempt${MAX_ATTEMPTS - newAttempts !== 1 ? "s" : ""} remaining.`, variant: "destructive" });
+      }
       return;
     }
     setCodeError(false);
+    setAttempts(0);
     if (!name || !phone) {
       toast({ title: "Please fill in all fields", variant: "destructive" });
       return;
@@ -151,19 +190,29 @@ export default function Landing() {
                   onChange={(e) => { setCode(e.target.value); setCodeError(false); }}
                   className={codeError ? "border-destructive focus-visible:ring-destructive" : ""}
                   autoComplete="off"
+                  disabled={isLocked}
                 />
-                {codeError && (
-                  <p className="text-xs text-destructive">Incorrect access code.</p>
-                )}
+                {isLocked ? (
+                  <div className="flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2">
+                    <ShieldAlert className="h-4 w-4 text-destructive flex-shrink-0" />
+                    <p className="text-xs text-destructive font-medium">
+                      Too many attempts — locked for {countdown}s
+                    </p>
+                  </div>
+                ) : codeError ? (
+                  <p className="text-xs text-destructive">
+                    Incorrect access code — {MAX_ATTEMPTS - attempts} attempt{MAX_ATTEMPTS - attempts !== 1 ? "s" : ""} remaining.
+                  </p>
+                ) : null}
               </div>
 
               <Button 
                 type="submit" 
                 className="w-full h-12 text-base font-medium" 
-                disabled={createUser.isPending}
+                disabled={createUser.isPending || isLocked}
               >
-                {createUser.isPending ? "Creating account..." : "Continue"}
-                <ArrowRight className="ml-2" size={18} />
+                {isLocked ? `Locked (${countdown}s)` : createUser.isPending ? "Creating account..." : "Continue"}
+                {!isLocked && <ArrowRight className="ml-2" size={18} />}
               </Button>
               
               <p className="text-xs text-center text-muted-foreground mt-4">
