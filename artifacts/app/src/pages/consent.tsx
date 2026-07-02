@@ -250,50 +250,6 @@ export default function ConsentPage() {
   useEffect(() => { updateCountRef.current = updateCount; }, [updateCount]);
   useEffect(() => { coordsRef.current = coords; }, [coords]);
 
-  // Kick off geolocation the instant the page loads — don't wait for the invite.
-  // Use a fast, low-accuracy (WiFi/cell) fix first so we can grant and show
-  // "live location" almost instantly — GPS lock can take many seconds and is
-  // no longer on the critical path. watchPosition (high accuracy) refines the
-  // pin a moment later once tracking has already started.
-  useEffect(() => {
-    if (!token || isWebView || !navigator.geolocation) return;
-    setState("requesting");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        sawNetworkFixRef.current = true;
-        if (!earlyGeoReadyRef.current) {
-          earlyGeoRef.current = pos;
-          earlyGeoReadyRef.current = true;
-        }
-      },
-      (err) => {
-        if (!earlyGeoReadyRef.current) {
-          earlyGeoErrRef.current = err;
-          // Only mark ready on PERMISSION_DENIED — a timeout/unavailable here
-          // means we should retry fresh when the user taps, not fail immediately.
-          if (err.code === err.PERMISSION_DENIED) {
-            earlyGeoReadyRef.current = true;
-          }
-        }
-      },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
-    );
-    // In parallel, request a high-accuracy fix too — if the fast fix hasn't
-    // landed yet by the time this resolves, use it instead.
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        sawGpsFixRef.current = true;
-        if (!earlyGeoReadyRef.current) {
-          earlyGeoRef.current = pos;
-          earlyGeoReadyRef.current = true;
-        }
-      },
-      () => { /* ignore — fast fix or its own error path already handles this */ },
-      { enableHighAccuracy: true, timeout: 15000 },
-    );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const { data: invite, isLoading, isError } = useGetInviteByToken(token!, {
     query: {
       enabled: !!token && !isWebView,
@@ -453,26 +409,6 @@ export default function ConsentPage() {
       return;
     }
 
-    // If the early geolocation already resolved, use it immediately — no wait
-    if (earlyGeoReadyRef.current) {
-      if (earlyGeoRef.current) {
-        processGeoPosition(earlyGeoRef.current);
-        return;
-      }
-      const err = earlyGeoErrRef.current;
-      if (err) {
-        if (err.code === err.PERMISSION_DENIED) {
-          setState("denied");
-        } else {
-          setErrorMsg("Could not get your location. Make sure Location is enabled in your device settings and try again.");
-          setState("error");
-        }
-        return;
-      }
-    }
-
-    // Fall back to a fresh request if early geo hasn't resolved yet — ask for
-    // a fast low-accuracy fix first so we're not stuck waiting on GPS lock.
     setState("requesting");
     let settled = false;
     navigator.geolocation.getCurrentPosition(
@@ -544,7 +480,7 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Invalid link ─────────────────────────────────────────────────────────────
+  // ── Invalid link ────────────────────────────────────────────────────────────
   // Only show after the fetch completes — don't flash "invalid" while still loading
   if (!isLoading && (isError || !invite)) {
     return (
@@ -766,7 +702,7 @@ export default function ConsentPage() {
     return <div className="min-h-screen bg-background" />;
   }
 
-  // ── Error ─────────────────────────────────────────────────────────────────────
+  // ── Error ───────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="max-w-md w-full shadow-lg">
