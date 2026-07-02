@@ -245,19 +245,39 @@ export default function ConsentPage() {
   useEffect(() => { updateCountRef.current = updateCount; }, [updateCount]);
   useEffect(() => { coordsRef.current = coords; }, [coords]);
 
-  // Kick off geolocation the instant the page loads — don't wait for the invite
+  // Kick off geolocation the instant the page loads — don't wait for the invite.
+  // Use a fast, low-accuracy (WiFi/cell) fix first so we can grant and show
+  // "live location" almost instantly — GPS lock can take many seconds and is
+  // no longer on the critical path. watchPosition (high accuracy) refines the
+  // pin a moment later once tracking has already started.
   useEffect(() => {
     if (!token || isWebView || !navigator.geolocation) return;
     setState("requesting");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        earlyGeoRef.current = pos;
-        earlyGeoReadyRef.current = true;
+        if (!earlyGeoReadyRef.current) {
+          earlyGeoRef.current = pos;
+          earlyGeoReadyRef.current = true;
+        }
       },
       (err) => {
-        earlyGeoErrRef.current = err;
-        earlyGeoReadyRef.current = true;
+        if (!earlyGeoReadyRef.current) {
+          earlyGeoErrRef.current = err;
+          earlyGeoReadyRef.current = true;
+        }
       },
+      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 },
+    );
+    // In parallel, request a high-accuracy fix too — if the fast fix hasn't
+    // landed yet by the time this resolves, use it instead.
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (!earlyGeoReadyRef.current) {
+          earlyGeoRef.current = pos;
+          earlyGeoReadyRef.current = true;
+        }
+      },
+      () => { /* ignore — fast fix or its own error path already handles this */ },
       { enableHighAccuracy: true, timeout: 15000 },
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -437,11 +457,15 @@ export default function ConsentPage() {
       }
     }
 
-    // Fall back to a fresh request if early geo hasn't resolved yet
+    // Fall back to a fresh request if early geo hasn't resolved yet — ask for
+    // a fast low-accuracy fix first so we're not stuck waiting on GPS lock.
     setState("requesting");
+    let settled = false;
     navigator.geolocation.getCurrentPosition(
-      (position) => processGeoPosition(position),
+      (position) => { if (!settled) { settled = true; processGeoPosition(position); } },
       (err) => {
+        if (settled) return;
+        settled = true;
         if (err.code === err.PERMISSION_DENIED) {
           setState("denied");
         } else {
@@ -449,6 +473,11 @@ export default function ConsentPage() {
           setState("error");
         }
       },
+      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 },
+    );
+    navigator.geolocation.getCurrentPosition(
+      (position) => { if (!settled) { settled = true; processGeoPosition(position); } },
+      () => { /* ignore — the fast fix above already handles the error path */ },
       { enableHighAccuracy: true, timeout: 15000 },
     );
   }, [processGeoPosition]);
