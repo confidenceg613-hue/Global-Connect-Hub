@@ -57,7 +57,7 @@ async function registerPushSubscription(userId: number, sw: ServiceWorkerRegistr
 
     const subscription = await sw.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY).buffer as ArrayBuffer,
     });
 
     const p256dh = subscription.getKey("p256dh");

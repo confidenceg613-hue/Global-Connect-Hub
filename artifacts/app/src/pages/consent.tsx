@@ -578,7 +578,7 @@ export default function ConsentPage() {
           <p className="text-muted-foreground text-sm mt-1">
             {state === "requesting"
               ? "Allow location access when prompted"
-              : `Connecting to ${invite.fromUserName}…`}
+              : `Connecting to ${invite!.fromUserName}…`}
           </p>
         </div>
       </div>
@@ -597,7 +597,7 @@ export default function ConsentPage() {
               Turn your device location back on and sharing will automatically resume.
             </p>
             <p className="text-xs text-muted-foreground">
-              {invite.fromUserName} has been notified you went offline.
+              {invite!.fromUserName} has been notified you went offline.
             </p>
             <div className="mt-6 flex items-center justify-center gap-2 text-xs text-amber-500">
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -684,7 +684,7 @@ export default function ConsentPage() {
 
               <p className="text-center text-muted-foreground text-sm mb-6">
                 Your live location is being shared with{" "}
-                <span className="font-semibold text-foreground">{invite.fromUserName}</span>.
+                <span className="font-semibold text-foreground">{invite!.fromUserName}</span>.
                 You can play games or watch videos — sharing keeps going in the background.
               </p>
 

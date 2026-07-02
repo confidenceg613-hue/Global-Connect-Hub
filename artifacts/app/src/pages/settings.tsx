@@ -291,7 +291,7 @@ function NotificationsSection() {
         existing ??
         (await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY).buffer as ArrayBuffer,
         }));
       const p256dh = sub.getKey("p256dh");
       const auth = sub.getKey("auth");

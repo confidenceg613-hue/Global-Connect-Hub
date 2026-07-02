@@ -630,7 +630,7 @@ export default function LiveMap() {
 
   // ── Actions ───────────────────────────────────────────────────────────────────
   const handleFindMe = () => {
-    if (!navigator.geolocation) return toast({ title: "Geolocation not supported", variant: "destructive" });
+    if (!navigator.geolocation) { toast({ title: "Geolocation not supported", variant: "destructive" }); return; }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
