@@ -8,3 +8,4 @@ export * from "./notifications-log";
 export * from "./geo-photos";
 export * from "./geo-videos";
 export * from "./location-type-reports";
+export * from "./assistant-messages";
