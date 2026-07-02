@@ -6,9 +6,9 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { format, formatDistanceToNow } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag, Siren, Flame } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag, Siren, Flame, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { fetchWeather, haversineKm, formatDistance, getLocalTime } from "@/hooks/use-weather";
+import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
 import { analyzeLocation, findClusters, TYPE_CONFIG } from "@/lib/location-intelligence";
 
@@ -507,7 +507,45 @@ export default function LiveMap() {
             const el = document.getElementById(`wx-${inv.id}`);
             if (!el) return;
             if (wx) {
-              el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;"><div><div style="font-size:22px;">${wx.icon}</div><div style="font-size:10px;color:#a1a1aa;">${wx.description}</div></div><div style="text-align:right;"><div style="font-size:22px;font-weight:800;color:#f4f4f5;">${wx.temperature}°C</div><div style="font-size:10px;color:#a1a1aa;">💨 ${wx.windSpeed} km/h</div></div></div><div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.07);font-size:10px;color:#a1a1aa;font-family:ui-monospace,monospace;">🕐 Local: <strong style="color:#c4b5fd;">${getLocalTime(wx.timezone)}</strong></div>`;
+              const uvColor = wx.uvIndex <= 2 ? "#22c55e" : wx.uvIndex <= 5 ? "#eab308" : wx.uvIndex <= 7 ? "#f97316" : "#ef4444";
+              el.innerHTML = `
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:9px;">
+                  <div>
+                    <div style="font-size:26px;line-height:1;">${wx.icon}</div>
+                    <div style="font-size:10px;color:#a1a1aa;margin-top:2px;">${wx.description}</div>
+                  </div>
+                  <div style="text-align:right;">
+                    <div style="font-size:26px;font-weight:800;color:#f4f4f5;line-height:1;">${wx.temperature}°C</div>
+                    <div style="font-size:10px;color:#a1a1aa;margin-top:1px;">Feels ${wx.feelsLike}°C</div>
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;font-size:10px;margin-bottom:9px;">
+                  <div style="background:rgba(255,255,255,.04);border-radius:6px;padding:5px 6px;">
+                    <div style="color:#71717a;font-size:9px;margin-bottom:1px;">💧 Humidity</div>
+                    <div style="color:#93c5fd;font-weight:700;">${wx.humidity}%</div>
+                  </div>
+                  <div style="background:rgba(255,255,255,.04);border-radius:6px;padding:5px 6px;">
+                    <div style="color:#71717a;font-size:9px;margin-bottom:1px;">🌧️ Rain</div>
+                    <div style="color:#93c5fd;font-weight:700;">${wx.precipProb}%</div>
+                  </div>
+                  <div style="background:rgba(255,255,255,.04);border-radius:6px;padding:5px 6px;">
+                    <div style="color:#71717a;font-size:9px;margin-bottom:1px;">☀️ UV</div>
+                    <div style="color:${uvColor};font-weight:700;">${wx.uvIndex}</div>
+                  </div>
+                  <div style="background:rgba(255,255,255,.04);border-radius:6px;padding:5px 6px;">
+                    <div style="color:#71717a;font-size:9px;margin-bottom:1px;">💨 Wind</div>
+                    <div style="color:#d4d4d8;font-weight:700;">${wx.windSpeed} km/h ${windDirLabel(wx.windDirection)}</div>
+                  </div>
+                  <div style="background:rgba(255,255,255,.04);border-radius:6px;padding:5px 6px;">
+                    <div style="color:#71717a;font-size:9px;margin-bottom:1px;">👁️ Vis</div>
+                    <div style="color:#d4d4d8;font-weight:700;">${wx.visibility} km</div>
+                  </div>
+                </div>
+                <div style="padding-top:7px;border-top:1px solid rgba(255,255,255,.07);">
+                  <div style="font-size:10px;color:#a1a1aa;font-family:ui-monospace,monospace;margin-bottom:2px;">🕐 Local time: <strong style="color:#c4b5fd;">${wx.localTime}</strong></div>
+                  <div style="font-size:9px;color:#71717a;font-family:ui-monospace,monospace;">${wx.localDay}, ${wx.localDate}</div>
+                  <div style="font-size:9px;color:#52525b;margin-top:1px;">${wx.timezone.replace(/_/g," ")} (${wx.utcOffsetSeconds >= 0 ? "+" : ""}${Math.round(wx.utcOffsetSeconds/3600)}h UTC)</div>
+                </div>`;
             } else {
               el.innerHTML = `<span style="font-size:10px;opacity:.4;">Weather unavailable</span>`;
             }
@@ -521,26 +559,46 @@ export default function LiveMap() {
               return;
             }
             const flag = area.countryCode
-              ? String.fromCodePoint(
-                  ...[...area.countryCode].map((c) => 127397 + c.charCodeAt(0)),
-                )
+              ? String.fromCodePoint(...[...area.countryCode].map((c) => 127397 + c.charCodeAt(0)))
               : "🌐";
-            const place = [area.county, area.state, area.country].filter(Boolean).join(", ");
+            const locationParts = [area.neighbourhood || area.suburb, area.city || area.county, area.state, area.country].filter(Boolean);
+            const primaryPlace = locationParts.slice(0, 2).join(", ");
+            const regionLine  = locationParts.slice(2).join(", ");
             const aq = area.aqi != null ? aqiLabel(area.aqi) : null;
             el.innerHTML = `
-              <div style="font-size:9px;font-weight:600;letter-spacing:.1em;color:#71717a;text-transform:uppercase;margin-bottom:5px;">Area Info</div>
-              <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
-                <span style="font-size:14px;">${flag}</span>
-                <span style="font-size:11px;color:#f4f4f5;font-weight:600;">${place || "Unknown area"}</span>
+              <div style="font-size:9px;font-weight:600;letter-spacing:.1em;color:#71717a;text-transform:uppercase;margin-bottom:6px;">📍 Area Findings</div>
+              <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:7px;">
+                <span style="font-size:16px;flex-shrink:0;">${flag}</span>
+                <div>
+                  <div style="font-size:12px;color:#f4f4f5;font-weight:700;line-height:1.3;">${primaryPlace || "Unknown area"}</div>
+                  ${regionLine ? `<div style="font-size:10px;color:#71717a;margin-top:1px;">${regionLine}</div>` : ""}
+                </div>
               </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;font-size:10px;">
-                ${area.placeType ? `<div>🏷️ <span style="color:#d4d4d8;">${area.placeType}</span></div>` : ""}
-                ${area.elevation != null ? `<div>⛰️ <span style="color:#d4d4d8;">${area.elevation} m</span></div>` : ""}
-                ${aq ? `<div>🌬️ AQI <span style="color:${aq.color};font-weight:700;">${area.aqi}</span> <span style="color:#71717a;">(${aq.label})</span></div>` : ""}
-                ${area.postcode ? `<div>📮 <span style="color:#d4d4d8;">${area.postcode}</span></div>` : ""}
-                ${area.sunrise ? `<div>🌅 <span style="color:#d4d4d8;">${area.sunrise}</span></div>` : ""}
-                ${area.sunset ? `<div>🌇 <span style="color:#d4d4d8;">${area.sunset}</span></div>` : ""}
-              </div>`;
+              ${area.road ? `<div style="font-size:10px;color:#a1a1aa;margin-bottom:6px;padding:4px 7px;background:rgba(255,255,255,.04);border-radius:5px;">🛣️ ${area.road}${area.postcode ? " · " + area.postcode : ""}</div>` : (area.postcode ? `<div style="font-size:10px;color:#a1a1aa;margin-bottom:6px;">📮 ${area.postcode}</div>` : "")}
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:10px;margin-bottom:7px;">
+                ${area.placeType ? `<div style="background:rgba(255,255,255,.04);border-radius:5px;padding:4px 6px;"><span style="color:#71717a;font-size:9px;">Type</span><br/><span style="color:#d4d4d8;">🏷️ ${area.placeType}</span></div>` : ""}
+                ${area.elevation != null ? `<div style="background:rgba(255,255,255,.04);border-radius:5px;padding:4px 6px;"><span style="color:#71717a;font-size:9px;">Elevation</span><br/><span style="color:#d4d4d8;">⛰️ ${area.elevation} m</span></div>` : ""}
+                ${area.utcOffset ? `<div style="background:rgba(255,255,255,.04);border-radius:5px;padding:4px 6px;"><span style="color:#71717a;font-size:9px;">Timezone</span><br/><span style="color:#d4d4d8;">🌐 ${area.utcOffset}</span></div>` : ""}
+                ${area.sunrise ? `<div style="background:rgba(255,255,255,.04);border-radius:5px;padding:4px 6px;"><span style="color:#71717a;font-size:9px;">Sunrise</span><br/><span style="color:#fbbf24;">🌅 ${area.sunrise}</span></div>` : ""}
+                ${area.sunset ? `<div style="background:rgba(255,255,255,.04);border-radius:5px;padding:4px 6px;"><span style="color:#71717a;font-size:9px;">Sunset</span><br/><span style="color:#f97316;">🌇 ${area.sunset}</span></div>` : ""}
+              </div>
+              ${aq ? `
+              <div style="margin-bottom:6px;padding:6px 8px;background:rgba(255,255,255,.04);border-radius:6px;border-left:2px solid ${aq.color};">
+                <div style="font-size:9px;color:#71717a;margin-bottom:3px;">🌬️ Air Quality</div>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                  <span style="font-size:13px;font-weight:800;color:${aq.color};">AQI ${area.aqi}</span>
+                  <span style="font-size:10px;color:${aq.color};font-weight:600;">${aq.label}</span>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:4px;font-size:9px;color:#71717a;flex-wrap:wrap;">
+                  ${area.pm25 != null ? `<span>PM2.5: <strong style="color:#d4d4d8;">${area.pm25.toFixed(1)}</strong></span>` : ""}
+                  ${area.no2  != null ? `<span>NO₂: <strong style="color:#d4d4d8;">${area.no2}</strong></span>` : ""}
+                  ${area.o3   != null ? `<span>O₃: <strong style="color:#d4d4d8;">${area.o3}</strong></span>` : ""}
+                </div>
+              </div>` : ""}
+              <a href="${area.googleMapsUrl}" target="_blank" rel="noreferrer"
+                style="display:block;text-align:center;padding:5px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);border-radius:6px;color:#818cf8;font-size:10px;font-weight:600;text-decoration:none;">
+                🗺️ View on Google Maps
+              </a>`;
           }).catch(() => {});
         });
 
@@ -662,6 +720,18 @@ export default function LiveMap() {
             <Tag size={10} /> Labels
           </button>
         </div>
+      </div>
+
+      {/* Close button — top left below HUD */}
+      <div className="absolute top-14 left-3 z-[1000]">
+        <button
+          onClick={() => window.history.back()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 bg-black/60 backdrop-blur text-zinc-300 text-[11px] font-semibold font-mono hover:bg-white/10 hover:text-white transition-all"
+          title="Go back — contacts keep sharing in the background"
+        >
+          <X size={12} />
+          <span>Close</span>
+        </button>
       </div>
 
       {/* Command bar — bottom */}

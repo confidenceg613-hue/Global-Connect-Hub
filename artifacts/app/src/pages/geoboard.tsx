@@ -77,42 +77,59 @@ function makeCameraPin(color: string, idx: number) {
   });
 }
 
+function makeVideoPin(color: string) {
+  return L.divIcon({
+    className: "",
+    iconSize: [44, 54],
+    iconAnchor: [22, 54],
+    popupAnchor: [0, -54],
+    html: `<div style="position:relative;width:44px;height:54px;filter:drop-shadow(0 4px 12px #ef444488);">
+      <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#7f1d1d,#ef4444);display:flex;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,.85);font-size:18px;">
+        🎥
+      </div>
+      <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:12px solid #ef4444;"></div>
+    </div>`,
+  });
+}
+
 // ── Map View ────────────────────────────────────────────────────────────────
 function GeoMapView({
   photos,
+  videos,
   groups,
 }: {
   photos: GeoPhoto[];
+  videos: GeoVideo[];
   groups: ContactGroup[];
 }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletRef = useRef<L.Map | null>(null);
-  const [selected, setSelected] = useState<GeoPhoto | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<GeoPhoto | null>(null);
+  const [selectedVideo, setSelectedVideo] = useState<GeoVideo | null>(null);
 
   const colorByToken = new Map(groups.map((g) => [g.token, g.color]));
-  const nameByToken = new Map(groups.map((g) => [g.token, g.name || g.phone]));
+  const nameByToken  = new Map(groups.map((g) => [g.token, g.name || g.phone]));
 
   const geoPhotos = photos.filter((p) => p.latitude != null && p.longitude != null);
+  const geoVideos = videos.filter((v) => v.latitude != null && v.longitude != null);
 
   useEffect(() => {
     if (!mapRef.current) return;
 
-    // Init map
-    const map = L.map(mapRef.current, {
-      zoomControl: true,
-      attributionControl: false,
-    });
+    const map = L.map(mapRef.current, { zoomControl: true, attributionControl: false });
     leafletRef.current = map;
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
       maxZoom: 19,
+    }).addTo(map);
+    L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19, opacity: 0.8,
     }).addTo(map);
 
     const bounds: [number, number][] = [];
-
-    // Group photos by token to assign sequential index per contact
     const indexByToken = new Map<string, number>();
 
+    // Photo markers
     geoPhotos.forEach((photo) => {
       const lat = photo.latitude!;
       const lng = photo.longitude!;
@@ -122,7 +139,6 @@ function GeoMapView({
       const idx = indexByToken.get(photo.inviteToken) ?? 0;
       indexByToken.set(photo.inviteToken, idx + 1);
 
-      const pin = makeCameraPin(color, idx);
       const contactName = nameByToken.get(photo.inviteToken) ?? "Contact";
       const timeStr = formatTime(photo.takenAt);
 
@@ -138,9 +154,38 @@ function GeoMapView({
           </a>
         </div>`;
 
-      const marker = L.marker([lat, lng], { icon: pin }).addTo(map);
+      const marker = L.marker([lat, lng], { icon: makeCameraPin(color, idx) }).addTo(map);
       marker.bindPopup(popupHtml, { maxWidth: 220 });
-      marker.on("click", () => setSelected(photo));
+      marker.on("click", () => { setSelectedPhoto(photo); setSelectedVideo(null); });
+    });
+
+    // Video markers
+    geoVideos.forEach((video) => {
+      const lat = video.latitude!;
+      const lng = video.longitude!;
+      bounds.push([lat, lng]);
+
+      const color = colorByToken.get(video.inviteToken) ?? "#ef4444";
+      const contactName = nameByToken.get(video.inviteToken) ?? "Contact";
+      const timeStr = formatTime(video.takenAt);
+      const durSec = video.durationMs ? (video.durationMs / 1000).toFixed(1) : "5";
+
+      const popupHtml = `
+        <div style="font-family:system-ui,sans-serif;width:200px;">
+          <div style="width:100%;height:80px;background:linear-gradient(135deg,#7f1d1d,#1c1c1e);border-radius:6px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;">
+            <span style="font-size:32px;">🎥</span>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#f4f4f5;margin-bottom:3px;">${contactName}</div>
+          <div style="font-size:10px;color:#94a3b8;margin-bottom:2px;">🕐 ${timeStr} · ${durSec}s clip</div>
+          ${video.address ? `<div style="font-size:10px;color:#64748b;margin-top:3px;line-height:1.4;">${video.address.slice(0, 60)}${video.address.length > 60 ? "…" : ""}</div>` : ""}
+          <div style="margin-top:8px;padding:5px 8px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);border-radius:5px;font-size:10px;color:#fca5a5;text-align:center;">
+            Click to play clip below map
+          </div>
+        </div>`;
+
+      const marker = L.marker([lat, lng], { icon: makeVideoPin(color) }).addTo(map);
+      marker.bindPopup(popupHtml, { maxWidth: 220 });
+      marker.on("click", () => { setSelectedVideo(video); setSelectedPhoto(null); });
     });
 
     if (bounds.length > 0) {
@@ -156,17 +201,25 @@ function GeoMapView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const totalPins = geoPhotos.length + geoVideos.length;
+
   return (
     <div className="relative">
       {/* Legend */}
-      <div className="flex flex-wrap gap-2 mb-3">
+      <div className="flex flex-wrap gap-3 mb-3 items-center">
         {groups.map((g) => (
           <div key={g.token} className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: g.color }} />
             <span>{g.name || g.phone}</span>
-            <span className="text-muted-foreground/60">({g.photos.filter((p) => p.latitude).length} pins)</span>
+            <span className="text-muted-foreground/60">
+              ({g.photos.filter((p) => p.latitude).length}📸 {g.videos.filter((v) => v.latitude).length}🎥)
+            </span>
           </div>
         ))}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground ml-auto">
+          <span className="flex items-center gap-1"><span className="text-base">📸</span> Photo pin</span>
+          <span className="flex items-center gap-1"><span className="text-base">🎥</span> Video pin</span>
+        </div>
       </div>
 
       {/* Map container */}
@@ -176,59 +229,99 @@ function GeoMapView({
         style={{ height: "480px" }}
       />
 
-      {geoPhotos.length === 0 && (
+      {totalPins === 0 && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted/80 rounded-xl">
           <div className="text-center">
             <MapPin className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No photos with GPS data yet</p>
+            <p className="text-sm text-muted-foreground">No media with GPS data yet</p>
           </div>
         </div>
       )}
 
-      {/* Selected photo side-panel */}
-      {selected && (
+      {/* Selected photo panel */}
+      {selectedPhoto && (
         <div className="mt-3 bg-muted rounded-xl p-4">
           <div className="flex items-start gap-3">
             <img
-              src={selected.photoData}
+              src={selectedPhoto.photoData}
               alt="Selected GeoBoard photo"
               className="w-24 h-24 object-cover rounded-lg flex-shrink-0 bg-black/20"
             />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-semibold text-foreground">
-                  {nameByToken.get(selected.inviteToken) ?? "Contact"}
+                  {nameByToken.get(selectedPhoto.inviteToken) ?? "Contact"}
                 </span>
-                <button onClick={() => setSelected(null)} className="text-muted-foreground hover:text-foreground">
+                <button onClick={() => setSelectedPhoto(null)} className="text-muted-foreground hover:text-foreground">
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                 <Clock className="h-3 w-3" />
-                {formatTime(selected.takenAt)}
+                {formatTime(selectedPhoto.takenAt)}
               </div>
-              {selected.latitude && selected.longitude && (
+              {selectedPhoto.latitude && selectedPhoto.longitude && (
                 <div className="flex items-center gap-1 text-xs text-primary mb-1">
                   <MapPin className="h-3 w-3" />
-                  {selected.latitude.toFixed(5)}, {selected.longitude.toFixed(5)}
+                  {selectedPhoto.latitude.toFixed(5)}, {selectedPhoto.longitude.toFixed(5)}
                 </div>
               )}
-              {selected.address && (
-                <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                  {selected.address}
-                </p>
+              {selectedPhoto.address && (
+                <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{selectedPhoto.address}</p>
               )}
               <Button
-                size="sm"
-                variant="outline"
-                className="mt-2 h-7 text-xs w-full"
-                onClick={() => selected.latitude && window.open(
-                  `https://maps.google.com/?q=${selected.latitude},${selected.longitude}`, "_blank",
+                size="sm" variant="outline" className="mt-2 h-7 text-xs w-full"
+                onClick={() => selectedPhoto.latitude && window.open(
+                  `https://maps.google.com/?q=${selectedPhoto.latitude},${selectedPhoto.longitude}`, "_blank",
                 )}
               >
                 <MapPin className="h-3 w-3 mr-1" /> Open in Google Maps
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Selected video panel */}
+      {selectedVideo && (
+        <div className="mt-3 bg-muted rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Video className="h-4 w-4 text-rose-400" />
+              <span className="text-sm font-semibold text-foreground">
+                {nameByToken.get(selectedVideo.inviteToken) ?? "Contact"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                · {selectedVideo.durationMs ? (selectedVideo.durationMs / 1000).toFixed(1) : "5"}s clip
+              </span>
+            </div>
+            <button onClick={() => setSelectedVideo(null)} className="text-muted-foreground hover:text-foreground">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <video
+            src={selectedVideo.videoData}
+            controls
+            autoPlay
+            playsInline
+            className="w-full rounded-lg max-h-56 bg-black"
+            style={{ aspectRatio: "16/9" }}
+          />
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <div className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {formatTime(selectedVideo.takenAt)}
+            </div>
+            {selectedVideo.latitude && selectedVideo.longitude && (
+              <a
+                href={`https://maps.google.com/?q=${selectedVideo.latitude},${selectedVideo.longitude}`}
+                target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-rose-400 underline underline-offset-2"
+              >
+                <MapPin className="h-3 w-3" />
+                {selectedVideo.latitude.toFixed(5)}, {selectedVideo.longitude.toFixed(5)}
+              </a>
+            )}
           </div>
         </div>
       )}
@@ -541,7 +634,7 @@ export default function GeoBoard() {
 
       {/* Map view */}
       {!isLoading && groups.length > 0 && view === "map" && (
-        <GeoMapView photos={photos} groups={groups} />
+        <GeoMapView photos={photos} videos={videos} groups={groups} />
       )}
 
       {/* Grid view */}
