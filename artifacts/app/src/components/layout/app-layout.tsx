@@ -16,6 +16,7 @@ import {
   Camera,
   Flag,
   Settings,
+  Activity as ActivityIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -154,6 +155,7 @@ interface AppLayoutProps {
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/activity", label: "Activity", icon: ActivityIcon },
   { href: "/permissions", label: "Permissions", icon: ShieldCheck },
   { href: "/invites", label: "Invites", icon: Users },
   { href: "/live-map", label: "Live Map", icon: Map },

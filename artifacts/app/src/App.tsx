@@ -9,6 +9,7 @@ import { useEffect } from "react";
 // Pages
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
+import Activity from "@/pages/activity";
 import Permissions from "@/pages/permissions";
 import Invites from "@/pages/invites";
 import Profile from "@/pages/profile";
@@ -150,6 +151,7 @@ function Router() {
 
       {/* Protected routes */}
       <Route path="/dashboard"><ProtectedRoute component={Dashboard} /></Route>
+      <Route path="/activity"><ProtectedRoute component={Activity} /></Route>
       <Route path="/permissions"><ProtectedRoute component={Permissions} /></Route>
       <Route path="/invites"><ProtectedRoute component={Invites} /></Route>
       <Route path="/shared-coordinates"><ProtectedRoute component={SharedCoordinates} /></Route>
