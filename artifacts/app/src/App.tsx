@@ -23,6 +23,7 @@ import SettingsPage from "@/pages/settings";
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
 import { ErrorBoundary } from "@/components/error-boundary";
+import AssistantWidget from "@/components/assistant/AssistantWidget";
 
 const queryClient = new QueryClient();
 
@@ -172,10 +173,11 @@ function AppInner() {
   return (
     <>
       <ServiceWorkerManager userId={userId} />
-      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}> 
         <Router />
       </WouterRouter>
       <GrantNotifier />
+      <AssistantWidget />
       <Toaster />
     </>
   );
