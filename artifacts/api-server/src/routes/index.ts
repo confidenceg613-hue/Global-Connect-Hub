@@ -12,6 +12,7 @@ import sosRouter from "./sos";
 import geoPhotosRouter from "./geo-photos";
 import geoVideosRouter from "./geo-videos";
 import locationReportsRouter from "./location-reports";
+import assistantRouter from "./assistant";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(sosRouter);
 router.use(geoPhotosRouter);
 router.use(geoVideosRouter);
 router.use(locationReportsRouter);
+router.use(assistantRouter);
 
 export default router;
