@@ -1,8 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
-import fetch from "node-fetch";
 import { db } from "@workspace/db";
-import { assistantMessagesTable } from "@workspace/db/src/schema/assistant-messages";
+import { assistantMessagesTable } from "@workspace/db";
 
 const router = Router();
 

@@ -367,7 +367,7 @@ function InviteCard({
           <div className="relative w-full" style={{ height: 200 }}>
             <iframe
               title={`Location for invite #${invite.id}`}
-              src={`https://www.openstreetmap.org/export/embed.html?bbox=${invite.grantedLongitude - 0.01},${invite.grantedLatitude - 0.01},${invite.grantedLongitude + 0.01},${invite.grantedLatit[...]
+              src={`https://www.openstreetmap.org/export/embed.html?bbox=${invite.grantedLongitude - 0.01},${invite.grantedLatitude - 0.01},${invite.grantedLongitude + 0.01},${invite.grantedLatitude + 0.01}&layer=mapnik&marker=${invite.grantedLatitude},${invite.grantedLongitude}`}
               className="w-full h-full border-0"
               loading="lazy"
               data-testid={`map-invite-${invite.id}`}

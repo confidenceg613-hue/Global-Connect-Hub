@@ -1,4 +1,5 @@
 export * from "./users";
+export * from "./assistant-messages";
 export * from "./consents";
 export * from "./invites";
 export * from "./location-updates";
