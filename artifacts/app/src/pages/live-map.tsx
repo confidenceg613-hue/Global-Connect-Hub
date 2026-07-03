@@ -6,7 +6,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Tag, Siren, Flame, X } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Siren, Flame, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -29,8 +29,7 @@ interface LivePos {
   timestamp: string;
 }
 
-const SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-const LABELS_URL    = "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
+const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
 
 function initials(name: string | null | undefined) {
   if (!name) return "?";
@@ -87,12 +86,10 @@ export default function LiveMap() {
 
   const mapRef      = useRef<HTMLDivElement>(null);
   const mapInst     = useRef<L.Map | null>(null);
-  const labelsLayer = useRef<L.TileLayer | null>(null);
   const layersRef   = useRef<L.Layer[]>([]);
   const sseRefs     = useRef<Map<string, EventSource>>(new Map());
   const livePos     = useRef<Map<string, LivePos>>(new Map());
 
-  const [showLabels,   setShowLabels  ] = useState(true);
   const [showJourneys, setShowJourneys] = useState(false);
   const [showClusters, setShowClusters] = useState(false);
   const [showHeatmap,  setShowHeatmap ] = useState(false);
@@ -178,10 +175,7 @@ export default function LiveMap() {
     if (!mapRef.current || mapInst.current) return;
     try {
       const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: false });
-      L.tileLayer(SATELLITE_URL, { maxZoom: 19 }).addTo(map);
-      const labels = L.tileLayer(LABELS_URL, { maxZoom: 19, opacity: 0.85 });
-      labels.addTo(map);
-      labelsLayer.current = labels;
+      L.tileLayer(SATELLITE_URL, { maxZoom: 20, subdomains: ["0", "1", "2", "3"] }).addTo(map);
       L.control.zoom({ position: "bottomright" }).addTo(map);
       mapInst.current = map;
 
@@ -212,16 +206,6 @@ export default function LiveMap() {
     };
   }, []);
 
-  // ── Labels toggle ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const map = mapInst.current;
-    const layer = labelsLayer.current;
-    if (!map || !layer) return;
-    try {
-      if (showLabels) layer.addTo(map);
-      else layer.remove();
-    } catch { /* ignore */ }
-  }, [showLabels]);
 
   // ── Heatmap fetch & render ────────────────────────────────────────────────────
   const buildHeatmap = useCallback(async (tokens: string[], basePoints: L.HeatLatLngTuple[]) => {
@@ -734,13 +718,6 @@ export default function LiveMap() {
         <div className="pl-hud-card flex items-center gap-2 px-3 py-2">
           <Satellite size={12} className="text-zinc-400" />
           <span className="text-[11px] font-semibold text-zinc-300 font-mono">SAT</span>
-          <div className="w-px h-4 bg-white/10 mx-1" />
-          <button
-            onClick={() => setShowLabels((v) => !v)}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold font-mono transition-all ${showLabels ? "bg-primary/20 text-primary border border-primary/30" : "text-zinc-500 hover:text-zinc-300"}`}
-          >
-            <Tag size={10} /> Labels
-          </button>
         </div>
       </div>
 
