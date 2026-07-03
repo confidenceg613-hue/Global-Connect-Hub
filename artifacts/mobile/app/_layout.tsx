@@ -14,6 +14,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { setBaseUrl } from '@workspace/api-client-react';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { LocationTrackingProvider } from '@/contexts/LocationTrackingContext';
 
 // Set the API base URL from the injected domain env var (set by the Expo dev script)
 if (process.env.EXPO_PUBLIC_DOMAIN) {
@@ -60,7 +61,9 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <AuthProvider>
-              <RootLayoutNav />
+              <LocationTrackingProvider>
+                <RootLayoutNav />
+              </LocationTrackingProvider>
             </AuthProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>
