@@ -121,6 +121,10 @@ router.post("/location/push", async (req, res): Promise<void> => {
     }
 
     if (status === "active") {
+      // Fresh location received — reset staleness alert so it can fire again
+      // if this contact goes stale in the future
+      clearStalenessAlert(token);
+
       checkGeofences(
         invite.fromUserId,
         contactName,
@@ -257,16 +261,25 @@ router.get("/location/stream/:token", async (req, res): Promise<void> => {
   });
 });
 
-// Staleness detector — runs every 5 minutes, alerts if no update for >15 min
+// Staleness detector — alerts once per stale period per contact.
+// Re-arms only when a fresh active location clears the token.
+const notifiedStale = new Set<string>();
+let detectorRunning = false;
+
+export function clearStalenessAlert(token: string) {
+  notifiedStale.delete(token);
+}
+
 export function startStalenessDetector() {
   const STALE_MS = 15 * 60 * 1000;
   const CHECK_MS = 5 * 60 * 1000;
 
   setInterval(async () => {
+    // Skip if a previous run is still in flight (prevents overlap duplicates)
+    if (detectorRunning) return;
+    detectorRunning = true;
     try {
-      const cutoff = new Date(Date.now() - STALE_MS);
-
-      const staleInvites = await db
+      const acceptedInvites = await db
         .select({
           token: invitesTable.token,
           fromUserId: invitesTable.fromUserId,
@@ -276,7 +289,16 @@ export function startStalenessDetector() {
         .from(invitesTable)
         .where(eq(invitesTable.status, "accepted"));
 
-      for (const inv of staleInvites) {
+      // Prune tokens no longer in accepted invites to avoid unbounded growth
+      const activeTokens = new Set(acceptedInvites.map((i) => i.token));
+      for (const t of notifiedStale) {
+        if (!activeTokens.has(t)) notifiedStale.delete(t);
+      }
+
+      for (const inv of acceptedInvites) {
+        // Already notified this stale period — skip
+        if (notifiedStale.has(inv.token)) continue;
+
         const [last] = await db
           .select()
           .from(locationUpdatesTable)
@@ -293,15 +315,20 @@ export function startStalenessDetector() {
         const minutesAgo = Math.round((Date.now() - lastTime) / 60000);
         const contactName = inv.toName ?? inv.toPhone;
 
-        await sendPushAndLog(inv.fromUserId, {
-          type: "location_stale",
-          title: "⏱ No location update",
-          body: `${contactName} hasn't updated in ${minutesAgo} min`,
-          tag: `stale-${inv.token}`,
-          data: { token: inv.token, contactName, minutesAgo },
-        });
+        try {
+          await sendPushAndLog(inv.fromUserId, {
+            type: "location_stale",
+            title: "⏱ No location update",
+            body: `${contactName} hasn't updated in ${minutesAgo} min`,
+            tag: `stale-${inv.token}`,
+            data: { token: inv.token, contactName, minutesAgo },
+          });
+          // Only suppress future alerts after a successful send
+          notifiedStale.add(inv.token);
+        } catch { /* push failed — will retry next cycle */ }
       }
     } catch { /* non-critical */ }
+    finally { detectorRunning = false; }
   }, CHECK_MS);
 }
 
