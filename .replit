@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash", "postgresql-16", "python-base-3.13"]
+modules = ["nodejs-20", "web", "bash", "python-base-3.13", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -10,6 +10,43 @@ env = { "CI" = "true" }
 
 [workflows]
 runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "API Server"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "PhoneLink App"
+
+[[workflows.workflow]]
+name = "API Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server run dev"
+waitForPort = 8080
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "PhoneLink App"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=23863 BASE_PATH=/ pnpm --filter @workspace/app run dev"
+waitForPort = 23863
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -35,3 +72,7 @@ externalPort = 3000
 channel = "stable-25_05"
 
 [userenv]
+
+[userenv.shared]
+VAPID_PUBLIC_KEY = "BG9-vGF6ikEKGyKf5KA2ZGpL8_f6xC1-9FEv1f8uXYEGylZFyLY-U3_CuYLlvogBs-V158_uqLR_MDsu-a-MbaU"
+VAPID_SUBJECT = "mailto:admin@phonelink.app"
