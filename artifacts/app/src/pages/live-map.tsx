@@ -27,6 +27,16 @@ interface LivePos {
   accuracy?: number;
   status: "active" | "offline";
   timestamp: string;
+  bearing?: number; // degrees 0–360, calculated from previous position
+}
+
+function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δλ = ((lng2 - lng1) * Math.PI) / 180;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
 const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}";
@@ -46,16 +56,25 @@ function riskBadgeHtml(level: "low" | "medium" | "high") {
   return `<span style="display:inline-flex;align-items:center;gap:3px;background:${m.bg};border:1px solid ${m.border};border-radius:4px;padding:2px 6px;font-size:9px;font-weight:700;letter-spacing:.08em;color:${m.text};font-family:ui-monospace,monospace;"><span style="width:5px;height:5px;border-radius:50%;background:${m.text};display:inline-block;"></span>${m.label}</span>`;
 }
 
-function makePin(color: string, label: string, isMine = false) {
+function makePin(color: string, label: string, isMine = false, bearing?: number) {
   const size = isMine ? 46 : 38;
   const bg = isMine ? "#fff" : color;
   const fg = isMine ? color : "#fff";
+  // Compass arrow: shown when bearing is known, rotated to direction of travel
+  const arrow = bearing != null
+    ? `<div style="position:absolute;top:50%;left:50%;width:0;height:0;transform-origin:0 0;transform:rotate(${bearing}deg) translateX(-50%);">
+         <svg width="14" height="22" viewBox="0 0 14 22" style="position:absolute;left:-7px;top:-22px;" xmlns="http://www.w3.org/2000/svg">
+           <polygon points="7,0 13,14 7,10 1,14" fill="${color}" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/>
+         </svg>
+       </div>`
+    : "";
   return L.divIcon({
     className: "",
     html: `<div style="position:relative;width:${size}px;height:${size + 12}px;filter:drop-shadow(0 4px 12px ${color}66);">
       <div style="width:${size}px;height:${size}px;background:${bg};clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,.3);"></div>
       <div style="position:absolute;top:0;left:0;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;font-size:${isMine ? 12 : 11}px;font-weight:800;color:${fg};font-family:ui-monospace,monospace;">${label}</div>
       <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:4px;height:10px;background:${bg};clip-path:polygon(50% 100%,0% 0%,100% 0%);"></div>
+      ${arrow}
     </div>`,
     iconSize: [size, size + 12],
     iconAnchor: [size / 2, size + 12],
@@ -103,6 +122,7 @@ export default function LiveMap() {
 
   const heatLayerRef = useRef<L.HeatLayer | null>(null);
   const heatPoints   = useRef<L.HeatLatLngTuple[]>([]);
+  const prevPos      = useRef<Map<string, { lat: number; lng: number }>>(new Map());
 
   const { data: invites, refetch } = useListInvites(
     { userId: userId! },
@@ -310,6 +330,16 @@ export default function LiveMap() {
             const data = JSON.parse(e.data) as LivePos;
             if (typeof data.lat !== "number" || typeof data.lng !== "number") return;
             if (!isFinite(data.lat) || !isFinite(data.lng)) return;
+            const prev = prevPos.current.get(token);
+            if (prev) {
+              const dist = haversineKm(prev.lat, prev.lng, data.lat, data.lng) * 1000; // metres
+              if (dist > 1) { // 1 m threshold to avoid GPS noise
+                data.bearing = computeBearing(prev.lat, prev.lng, data.lat, data.lng);
+              } else {
+                data.bearing = livePos.current.get(token)?.bearing; // keep last known
+              }
+            }
+            prevPos.current.set(token, { lat: data.lat, lng: data.lng });
             livePos.current.set(token, data);
             setLiveCount(Array.from(livePos.current.values()).filter((p) => p.status === "active" && !isLiveStale(p.timestamp)).length);
             setTick((n) => n + 1);
@@ -411,7 +441,7 @@ export default function LiveMap() {
           layersRef.current.push(ring);
         }
 
-        const marker = L.marker([lat, lng], { icon: makePin(pinColor, initials(inv.toName)) }).addTo(map);
+        const marker = L.marker([lat, lng], { icon: makePin(pinColor, initials(inv.toName), false, isLive ? rawLive?.bearing : undefined) }).addTo(map);
         layersRef.current.push(marker);
 
         // Popup
