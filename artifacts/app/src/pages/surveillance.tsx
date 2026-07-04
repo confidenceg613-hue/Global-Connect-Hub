@@ -348,7 +348,7 @@ export default function Surveillance() {
 
       accepted.forEach(inv => {
         if (trackers.current.has(inv.token)) return;
-        const tracker = new ContactTracker(inv.token, inv.toName, liveLayer.current!, API_BASE);
+        const tracker = new ContactTracker(inv.token, inv.toName ?? inv.toPhone ?? "Contact", liveLayer.current!, API_BASE);
         trackers.current.set(inv.token, tracker);
         tracker.start();
       });

@@ -215,6 +215,7 @@ router.get("/location/history/:token", async (req, res): Promise<void> => {
     .orderBy(locationUpdatesTable.createdAt)
     .limit(limitN);
 
+  res.setHeader("Cache-Control", "no-store");
   res.json(updates);
 });
 
