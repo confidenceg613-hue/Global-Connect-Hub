@@ -70,7 +70,7 @@ function predictPath(history: LocPoint[]): [number, number][] {
 
 // ── SVG helpers ───────────────────────────────────────────────────────────────
 function svgToDataUrl(svg: string) {
-  return `data:image/svg+xml;base64,${btoa(svg)}`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 function cameraPin() {
   return svgToDataUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="44" viewBox="0 0 32 44">
