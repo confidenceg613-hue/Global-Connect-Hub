@@ -29,7 +29,8 @@ interface LivePos {
   timestamp: string;
 }
 
-const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
+const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}";
+const LABELS_URL    = "https://mt{s}.google.com/vt/lyrs=h&x={x}&y={y}&z={z}";
 
 function initials(name: string | null | undefined) {
   if (!name) return "?";
@@ -175,7 +176,8 @@ export default function LiveMap() {
     if (!mapRef.current || mapInst.current) return;
     try {
       const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: false });
-      L.tileLayer(SATELLITE_URL, { maxZoom: 20, subdomains: ["0", "1", "2", "3"] }).addTo(map);
+      L.tileLayer(SATELLITE_URL, { maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"] }).addTo(map);
+      L.tileLayer(LABELS_URL,    { maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"] }).addTo(map);
       L.control.zoom({ position: "bottomright" }).addTo(map);
       mapInst.current = map;
 
@@ -629,7 +631,7 @@ export default function LiveMap() {
     if (latlngs.length > 0) {
       try {
         if (latlngs.length === 1) map.setView(latlngs[0], 13);
-        else map.fitBounds(L.latLngBounds(latlngs).pad(0.3), { maxZoom: 13 });
+        else map.fitBounds(L.latLngBounds(latlngs).pad(0.08), { maxZoom: 19 });
       } catch { /* ignore fitBounds errors */ }
     }
   }, [latest.map((i) => i.toPhone).join(","), tick, showJourneys, showClusters, myPos]);
