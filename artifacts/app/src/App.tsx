@@ -21,6 +21,7 @@ import GeoBoard from "@/pages/geoboard";
 import LocationReports from "@/pages/location-reports";
 import SettingsPage from "@/pages/settings";
 import Surveillance from "@/pages/surveillance";
+import MapboxTest from "@/pages/mapbox-test";
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -164,6 +165,7 @@ function Router() {
       <Route path="/location-reports"><ProtectedRoute component={LocationReports} /></Route>
       <Route path="/settings"><ProtectedRoute component={SettingsPage} /></Route>
       <Route path="/surveillance"><ProtectedRoute component={Surveillance} /></Route>
+      <Route path="/mapbox-test"><ProtectedRoute component={MapboxTest} /></Route>
 
       <Route component={NotFound} />
     </Switch>
