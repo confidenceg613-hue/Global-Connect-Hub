@@ -62,5 +62,5 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-VAPID_PUBLIC_KEY = "BG9-vGF6ikEKGyKf5KA2ZGpL8_f6xC1-9FEv1f8uXYEGylZFyLY-U3_CuYLlvogBs-V158_uqLR_MDsu-a-MbaU"
+VAPID_PUBLIC_KEY = "BGS-zc4-EDy_SbUN5dX8i4vjVoB8OgmT2GV9G05iUypyCvygXJT7whxm0Y2zckAoZSxMmIFdVuBeGgfKwhRjlCc"
 VAPID_SUBJECT = "mailto:admin@phonelink.app"
