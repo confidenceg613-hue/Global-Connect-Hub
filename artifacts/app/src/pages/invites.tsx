@@ -94,9 +94,22 @@ export default function Invites() {
   };
 
   const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text).then(() =>
-      toast({ title: `${label} copied to clipboard` }),
-    );
+    const doWrite = () => {
+      if (navigator.clipboard?.writeText) {
+        return navigator.clipboard.writeText(text);
+      }
+      // Fallback for HTTP / older browsers
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand("copy"); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+      return Promise.resolve();
+    };
+    doWrite().then(() => toast({ title: `${label} copied to clipboard` })).catch(() => {});
   };
 
   return (

