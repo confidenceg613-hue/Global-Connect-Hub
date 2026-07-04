@@ -2,8 +2,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useListInvites, getListInvitesQueryKey } from "@workspace/api-client-react";
 import type { Invite } from "@workspace/api-client-react";
 import { useEffect, useRef, useState, useCallback } from "react";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
 import {
   Clock, MapPin, User, Navigation, ChevronDown, BarChart3,
   ExternalLink, Copy, Wifi, WifiOff, Route, CalendarDays,
@@ -61,103 +59,8 @@ function computeStats(updates: LocationUpdate[]) {
   return { totalKm, durationMin, avgSpeedKmh, updateCount: updates.length };
 }
 
-// ── Trail map component ──────────────────────────────────────────────────────
-function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[]; contactName: string; isLive: boolean }) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInst = useRef<L.Map | null>(null);
-  const layersRef = useRef<L.Layer[]>([]);
-
-  useEffect(() => {
-    if (!mapRef.current || mapInst.current) return;
-    const map = L.map(mapRef.current, {
-      center: [20, 0], zoom: 2, zoomControl: true, attributionControl: false,
-    });
-    // ESRI World Imagery — free satellite tiles, no API key required
-    L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      { maxZoom: 19, attribution: "Tiles © Esri" },
-    ).addTo(map);
-    // Labels overlay for street names
-    L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-      { maxZoom: 19, opacity: 0.7 },
-    ).addTo(map);
-    mapInst.current = map;
-    return () => { map.remove(); mapInst.current = null; };
-  }, []);
-
-  useEffect(() => {
-    const map = mapInst.current;
-    if (!map) return;
-    layersRef.current.forEach((l) => l.remove());
-    layersRef.current = [];
-    if (updates.length === 0) return;
-
-    const latlngs = updates.map((u) => [u.latitude, u.longitude] as [number, number]);
-
-    // Trail polyline
-    const line = L.polyline(latlngs, { color: "#6366f1", weight: 3, opacity: 0.85, dashArray: undefined }).addTo(map);
-    layersRef.current.push(line);
-
-    // Start marker (green)
-    const startIcon = L.divIcon({
-      className: "",
-      html: `<div style="width:14px;height:14px;border-radius:50%;background:#10b981;border:2px solid #fff;box-shadow:0 0 0 3px rgba(16,185,129,0.35);"></div>`,
-      iconSize: [14, 14], iconAnchor: [7, 7],
-    });
-    const startM = L.marker(latlngs[0], { icon: startIcon })
-      .bindTooltip(`<span style="font-size:11px;font-family:ui-monospace,monospace;">🟢 Start · ${format(new Date(updates[0].createdAt), "HH:mm:ss")}</span>`)
-      .addTo(map);
-    layersRef.current.push(startM);
-
-    // End marker (red or pulse if the contact is currently live) — driven by
-    // the independently-fetched live status, not the filtered updates list,
-    // so it stays accurate even when the selected date range has stale data.
-    const last = updates[updates.length - 1];
-    const isActive = isLive;
-    const endHtml = isActive
-      ? `<div style="position:relative;width:16px;height:16px;">
-           <div style="position:absolute;inset:0;border-radius:50%;background:#ef4444;opacity:0.4;animation:pl-pulse 1.4s ease-in-out infinite;"></div>
-           <div style="position:absolute;inset:2px;border-radius:50%;background:#ef4444;border:2px solid #fff;"></div>
-         </div>`
-      : `<div style="width:14px;height:14px;border-radius:50%;background:#71717a;border:2px solid #fff;"></div>`;
-    const endIcon = L.divIcon({ className: "", html: endHtml, iconSize: [16, 16], iconAnchor: [8, 8] });
-    const endM = L.marker(latlngs[latlngs.length - 1], { icon: endIcon })
-      .bindTooltip(`<span style="font-size:11px;font-family:ui-monospace,monospace;">${isActive ? "🔴 Live" : "⬜ Last"} · ${format(new Date(last.createdAt), "HH:mm:ss")}</span>`)
-      .addTo(map);
-    layersRef.current.push(endM);
-
-    // Waypoints every ~20 points
-    const step = Math.max(1, Math.floor(updates.length / 20));
-    for (let i = step; i < updates.length - 1; i += step) {
-      const u = updates[i];
-      const dot = L.circleMarker([u.latitude, u.longitude], {
-        radius: 3, color: "#6366f1", fillColor: "#6366f1", fillOpacity: 0.7, weight: 1,
-      }).bindTooltip(
-        `<span style="font-size:10px;font-family:ui-monospace,monospace;">${format(new Date(u.createdAt), "HH:mm:ss")}</span>`,
-        { direction: "top" },
-      ).addTo(map);
-      layersRef.current.push(dot);
-    }
-
-    // Fit
-    if (latlngs.length === 1) {
-      map.setView(latlngs[0], 14);
-    } else {
-      map.fitBounds(L.latLngBounds(latlngs).pad(0.2), { maxZoom: 16 });
-    }
-  }, [updates, isLive]);
-
-  // Add pulse keyframe once
-  useEffect(() => {
-    const id = "ph-trail-style";
-    if (document.getElementById(id)) return;
-    const s = document.createElement("style");
-    s.id = id;
-    s.textContent = `@keyframes pl-pulse{0%,100%{transform:scale(1);opacity:0.4;}50%{transform:scale(1.6);opacity:0.1;}}`;
-    document.head.appendChild(s);
-  }, []);
-
+// ── Trail map component (Google Maps embed, same as Shared Coordinates) ──────
+function TrailMap({ updates }: { updates: LocationUpdate[]; contactName: string; isLive: boolean }) {
   if (updates.length === 0) {
     return (
       <div className="w-full rounded-xl bg-muted/40 border border-border flex items-center justify-center" style={{ height: 320 }}>
@@ -169,7 +72,39 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
     );
   }
 
-  return <div ref={mapRef} className="w-full rounded-xl overflow-hidden border border-border" style={{ height: 320, zIndex: 0 }} />;
+  const first = updates[0];
+  const last = updates[updates.length - 1];
+
+  // Single point → pin view; multiple → directions between start and end
+  const embedUrl = updates.length === 1
+    ? `https://maps.google.com/maps?q=${first.latitude},${first.longitude}&t=k&z=16&output=embed`
+    : `https://maps.google.com/maps/dir/${first.latitude},${first.longitude}/${last.latitude},${last.longitude}&t=k&output=embed`;
+
+  const mapsUrl = updates.length === 1
+    ? `https://www.google.com/maps?q=${first.latitude},${first.longitude}`
+    : `https://www.google.com/maps/dir/${first.latitude},${first.longitude}/${last.latitude},${last.longitude}`;
+
+  return (
+    <div className="w-full rounded-xl overflow-hidden border border-border relative" style={{ height: 320 }}>
+      <iframe
+        src={embedUrl}
+        className="w-full h-full"
+        style={{ border: 0 }}
+        allowFullScreen
+        loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+        title="Route Trail"
+      />
+      <a
+        href={mapsUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="absolute bottom-2 right-2 flex items-center gap-1 text-xs bg-black/70 text-white rounded px-2 py-1 hover:bg-black/90"
+      >
+        <ExternalLink size={10} /> Open in Maps
+      </a>
+    </div>
+  );
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
