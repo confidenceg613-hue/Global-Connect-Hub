@@ -20,6 +20,7 @@ import LiveMap from "@/pages/live-map";
 import GeoBoard from "@/pages/geoboard";
 import LocationReports from "@/pages/location-reports";
 import SettingsPage from "@/pages/settings";
+import Surveillance from "@/pages/surveillance";
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -162,6 +163,7 @@ function Router() {
       <Route path="/geoboard"><ProtectedRoute component={GeoBoard} /></Route>
       <Route path="/location-reports"><ProtectedRoute component={LocationReports} /></Route>
       <Route path="/settings"><ProtectedRoute component={SettingsPage} /></Route>
+      <Route path="/surveillance"><ProtectedRoute component={Surveillance} /></Route>
 
       <Route component={NotFound} />
     </Switch>

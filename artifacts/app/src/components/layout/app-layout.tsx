@@ -159,6 +159,7 @@ const NAV_ITEMS = [
   { href: "/permissions", label: "Permissions", icon: ShieldCheck },
   { href: "/invites", label: "Invites", icon: Users },
   { href: "/live-map", label: "Live Map", icon: Map },
+  { href: "/surveillance", label: "Surveillance", icon: Camera },
   { href: "/geoboard", label: "GeoBoard", icon: Camera },
   { href: "/location-reports", label: "Location Reports", icon: Flag },
   { href: "/shared-coordinates", label: "Shared Coordinates", icon: Navigation },
