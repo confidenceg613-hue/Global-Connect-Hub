@@ -5,6 +5,7 @@ import type { Invite } from "@workspace/api-client-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
+import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
 import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Siren, Flame, X, Camera, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -760,6 +761,106 @@ export default function LiveMap() {
   }, [showSurveillance, survPhotos]);
 
   const [sosSending, setSosSending] = useState(false);
+
+  // Keep a stable ref to latest contacts so the command handler always sees fresh data
+  const latestRef = useRef(latest);
+  useEffect(() => { latestRef.current = latest; }, [latest]);
+  const myPosRef = useRef(myPos);
+  useEffect(() => { myPosRef.current = myPos; }, [myPos]);
+
+  // Keep stable refs to layer states so the context getter always reads fresh values
+  const showHeatmapRef  = useRef(showHeatmap);
+  const showJourneysRef = useRef(showJourneys);
+  const showClustersRef = useRef(showClusters);
+  const showSurvRef     = useRef(showSurveillance);
+  useEffect(() => { showHeatmapRef.current  = showHeatmap;  }, [showHeatmap]);
+  useEffect(() => { showJourneysRef.current = showJourneys; }, [showJourneys]);
+  useEffect(() => { showClustersRef.current = showClusters; }, [showClusters]);
+  useEffect(() => { showSurvRef.current     = showSurveillance; }, [showSurveillance]);
+
+  // ── Register map context so AssistantWidget can read it ───────────────────────
+  useEffect(() => {
+    const unregister = registerMapContext(() => ({
+      onMapPage: true,
+      contacts: latestRef.current.map((inv: Invite) => {
+        const live = livePos.current.get(inv.token);
+        return {
+          name: inv.toName ?? null,
+          lat: live ? live.lat : inv.grantedLatitude!,
+          lng: live ? live.lng : inv.grantedLongitude!,
+          address: inv.grantedAddress ?? null,
+          isLive: !!(live?.status === "active" && !isLiveStale(live.timestamp)),
+        };
+      }),
+      liveCount: Array.from(livePos.current.values()).filter(
+        (p) => p.status === "active" && !isLiveStale(p.timestamp),
+      ).length,
+      myLat: myPosRef.current?.lat,
+      myLng: myPosRef.current?.lng,
+      layers: {
+        heatmap:      showHeatmapRef.current,
+        journeys:     showJourneysRef.current,
+        clusters:     showClustersRef.current,
+        surveillance: showSurvRef.current,
+      },
+    }));
+    return unregister;
+  }, []);
+
+  // ── Listen for AI map commands ────────────────────────────────────────────────
+  useEffect(() => {
+    const unsubscribe = onMapCommand((cmd) => {
+      const map = mapInst.current;
+      switch (cmd.type) {
+        case "flyTo":
+          map?.flyTo([cmd.lat, cmd.lng], cmd.zoom ?? 14, { duration: 1.5 });
+          break;
+        case "setLayer":
+          if (cmd.layer === "heatmap") setShowHeatmap(cmd.enabled);
+          else if (cmd.layer === "journeys") setShowJourneys(cmd.enabled);
+          else if (cmd.layer === "clusters") setShowClusters(cmd.enabled);
+          else if (cmd.layer === "surveillance") setShowSurveillance(cmd.enabled);
+          break;
+        case "fitAll": {
+          const latlngs: [number, number][] = latestRef.current
+            .filter((inv: Invite) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
+            .map((inv: Invite) => {
+              const live = livePos.current.get(inv.token);
+              return [live ? live.lat : inv.grantedLatitude!, live ? live.lng : inv.grantedLongitude!] as [number, number];
+            });
+          if (myPosRef.current) latlngs.push([myPosRef.current.lat, myPosRef.current.lng]);
+          if (latlngs.length > 0 && map) {
+            if (latlngs.length === 1) map.setView(latlngs[0], 13);
+            else map.fitBounds(L.latLngBounds(latlngs).pad(0.08), { maxZoom: 19 });
+          }
+          break;
+        }
+        case "zoomIn":
+          map?.zoomIn();
+          break;
+        case "zoomOut":
+          map?.zoomOut();
+          break;
+        case "findContact": {
+          const query = cmd.name.toLowerCase();
+          const match = latestRef.current.find(
+            (inv: Invite) => (inv.toName ?? inv.toPhone).toLowerCase().includes(query),
+          );
+          if (match) {
+            const live = livePos.current.get(match.token);
+            const lat = live ? live.lat : match.grantedLatitude!;
+            const lng = live ? live.lng : match.grantedLongitude!;
+            if (isFinite(lat) && isFinite(lng)) {
+              map?.flyTo([lat, lng], 16, { duration: 1.5 });
+            }
+          }
+          break;
+        }
+      }
+    });
+    return unsubscribe;
+  }, []);
+
   const handleSOS = () => {
     if (!userId) return;
     setSosSending(true);
