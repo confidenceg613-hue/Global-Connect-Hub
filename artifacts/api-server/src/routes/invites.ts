@@ -1,6 +1,10 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { randomBytes } from "crypto";
+
+function shortToken(): string {
+  return randomBytes(6).toString("base64url"); // 8 URL-safe chars
+}
 import { db, invitesTable, usersTable } from "@workspace/db";
 import { sendPushAndLog } from "../lib/notifications.js";
 import {
@@ -51,7 +55,7 @@ router.post("/invites", async (req, res): Promise<void> => {
     return;
   }
 
-  const token = randomUUID();
+  const token = shortToken();
 
   // Build the consent page URL from the baseUrl provided by the frontend
   const baseUrl = parsed.data.baseUrl ?? "";
