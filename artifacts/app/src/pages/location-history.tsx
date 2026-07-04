@@ -72,17 +72,11 @@ function TrailMap({ updates }: { updates: LocationUpdate[]; contactName: string;
     );
   }
 
-  const first = updates[0];
   const last = updates[updates.length - 1];
 
-  // Single point → pin view; multiple → directions between start and end
-  const embedUrl = updates.length === 1
-    ? `https://maps.google.com/maps?q=${first.latitude},${first.longitude}&t=k&z=16&output=embed`
-    : `https://maps.google.com/maps/dir/${first.latitude},${first.longitude}/${last.latitude},${last.longitude}&t=k&output=embed`;
-
-  const mapsUrl = updates.length === 1
-    ? `https://www.google.com/maps?q=${first.latitude},${first.longitude}`
-    : `https://www.google.com/maps/dir/${first.latitude},${first.longitude}/${last.latitude},${last.longitude}`;
+  // Center on the latest point — same embed format as Shared Coordinates
+  const embedUrl = `https://maps.google.com/maps?q=${last.latitude},${last.longitude}&t=k&z=16&output=embed`;
+  const mapsUrl = `https://www.google.com/maps?q=${last.latitude},${last.longitude}`;
 
   return (
     <div className="w-full rounded-xl overflow-hidden border border-border relative" style={{ height: 320 }}>
