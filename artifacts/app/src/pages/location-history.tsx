@@ -2,6 +2,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { useListInvites, getListInvitesQueryKey } from "@workspace/api-client-react";
 import type { Invite } from "@workspace/api-client-react";
 import { useEffect, useRef, useState, useCallback } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import {
   Clock, MapPin, User, Navigation, ChevronDown, BarChart3,
   ExternalLink, Copy, Wifi, WifiOff, Route, CalendarDays,
@@ -59,8 +61,84 @@ function computeStats(updates: LocationUpdate[]) {
   return { totalKm, durationMin, avgSpeedKmh, updateCount: updates.length };
 }
 
-// ── Trail map component (Google Maps embed, same as Shared Coordinates) ──────
-function TrailMap({ updates }: { updates: LocationUpdate[]; contactName: string; isLive: boolean }) {
+// ── Trail map — Leaflet + Google Maps satellite tiles + full trail polyline ───
+function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[]; contactName: string; isLive: boolean }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInst = useRef<L.Map | null>(null);
+  const layersRef = useRef<L.Layer[]>([]);
+
+  useEffect(() => {
+    if (!mapRef.current || mapInst.current) return;
+    const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: true, attributionControl: false });
+    // Google Maps satellite tiles — same imagery as Shared Coordinates
+    L.tileLayer("https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
+      maxZoom: 20, subdomains: ["0", "1", "2", "3"],
+    }).addTo(map);
+    mapInst.current = map;
+    return () => { map.remove(); mapInst.current = null; };
+  }, []);
+
+  useEffect(() => {
+    const map = mapInst.current;
+    if (!map) return;
+    layersRef.current.forEach((l) => l.remove());
+    layersRef.current = [];
+    if (updates.length === 0) return;
+
+    const latlngs = updates.map((u) => [u.latitude, u.longitude] as [number, number]);
+
+    // Trail polyline
+    const line = L.polyline(latlngs, { color: "#6366f1", weight: 3, opacity: 0.85 }).addTo(map);
+    layersRef.current.push(line);
+
+    // Start marker (green)
+    const startIcon = L.divIcon({
+      className: "",
+      html: `<div style="width:14px;height:14px;border-radius:50%;background:#10b981;border:2px solid #fff;box-shadow:0 0 0 3px rgba(16,185,129,0.35);"></div>`,
+      iconSize: [14, 14], iconAnchor: [7, 7],
+    });
+    layersRef.current.push(
+      L.marker(latlngs[0], { icon: startIcon })
+        .bindTooltip(`<span style="font-size:11px;font-family:monospace;">🟢 Start · ${format(new Date(updates[0].createdAt), "HH:mm:ss")}</span>`)
+        .addTo(map)
+    );
+
+    // End marker (pulsing if live, grey if not)
+    const last = updates[updates.length - 1];
+    const endHtml = isLive
+      ? `<div style="position:relative;width:16px;height:16px;"><div style="position:absolute;inset:0;border-radius:50%;background:#ef4444;opacity:0.4;animation:pl-pulse 1.4s ease-in-out infinite;"></div><div style="position:absolute;inset:2px;border-radius:50%;background:#ef4444;border:2px solid #fff;"></div></div>`
+      : `<div style="width:14px;height:14px;border-radius:50%;background:#71717a;border:2px solid #fff;"></div>`;
+    const endIcon = L.divIcon({ className: "", html: endHtml, iconSize: [16, 16], iconAnchor: [8, 8] });
+    layersRef.current.push(
+      L.marker(latlngs[latlngs.length - 1], { icon: endIcon })
+        .bindTooltip(`<span style="font-size:11px;font-family:monospace;">${isLive ? "🔴 Live" : "⬜ Last"} · ${format(new Date(last.createdAt), "HH:mm:ss")}</span>`)
+        .addTo(map)
+    );
+
+    // Waypoints every ~20 points
+    const step = Math.max(1, Math.floor(updates.length / 20));
+    for (let i = step; i < updates.length - 1; i += step) {
+      const u = updates[i];
+      layersRef.current.push(
+        L.circleMarker([u.latitude, u.longitude], { radius: 3, color: "#6366f1", fillColor: "#6366f1", fillOpacity: 0.7, weight: 1 })
+          .bindTooltip(`<span style="font-size:10px;font-family:monospace;">${format(new Date(u.createdAt), "HH:mm:ss")}</span>`, { direction: "top" })
+          .addTo(map)
+      );
+    }
+
+    latlngs.length === 1 ? map.setView(latlngs[0], 16) : map.fitBounds(L.latLngBounds(latlngs).pad(0.2), { maxZoom: 17 });
+  }, [updates, isLive]);
+
+  // Pulse keyframe
+  useEffect(() => {
+    const id = "ph-trail-style";
+    if (document.getElementById(id)) return;
+    const s = document.createElement("style");
+    s.id = id;
+    s.textContent = `@keyframes pl-pulse{0%,100%{transform:scale(1);opacity:0.4;}50%{transform:scale(1.6);opacity:0.1;}}`;
+    document.head.appendChild(s);
+  }, []);
+
   if (updates.length === 0) {
     return (
       <div className="w-full rounded-xl bg-muted/40 border border-border flex items-center justify-center" style={{ height: 320 }}>
@@ -72,33 +150,7 @@ function TrailMap({ updates }: { updates: LocationUpdate[]; contactName: string;
     );
   }
 
-  const last = updates[updates.length - 1];
-
-  // Center on the latest point — same embed format as Shared Coordinates
-  const embedUrl = `https://maps.google.com/maps?q=${last.latitude},${last.longitude}&t=k&z=16&output=embed`;
-  const mapsUrl = `https://www.google.com/maps?q=${last.latitude},${last.longitude}`;
-
-  return (
-    <div className="w-full rounded-xl overflow-hidden border border-border relative" style={{ height: 320 }}>
-      <iframe
-        src={embedUrl}
-        className="w-full h-full"
-        style={{ border: 0 }}
-        allowFullScreen
-        loading="lazy"
-        referrerPolicy="no-referrer-when-downgrade"
-        title="Route Trail"
-      />
-      <a
-        href={mapsUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="absolute bottom-2 right-2 flex items-center gap-1 text-xs bg-black/70 text-white rounded px-2 py-1 hover:bg-black/90"
-      >
-        <ExternalLink size={10} /> Open in Maps
-      </a>
-    </div>
-  );
+  return <div ref={mapRef} className="w-full rounded-xl overflow-hidden border border-border" style={{ height: 320, zIndex: 0 }} />;
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
