@@ -30,7 +30,7 @@ export default function Invites() {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [message, setMessage] = useState(
-    "Hi, I'd like you to grant me location access via PhoneLink.",
+    "Yo, you gotta check this out… PhoneLink just added a new location thing. I tried it and it's actually really useful. Can I send you the invite real quick?",
   );
   const [consentType, setConsentType] = useState<string>("location");
   const [optIn, setOptIn] = useState(false);
