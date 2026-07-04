@@ -7,7 +7,7 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, ExternalLink, Camera, Video } from "lucide-react";
+import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, ExternalLink, Camera, Video, ArrowLeft } from "lucide-react";
 import { classifySource, type LocationSource } from "@/hooks/use-fused-location";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -670,6 +670,15 @@ export default function ConsentPage() {
                   Keep this page open. Switch to any other app freely — your location updates automatically as long as your GPS is on.
                 </p>
               </div>
+
+              <Button
+                variant="outline"
+                className="w-full mt-5"
+                onClick={() => window.history.back()}
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Go Back
+              </Button>
             </CardContent>
           </Card>
         </div>
