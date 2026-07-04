@@ -674,7 +674,7 @@ export default function ConsentPage() {
               <Button
                 variant="outline"
                 className="w-full mt-5"
-                onClick={() => window.history.back()}
+                onClick={() => { window.location.href = "whatsapp://"; }}
               >
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Go Back
