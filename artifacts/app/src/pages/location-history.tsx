@@ -72,9 +72,15 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
     const map = L.map(mapRef.current, {
       center: [20, 0], zoom: 2, zoomControl: true, attributionControl: false,
     });
+    // ESRI World Imagery — free satellite tiles, no API key required
     L.tileLayer(
-      "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
-      { maxZoom: 20, subdomains: ["0", "1", "2", "3"] },
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19, attribution: "Tiles © Esri" },
+    ).addTo(map);
+    // Labels overlay for street names
+    L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19, opacity: 0.7 },
     ).addTo(map);
     mapInst.current = map;
     return () => { map.remove(); mapInst.current = null; };
