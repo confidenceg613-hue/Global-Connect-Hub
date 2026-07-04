@@ -66,6 +66,14 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    warmup: {
+      clientFiles: [
+        "./src/main.tsx",
+        "./src/App.tsx",
+        "./src/pages/dashboard.tsx",
+        "./src/pages/landing.tsx",
+      ],
+    },
     proxy: {
       "/api": {
         target: "http://localhost:8080",
