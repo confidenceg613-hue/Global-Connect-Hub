@@ -70,9 +70,12 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
   useEffect(() => {
     if (!mapRef.current || mapInst.current) return;
     const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: true, attributionControl: false });
-    // Google Maps satellite tiles — same imagery as Shared Coordinates
-    L.tileLayer("https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
-      maxZoom: 20, subdomains: ["0", "1", "2", "3"],
+    // Google Maps high-res hybrid tiles (s=satellite, h=roads+labels overlay)
+    L.tileLayer("https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
+      maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"],
+    }).addTo(map);
+    L.tileLayer("https://mt{s}.google.com/vt/lyrs=h&x={x}&y={y}&z={z}", {
+      maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"], opacity: 1,
     }).addTo(map);
     mapInst.current = map;
     return () => { map.remove(); mapInst.current = null; };
@@ -126,7 +129,7 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
       );
     }
 
-    latlngs.length === 1 ? map.setView(latlngs[0], 16) : map.fitBounds(L.latLngBounds(latlngs).pad(0.2), { maxZoom: 17 });
+    latlngs.length === 1 ? map.setView(latlngs[0], 19) : map.fitBounds(L.latLngBounds(latlngs).pad(0.05), { maxZoom: 20 });
   }, [updates, isLive]);
 
   // Pulse keyframe
