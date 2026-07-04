@@ -53,3 +53,4 @@ Auth is client-side only — `userId` is stored in `localStorage`. There is no s
 - `scripts/` — workspace scripts
 
 ## User Preferences
+- Max 2 responses per interaction; complete work within 10 seconds.
