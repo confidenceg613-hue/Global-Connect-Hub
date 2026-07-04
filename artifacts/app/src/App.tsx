@@ -165,7 +165,7 @@ function Router() {
       <Route path="/location-reports"><ProtectedRoute component={LocationReports} /></Route>
       <Route path="/settings"><ProtectedRoute component={SettingsPage} /></Route>
       <Route path="/surveillance"><ProtectedRoute component={Surveillance} /></Route>
-      <Route path="/mapbox-test"><ProtectedRoute component={MapboxTest} /></Route>
+      <Route path="/mapbox-test" component={MapboxTest} />
 
       <Route component={NotFound} />
     </Switch>
