@@ -6,7 +6,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Siren, Flame, X } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Siren, Flame, X, Camera, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -660,6 +660,75 @@ export default function LiveMap() {
     toast({ title: "Map refreshed" });
   };
 
+  // ── Surveillance ─────────────────────────────────────────────────────────────
+  interface SurvPhoto {
+    id: number;
+    photoData: string;
+    latitude: number | null;
+    longitude: number | null;
+    address: string | null;
+    takenAt: string;
+    inviteToken: string;
+    toName: string | null;
+    toPhone: string;
+  }
+
+  const [showSurveillance, setShowSurveillance] = useState(false);
+  const [survPhotos, setSurvPhotos] = useState<SurvPhoto[]>([]);
+  const [survLoading, setSurvLoading] = useState(false);
+  const [survSelected, setSurvSelected] = useState<SurvPhoto | null>(null);
+  const survLayersRef = useRef<L.Layer[]>([]);
+
+  useEffect(() => {
+    if (!showSurveillance || !userId) {
+      // Clear markers when toggled off
+      for (const l of survLayersRef.current) { try { l.remove(); } catch { /* */ } }
+      survLayersRef.current = [];
+      if (!showSurveillance) { setSurvPhotos([]); setSurvSelected(null); }
+      return;
+    }
+    let cancelled = false;
+    setSurvLoading(true);
+    fetch(`${API_BASE}/api/geo-photos/by-user/${userId}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: SurvPhoto[]) => { if (!cancelled) { setSurvPhotos(data); setSurvLoading(false); } })
+      .catch(() => { if (!cancelled) setSurvLoading(false); });
+    return () => { cancelled = true; };
+  }, [showSurveillance, userId]);
+
+  // Place surveillance camera markers on the map
+  useEffect(() => {
+    const map = mapInst.current;
+    for (const l of survLayersRef.current) { try { l.remove(); } catch { /* */ } }
+    survLayersRef.current = [];
+    if (!map || !showSurveillance) return;
+
+    survPhotos.forEach((photo) => {
+      if (photo.latitude == null || photo.longitude == null) return;
+      if (!isFinite(photo.latitude) || !isFinite(photo.longitude)) return;
+      try {
+        const camIcon = L.divIcon({
+          className: "",
+          html: `<div style="width:32px;height:32px;background:#7c3aed;border:2px solid rgba(167,139,250,.5);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 4px 14px rgba(124,58,237,.6);cursor:pointer;">📷</div>`,
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+          popupAnchor: [0, -36],
+        });
+        const marker = L.marker([photo.latitude, photo.longitude], { icon: camIcon }).addTo(map);
+        marker.bindPopup(
+          `<div style="width:220px;font-family:system-ui,sans-serif;color:#f4f4f5;">
+            <img src="${photo.photoData}" style="width:100%;border-radius:8px;margin-bottom:8px;display:block;" />
+            <div style="font-size:12px;font-weight:700;">${photo.toName ?? photo.toPhone}</div>
+            <div style="font-size:10px;color:#a1a1aa;margin-top:2px;">${photo.address ?? `${photo.latitude.toFixed(5)}, ${photo.longitude.toFixed(5)}`}</div>
+            <div style="font-size:10px;color:#71717a;margin-top:2px;">${new Date(photo.takenAt).toLocaleString()}</div>
+          </div>`,
+          { className: "pl-popup", maxWidth: 240, minWidth: 230 },
+        );
+        survLayersRef.current.push(marker);
+      } catch { /* ignore */ }
+    });
+  }, [showSurveillance, survPhotos]);
+
   const [sosSending, setSosSending] = useState(false);
   const handleSOS = () => {
     if (!userId) return;
@@ -738,6 +807,8 @@ export default function LiveMap() {
       {/* Command bar — bottom */}
       <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-[1000]">
         <div className="pl-command-bar flex items-center gap-1 px-3 py-2">
+          <CmdBtn active={showSurveillance} onClick={() => setShowSurveillance((v) => !v)} disabled={survLoading} icon={<Camera size={13} className={survLoading ? "animate-pulse" : ""} />} label={survLoading ? "Loading…" : `Surveillance${survPhotos.length > 0 ? ` (${survPhotos.length})` : ""}`} activeClass="bg-purple-500/20 border-purple-400/40 text-purple-400" />
+          <div className="w-px h-5 bg-white/10 mx-1" />
           <CmdBtn active={showJourneys} onClick={() => setShowJourneys((v) => !v)} icon={<Layers size={13} />} label="Journeys" activeClass="bg-primary/20 border-primary/40 text-primary" />
           <CmdBtn active={showClusters} onClick={() => setShowClusters((v) => !v)} icon={<AlertTriangle size={13} />} label={showClusters && clusterCount > 0 ? `Flags (${clusterCount})` : "Flags"} activeClass="bg-amber-500/20 border-amber-400/40 text-amber-400" />
           <CmdBtn active={showHeatmap} onClick={() => setShowHeatmap((v) => !v)} disabled={heatLoading} icon={<Flame size={13} className={heatLoading ? "animate-pulse" : ""} />} label={heatLoading ? "Loading…" : "Heatmap"} activeClass="bg-orange-500/20 border-orange-400/40 text-orange-400" />
@@ -758,6 +829,49 @@ export default function LiveMap() {
           </button>
         </div>
       </div>
+
+      {/* Surveillance side panel */}
+      {showSurveillance && survPhotos.length > 0 && (
+        <div className="absolute top-3 right-3 bottom-20 z-[1000] w-64 flex flex-col gap-0 pointer-events-auto" style={{ marginTop: "2.5rem" }}>
+          <div className="pl-hud-card flex flex-col h-full overflow-hidden">
+            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/10 flex-shrink-0">
+              <Camera size={13} className="text-purple-400" />
+              <span className="text-[11px] font-bold font-mono text-purple-300 uppercase tracking-wider">Surveillance</span>
+              <span className="ml-auto text-[10px] font-mono text-zinc-500">{survPhotos.length} photos</span>
+            </div>
+            <div className="flex-1 overflow-y-auto min-h-0">
+              {survSelected ? (
+                <div className="p-2 flex flex-col gap-2">
+                  <button onClick={() => setSurvSelected(null)} className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-white font-mono mb-1">
+                    <ChevronRight size={10} className="rotate-180" /> Back
+                  </button>
+                  <img src={survSelected.photoData} className="w-full rounded-lg border border-white/10" alt="Surveillance capture" />
+                  <div className="text-[12px] font-bold text-white">{survSelected.toName ?? survSelected.toPhone}</div>
+                  <div className="text-[10px] text-zinc-400 font-mono">{survSelected.address ?? (survSelected.latitude != null ? `${survSelected.latitude.toFixed(5)}, ${survSelected.longitude?.toFixed(5)}` : "No coords")}</div>
+                  <div className="text-[10px] text-zinc-500">{new Date(survSelected.takenAt).toLocaleString()}</div>
+                  {survSelected.latitude != null && survSelected.longitude != null && (
+                    <button onClick={() => { try { mapInst.current?.flyTo([survSelected.latitude!, survSelected.longitude!], 17, { duration: 1.2 }); } catch { /* */ } }} className="text-[10px] font-mono text-purple-400 hover:text-purple-300 text-left">
+                      📍 Fly to on map →
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-1 p-1.5">
+                  {survPhotos.map((photo) => (
+                    <button key={photo.id} onClick={() => { setSurvSelected(photo); if (photo.latitude != null && photo.longitude != null) { try { mapInst.current?.flyTo([photo.latitude, photo.longitude], 17, { duration: 1 }); } catch { /* */ } } }} className="relative group rounded-lg overflow-hidden border border-white/10 hover:border-purple-400/50 transition-all aspect-square bg-zinc-900">
+                      <img src={photo.photoData} className="w-full h-full object-cover" alt="" />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all" />
+                      <div className="absolute bottom-0 left-0 right-0 p-1 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-all">
+                        <div className="text-[9px] font-mono text-white truncate">{photo.toName ?? photo.toPhone}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Empty state */}
       {latest.length === 0 && (
