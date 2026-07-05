@@ -1,12 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff, Monitor, Camera, XCircle, Sparkles, Zap } from "lucide-react";
+import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff, Monitor, Camera, XCircle, Sparkles, Zap, Images, ExternalLink } from "lucide-react";
 import { dispatchMapCommand, getMapContext } from "@/lib/map-command-bus";
 import type { MapCommand } from "@/lib/map-command-bus";
 import { useAuth } from "@/hooks/use-auth";
 
-// ── Browser speech API types ───────────────────────────────────────────────────
 interface SREvent extends Event { results: SpeechRecognitionResultList; }
 interface SRInstance {
   lang: string; interimResults: boolean; maxAlternatives: number;
@@ -21,23 +20,25 @@ declare global {
   interface Window { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor; }
 }
 
+interface ImageResult { url: string; source: string; alt: string; thumb?: string; }
+
 interface Message {
   role: "user" | "assistant";
   content: string;
   command?: MapCommand | null;
   streaming?: boolean;
+  images?: ImageResult[];
 }
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 const WELCOME: Message = {
   role: "assistant",
-  content: "Hey! 👋 I'm your **PhoneLink AI** — powered by GPT-4o with real-time streaming.\n\nI can navigate the map, brief you on any place on Earth, analyse your screen, and much more.",
+  content: "Hey! 👋 I'm your **PhoneLink AI** — powered by GPT-4o.\n\nI can navigate the map, find **real photos** of any place on Earth, brief you on locations, and much more.",
 };
 
-const QUICK_ACTIONS_DEFAULT = ["Go to Tokyo", "What is a geofence?", "Show heatmap", "How does SOS work?"];
+const QUICK_ACTIONS_DEFAULT = ["Show image of Abuja", "Go to Lagos", "What is a geofence?", "Show heatmap"];
 
-// ── Markdown renderer ──────────────────────────────────────────────────────────
 function renderMarkdown(text: string): React.ReactNode[] {
   return text.split("\n").map((line, i) => {
     if (line.trim() === "") return <div key={i} className="h-1" />;
@@ -62,7 +63,6 @@ function inlineMarkdown(text: string): React.ReactNode {
   )}</>;
 }
 
-// ── TTS helpers ────────────────────────────────────────────────────────────────
 function speak(text: string, onEnd?: () => void): void {
   if (!("speechSynthesis" in window)) { onEnd?.(); return; }
   window.speechSynthesis.cancel();
@@ -80,26 +80,31 @@ function speak(text: string, onEnd?: () => void): void {
 }
 function stopSpeaking() { try { window.speechSynthesis?.cancel(); } catch {} }
 
-// ── Geocoding / Place helpers ──────────────────────────────────────────────────
-interface GeocodeResult { lat: number; lng: number; formattedAddress: string; placeTypes: string[]; city: string | null; region: string | null; country: string | null; neighborhood: string | null; }
-interface PlaceInfo { name: string | null; summary: string | null; placeTypes: string[]; rating: number | null; userRatingCount: number | null; }
-
-async function geocodePlace(place: string): Promise<GeocodeResult | null> {
+async function geocodePlace(place: string): Promise<{ lat: number; lng: number; formattedAddress: string; placeTypes: string[]; city: string | null; region: string | null; country: string | null; neighborhood: string | null; } | null> {
   try {
     const r = await fetch(`${BASE}/api/maps/geocode?place=${encodeURIComponent(place)}`);
     if (!r.ok) return null;
-    const d: GeocodeResult = await r.json();
+    const d = await r.json();
     return typeof d.lat === "number" ? d : null;
   } catch { return null; }
 }
-async function fetchPlaceInfo(place: string): Promise<PlaceInfo | null> {
+
+async function fetchPlaceInfo(place: string): Promise<{ name: string | null; summary: string | null; placeTypes: string[]; rating: number | null; userRatingCount: number | null; } | null> {
   try {
     const r = await fetch(`${BASE}/api/maps/place-info?place=${encodeURIComponent(place)}`);
     return r.ok ? await r.json() : null;
   } catch { return null; }
 }
 
-// ── Stream reader ──────────────────────────────────────────────────────────────
+async function fetchLocationImages(place: string): Promise<ImageResult[]> {
+  try {
+    const r = await fetch(`${BASE}/api/images/search?q=${encodeURIComponent(place)}`);
+    if (!r.ok) return [];
+    const data: { images: ImageResult[] } = await r.json();
+    return data.images || [];
+  } catch { return []; }
+}
+
 interface StreamEvent {
   type: "token" | "done" | "error";
   text?: string;
@@ -122,9 +127,42 @@ async function* readStream(resp: Response): AsyncGenerator<StreamEvent> {
       if (!line.startsWith("data: ")) continue;
       const raw = line.slice(6).trim();
       if (!raw) continue;
-      try { yield JSON.parse(raw) as StreamEvent; } catch { /* */ }
+      try { yield JSON.parse(raw) as StreamEvent; } catch { /* skip malformed */ }
     }
   }
+}
+
+// ── Image grid component ──────────────────────────────────────────────────────
+function ImageGrid({ images, place }: { images: ImageResult[]; place: string }) {
+  const [failed, setFailed] = useState<Set<number>>(new Set());
+  const valid = images.filter((_, i) => !failed.has(i));
+  if (valid.length === 0) return null;
+  return (
+    <div className="mt-2 space-y-1.5">
+      <p className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">
+        <Images className="w-3 h-3" /> Photos of {place}
+      </p>
+      <div className="grid grid-cols-2 gap-1.5">
+        {valid.slice(0, 6).map((img, i) => (
+          <a key={i} href={img.url} target="_blank" rel="noopener noreferrer"
+            className="relative group rounded-lg overflow-hidden border border-border/40 bg-muted aspect-video block">
+            <img
+              src={img.thumb || img.url}
+              alt={img.alt}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+              loading="lazy"
+              onError={() => setFailed(prev => new Set([...prev, images.indexOf(img)]))}
+            />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+            <div className="absolute bottom-0 left-0 right-0 px-1.5 py-1 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between">
+              <span className="text-[9px] text-white/80 truncate">{img.source}</span>
+              <ExternalLink className="w-2.5 h-2.5 text-white/60 shrink-0" />
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -172,7 +210,6 @@ export default function AssistantWidget() {
   }, []);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, streaming]);
-
   useEffect(() => {
     if (open && !callMode) setTimeout(() => textareaRef.current?.focus(), 120);
   }, [open, callMode]);
@@ -213,7 +250,6 @@ export default function AssistantWidget() {
 
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
-  // ── Speech recognition ──────────────────────────────────────────────────────
   const startListening = useCallback(() => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!SR || loadingRef.current) return;
@@ -244,7 +280,67 @@ export default function AssistantWidget() {
     if (listening) stopListening(); else startListening();
   }, [listening, startListening]);
 
-  // ── Core send with streaming ────────────────────────────────────────────────
+  // ── Execute map / image commands ──────────────────────────────────────────
+  const executeCommand = useCallback(async (command: MapCommand) => {
+    if (command.type === "showImages") {
+      const imgs = await fetchLocationImages(command.place);
+      setMessages(prev => {
+        const next = [...prev];
+        const lastIdx = next.length - 1;
+        if (next[lastIdx]?.role === "assistant") {
+          next[lastIdx] = { ...next[lastIdx], images: imgs, command };
+        }
+        return next;
+      });
+      return;
+    }
+    if (command.type === "geocode") {
+      const [coords, placeInfo] = await Promise.all([geocodePlace(command.place), fetchPlaceInfo(command.place)]);
+      if (coords) {
+        dispatchMapCommand({ type: "flyTo", lat: coords.lat, lng: coords.lng, zoom: 13 });
+        const parts: string[] = [];
+        if (coords.formattedAddress) parts.push(`📍 ${coords.formattedAddress}`);
+        const types = placeInfo?.placeTypes?.length ? placeInfo.placeTypes : coords.placeTypes;
+        if (types?.length) parts.push(`🏷️ ${types.slice(0, 3).join(", ")}`);
+        if (placeInfo?.rating != null) {
+          parts.push(`${"★".repeat(Math.round(placeInfo.rating))} ${placeInfo.rating.toFixed(1)}`);
+        }
+        if (placeInfo?.summary) parts.push(placeInfo.summary.length > 300 ? placeInfo.summary.slice(0, 300) + "…" : placeInfo.summary);
+        if (parts.length) setMessages(prev => [...prev, { role: "assistant", content: parts.join("\n") }]);
+        if (callModeRef.current && placeInfo?.summary) {
+          const t = setTimeout(() => {
+            if (!mountedRef.current || !callModeRef.current) return;
+            setSpeaking(true);
+            speak(placeInfo.summary!, () => {
+              if (!mountedRef.current) return;
+              setSpeaking(false);
+              if (callModeRef.current) {
+                const t2 = setTimeout(() => startListening(), 500);
+                pendingTimers.current.push(t2);
+              }
+            });
+          }, 1800);
+          pendingTimers.current.push(t);
+        }
+      } else {
+        setMessages(prev => [...prev, { role: "assistant", content: `⚠️ Couldn't find **${command.place}** on the map. Showing images instead…` }]);
+        // Still show images even if geocoding fails
+        const imgs = await fetchLocationImages(command.place);
+        if (imgs.length > 0) {
+          setMessages(prev => {
+            const next = [...prev];
+            next[next.length - 1] = { ...next[next.length - 1], images: imgs };
+            return next;
+          });
+        }
+        if (callModeRef.current) speak(`Couldn't find ${command.place} on the map.`);
+      }
+      return;
+    }
+    dispatchMapCommand(command);
+  }, [startListening]);
+
+  // ── Core send with streaming + non-streaming fallback ─────────────────────
   const sendMessage = useCallback(async (overrideText?: string) => {
     const msg = (overrideText ?? input).trim();
     if (!msg || loadingRef.current) return;
@@ -263,13 +359,14 @@ export default function AssistantWidget() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    const tryStream = !imageToSend;
+
     try {
       const resp = await fetch(`${BASE}/api/assistant`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // Request streaming only when no image (vision models don't support it)
-          ...(!imageToSend ? { Accept: "text/event-stream" } : {}),
+          ...(tryStream ? { Accept: "text/event-stream" } : {}),
         },
         body: JSON.stringify({
           message: msg,
@@ -280,11 +377,23 @@ export default function AssistantWidget() {
         signal: ctrl.signal,
       });
 
-      // ── Streaming path ──────────────────────────────────────────────────────
-      if (resp.headers.get("content-type")?.includes("text/event-stream") && resp.body) {
-        setStreaming(true);
+      // Handle HTTP errors
+      if (!resp.ok) {
+        let errMsg = `Server error (${resp.status})`;
+        try {
+          const errData = await resp.json();
+          if (errData?.reply) errMsg = errData.reply;
+          else if (errData?.error) errMsg = errData.error;
+        } catch { /* */ }
+        setMessages(prev => [...prev, { role: "assistant", content: errMsg }]);
+        return;
+      }
 
-        // Add an empty streaming message slot
+      const isSSE = resp.headers.get("content-type")?.includes("text/event-stream") && resp.body;
+
+      // ── Streaming ───────────────────────────────────────────────────────────
+      if (isSSE) {
+        setStreaming(true);
         setMessages(prev => [...prev, { role: "assistant", content: "", streaming: true }]);
 
         let fullReply = "";
@@ -292,15 +401,12 @@ export default function AssistantWidget() {
 
         for await (const event of readStream(resp)) {
           if (!mountedRef.current) break;
-
           if (event.type === "token" && event.text) {
             fullReply += event.text;
             setMessages(prev => {
               const next = [...prev];
-              const lastIdx = next.length - 1;
-              if (next[lastIdx]?.streaming) {
-                next[lastIdx] = { ...next[lastIdx], content: fullReply };
-              }
+              const last = next[next.length - 1];
+              if (last?.streaming) next[next.length - 1] = { ...last, content: fullReply };
               return next;
             });
           } else if (event.type === "done") {
@@ -308,10 +414,8 @@ export default function AssistantWidget() {
             if (event.fullReply) fullReply = event.fullReply;
             setMessages(prev => {
               const next = [...prev];
-              const lastIdx = next.length - 1;
-              if (next[lastIdx]?.streaming) {
-                next[lastIdx] = { role: "assistant", content: fullReply, command, streaming: false };
-              }
+              const last = next[next.length - 1];
+              if (last?.streaming) next[next.length - 1] = { role: "assistant", content: fullReply, command, streaming: false };
               return next;
             });
             if (callModeRef.current) {
@@ -319,54 +423,50 @@ export default function AssistantWidget() {
               speak(fullReply, () => {
                 if (!mountedRef.current) return;
                 setSpeaking(false);
-                if (callModeRef.current) {
-                  const t = setTimeout(() => startListening(), 500);
-                  pendingTimers.current.push(t);
-                }
+                if (callModeRef.current) pendingTimers.current.push(setTimeout(() => startListening(), 500));
               });
             }
             if (command) await executeCommand(command);
             break;
           } else if (event.type === "error") {
+            const errMsg = event.message || "Something went wrong. Please try again.";
             setMessages(prev => {
               const next = [...prev];
-              const lastIdx = next.length - 1;
-              if (next[lastIdx]?.streaming) {
-                next[lastIdx] = { role: "assistant", content: "Something went wrong. Please try again.", streaming: false };
-              }
+              const last = next[next.length - 1];
+              if (last?.streaming) next[next.length - 1] = { role: "assistant", content: errMsg, streaming: false };
               return next;
             });
             break;
           }
         }
         setStreaming(false);
-      } else {
-        // ── Non-streaming fallback (vision) ─────────────────────────────────
-        const data = await resp.json();
-        const reply: string = data.reply ?? "Sorry, I couldn't understand that.";
-        const command: MapCommand | null = data.command ?? null;
-        setMessages(prev => [...prev, { role: "assistant", content: reply, command }]);
-        if (callModeRef.current) {
-          setSpeaking(true);
-          speak(reply, () => {
-            if (!mountedRef.current) return;
-            setSpeaking(false);
-            if (callModeRef.current) {
-              const t = setTimeout(() => startListening(), 500);
-              pendingTimers.current.push(t);
-            }
-          });
-        }
-        if (command) await executeCommand(command);
+        return;
       }
-    } catch (e) {
+
+      // ── Non-streaming (vision / fallback) ───────────────────────────────────
+      const data = await resp.json();
+      const reply: string = data.reply ?? "Sorry, I couldn't process that.";
+      const command: MapCommand | null = data.command ?? null;
+      setMessages(prev => [...prev, { role: "assistant", content: reply, command }]);
+      if (callModeRef.current) {
+        setSpeaking(true);
+        speak(reply, () => {
+          if (!mountedRef.current) return;
+          setSpeaking(false);
+          if (callModeRef.current) pendingTimers.current.push(setTimeout(() => startListening(), 500));
+        });
+      }
+      if (command) await executeCommand(command);
+
+    } catch (e: unknown) {
       if ((e as Error)?.name === "AbortError") return;
-      const errMsg = "Something went wrong. Please try again.";
+      console.error("[AssistantWidget] send error:", e);
+      const errMsg = "Connection error — please check your network and try again.";
       setMessages(prev => {
         const next = [...prev];
-        const lastIdx = next.length - 1;
-        if (next[lastIdx]?.streaming) {
-          next[lastIdx] = { role: "assistant", content: errMsg, streaming: false };
+        const last = next[next.length - 1];
+        if (last?.streaming) {
+          next[next.length - 1] = { role: "assistant", content: errMsg, streaming: false };
         } else {
           next.push({ role: "assistant", content: errMsg });
         }
@@ -377,48 +477,7 @@ export default function AssistantWidget() {
     } finally {
       setLoading(false);
     }
-  }, [input, userId, startListening, screenCapture]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Execute map command ─────────────────────────────────────────────────────
-  const executeCommand = async (command: MapCommand) => {
-    if (command.type === "geocode") {
-      const [coords, placeInfo] = await Promise.all([geocodePlace(command.place), fetchPlaceInfo(command.place)]);
-      if (coords) {
-        dispatchMapCommand({ type: "flyTo", lat: coords.lat, lng: coords.lng, zoom: 13 });
-        const parts: string[] = [];
-        if (coords.formattedAddress) parts.push(`📍 ${coords.formattedAddress}`);
-        const types = placeInfo?.placeTypes?.length ? placeInfo.placeTypes : coords.placeTypes;
-        if (types?.length) parts.push(`🏷️ ${types.slice(0, 3).join(", ")}`);
-        if (placeInfo?.rating != null) {
-          const stars = "★".repeat(Math.round(placeInfo.rating));
-          const count = placeInfo.userRatingCount ? ` (${placeInfo.userRatingCount.toLocaleString()} reviews)` : "";
-          parts.push(`${stars} ${placeInfo.rating.toFixed(1)}${count}`);
-        }
-        if (placeInfo?.summary) parts.push(placeInfo.summary.length > 300 ? placeInfo.summary.slice(0, 300) + "…" : placeInfo.summary);
-        if (parts.length) setMessages(prev => [...prev, { role: "assistant", content: parts.join("\n") }]);
-        if (callModeRef.current && placeInfo?.summary) {
-          const t = setTimeout(() => {
-            if (!mountedRef.current || !callModeRef.current) return;
-            setSpeaking(true);
-            speak(`Here's what I found: ${placeInfo.summary}`, () => {
-              if (!mountedRef.current) return;
-              setSpeaking(false);
-              if (callModeRef.current) {
-                const t2 = setTimeout(() => startListening(), 500);
-                pendingTimers.current.push(t2);
-              }
-            });
-          }, 1800);
-          pendingTimers.current.push(t);
-        }
-      } else {
-        setMessages(prev => [...prev, { role: "assistant", content: `⚠️ Couldn't find **${command.place}** on the map.` }]);
-        if (callModeRef.current) speak(`Couldn't find ${command.place}.`);
-      }
-    } else {
-      dispatchMapCommand(command);
-    }
-  };
+  }, [input, userId, startListening, screenCapture, executeCommand]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -492,7 +551,7 @@ export default function AssistantWidget() {
   const onMap = ctx.onMapPage;
   const contactNames = ctx.contacts?.map(c => c.name).filter(Boolean) ?? [];
   const quickActions = onMap && contactNames.length > 0
-    ? [`Where is ${contactNames[0]}?`, "Show all contacts", "Enable heatmap", "Go to my location"]
+    ? [`Where is ${contactNames[0]}?`, "Show all contacts", "Enable heatmap", "Show image of this area"]
     : QUICK_ACTIONS_DEFAULT;
   const showQuickActions = messages.filter(m => m.content !== WELCOME.content).length === 0 && !loading && !streaming;
 
@@ -581,7 +640,7 @@ export default function AssistantWidget() {
       {/* ── Chat panel ───────────────────────────────────────────────────────── */}
       {open && (
         <div className="fixed bottom-24 right-6 z-50 w-80 sm:w-96 flex flex-col bg-background border border-border rounded-2xl shadow-2xl overflow-hidden"
-          style={{ maxHeight: "min(72vh, 600px)" }}>
+          style={{ maxHeight: "min(80vh, 640px)" }}>
 
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/40">
@@ -625,7 +684,7 @@ export default function AssistantWidget() {
           <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className="flex flex-col gap-1 max-w-[88%]">
+                <div className="flex flex-col gap-1 max-w-[92%]">
                   <div className={`px-3 py-2 rounded-xl text-sm leading-relaxed ${
                     m.role === "user"
                       ? "bg-indigo-600 text-white rounded-br-sm"
@@ -637,11 +696,14 @@ export default function AssistantWidget() {
                           {m.streaming && m.content && (
                             <span className="inline-block w-0.5 h-3.5 bg-indigo-400 animate-pulse ml-0.5 align-middle" />
                           )}
+                          {m.images && m.images.length > 0 && m.command?.type === "showImages" && (
+                            <ImageGrid images={m.images} place={(m.command as { type: "showImages"; place: string }).place} />
+                          )}
                         </div>
                       : <span className="whitespace-pre-wrap">{m.content}</span>
                     }
                   </div>
-                  {m.command && (
+                  {m.command && m.command.type !== "showImages" && (
                     <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-400 px-1">
                       <Map className="w-2.5 h-2.5" />
                       <span>{commandLabel(m.command)}</span>
@@ -651,7 +713,6 @@ export default function AssistantWidget() {
               </div>
             ))}
 
-            {/* Loading indicator (before stream starts) */}
             {loading && !streaming && (
               <div className="flex justify-start">
                 <div className="bg-muted px-3 py-2.5 rounded-xl rounded-bl-sm text-xs flex items-center gap-2">
@@ -665,7 +726,6 @@ export default function AssistantWidget() {
               </div>
             )}
 
-            {/* Quick action chips */}
             {showQuickActions && (
               <div className="pt-1">
                 <p className="text-[10px] text-muted-foreground mb-2 font-mono px-1">Try asking:</p>
@@ -720,8 +780,8 @@ export default function AssistantWidget() {
                   screenCapture ? "Ask about your screen…"
                     : listening ? "🎤 Listening…"
                     : streaming ? "Streaming response…"
-                    : onMap ? "Navigate map or ask anything…"
-                    : "Ask me anything…"
+                    : onMap ? "Navigate map, show images…"
+                    : "Ask anything or say 'show image of Lagos'…"
                 }
                 rows={1} className="flex-1 resize-none text-sm min-h-[36px] max-h-[120px]"
                 disabled={loading || listening || streaming}
@@ -757,5 +817,6 @@ function commandLabel(cmd: MapCommand): string {
     case "zoomOut":     return "Zoomed out";
     case "findContact": return `Locating: ${cmd.name}`;
     case "goBack":      return "Returned to home view";
+    case "showImages":  return `Photos of ${cmd.place}`;
   }
 }

@@ -35,6 +35,7 @@ const MapCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("zoomOut") }),
   z.object({ type: z.literal("findContact"), name: z.string().min(1) }),
   z.object({ type: z.literal("goBack") }),
+  z.object({ type: z.literal("showImages"), place: z.string().min(1) }),
 ]);
 
 const AiResponseSchema = z.object({
@@ -112,7 +113,9 @@ Emit a "command" field in your JSON when the user asks to navigate, zoom, find s
 5. Zoom: {"reply":"Zooming in.","command":{"type":"zoomIn"}}
 6. Find contact: {"reply":"Jumping to Sarah.","command":{"type":"findContact","name":"Sarah"}}
 7. Go back: {"reply":"Heading back.","command":{"type":"goBack"}}
-8. No map action: {"reply":"Here's what I know..."}
+8. Show location images: {"reply":"Here are photos of Lagos!","command":{"type":"showImages","place":"Lagos, Nigeria"}}
+   Use whenever user says "show image", "show photo", "show picture", "what does X look like", "show me X", or asks to see a place visually. Always search the most specific place name possible.
+9. No map action: {"reply":"Here's what I know..."}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ## LOCATION INTELLIGENCE
