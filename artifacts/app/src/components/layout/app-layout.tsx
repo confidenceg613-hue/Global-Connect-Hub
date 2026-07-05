@@ -1,37 +1,25 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  ShieldCheck,
-  LayoutDashboard,
-  Users,
-  UserCircle,
-  LogOut,
-  Menu,
-  Navigation,
-  Clock,
-  Map,
-  Bell,
-  BellOff,
-  BellRing,
-  Camera,
-  Flag,
-  Settings,
-  Activity as ActivityIcon,
+  ShieldCheck, LayoutDashboard, Users, UserCircle, LogOut, Menu,
+  Navigation, Clock, Map, Bell, BellOff, BellRing, Camera, Settings,
+  Activity as ActivityIcon, Flag, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { NotificationPanel, useNotificationCount } from "@/components/notification-panel";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const VAPID_PUBLIC_KEY = "BC25lK-LutnB0q-o9jd7PV8jo5dzFELRDBfpbUFcJRs632OKi1cx81ghTwK_mpV3AbtEk7SLLKIQroAHFkWaamM";
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY ||
+  "BGsFFaTA-uRJu2LqW7spIXSkgaUGCfgy3eckDbxffUJ7N80C5NO0V1jhETymchIu4RWw8MHqgmBYEIogR84yhX0";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
   const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
 }
 
 type NotifState = "unsupported" | "default" | "granted" | "denied" | "loading";
@@ -41,34 +29,24 @@ function useNotificationBell(userId: number | null) {
   const [state, setState] = useState<NotifState>("default");
 
   const refreshState = useCallback(() => {
-    if (!("Notification" in window) || !("serviceWorker" in navigator)) {
-      setState("unsupported");
-    } else {
-      setState(Notification.permission as NotifState);
-    }
+    if (!("Notification" in window) || !("serviceWorker" in navigator)) setState("unsupported");
+    else setState(Notification.permission as NotifState);
   }, []);
 
   useEffect(() => {
     refreshState();
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") refreshState();
-    };
+    const onVisibility = () => { if (document.visibilityState === "visible") refreshState(); };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [refreshState]);
 
   const subscribe = useCallback(async () => {
-    if (!userId) {
-      toast({ title: "Sign in first to enable notifications" });
-      return;
-    }
+    if (!userId) { toast({ title: "Sign in first to enable notifications" }); return; }
     if (!("Notification" in window) || !("serviceWorker" in navigator)) {
-      toast({ title: "Notifications not supported on this device", variant: "destructive" });
-      return;
+      toast({ title: "Notifications not supported on this device", variant: "destructive" }); return;
     }
     if (Notification.permission === "denied") {
-      toast({ title: "Notifications blocked", description: "Open browser settings and allow notifications for this site.", variant: "destructive" });
-      return;
+      toast({ title: "Notifications blocked", description: "Open browser settings to allow notifications.", variant: "destructive" }); return;
     }
     if (Notification.permission === "granted") {
       try {
@@ -79,67 +57,45 @@ function useNotificationBell(userId: number | null) {
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY).buffer as ArrayBuffer,
         });
-        const p256dh = sub.getKey("p256dh");
-        const auth = sub.getKey("auth");
+        const p256dh = sub.getKey("p256dh"); const auth = sub.getKey("auth");
         if (p256dh && auth) {
           await fetch(`${API_BASE}/api/push/subscribe`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              userId,
-              endpoint: sub.endpoint,
-              keys: {
-                auth: btoa(String.fromCharCode(...new Uint8Array(auth))),
-                p256dh: btoa(String.fromCharCode(...new Uint8Array(p256dh))),
-              },
-            }),
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, endpoint: sub.endpoint, keys: {
+              auth: btoa(String.fromCharCode(...new Uint8Array(auth))),
+              p256dh: btoa(String.fromCharCode(...new Uint8Array(p256dh))),
+            }}),
           });
         }
-        toast({ title: "🔔 Notifications already active", description: "Push subscription refreshed." });
-      } catch {
-        toast({ title: "Could not refresh push subscription", variant: "destructive" });
-      }
-      setState("granted");
-      return;
+        toast({ title: "🔔 Notifications active", description: "Push subscription refreshed." });
+      } catch { toast({ title: "Could not refresh push subscription", variant: "destructive" }); }
+      setState("granted"); return;
     }
-
     setState("loading");
     try {
       const permission = await Notification.requestPermission();
       setState(permission as NotifState);
-
       if (permission !== "granted") {
-        toast({ title: "Notifications not enabled", description: "You can enable them from browser settings.", variant: "destructive" });
-        return;
+        toast({ title: "Notifications not enabled", description: "You can enable them in browser settings.", variant: "destructive" }); return;
       }
-
       const base = import.meta.env.BASE_URL;
       const reg = await navigator.serviceWorker.register(`${base}sw.js`, { scope: base });
-
       const existing = await reg.pushManager.getSubscription();
       const sub = existing ?? await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY).buffer as ArrayBuffer,
       });
-
-      const p256dh = sub.getKey("p256dh");
-      const auth = sub.getKey("auth");
+      const p256dh = sub.getKey("p256dh"); const auth = sub.getKey("auth");
       if (p256dh && auth) {
         await fetch(`${API_BASE}/api/push/subscribe`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId,
-            endpoint: sub.endpoint,
-            keys: {
-              auth: btoa(String.fromCharCode(...new Uint8Array(auth))),
-              p256dh: btoa(String.fromCharCode(...new Uint8Array(p256dh))),
-            },
-          }),
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, endpoint: sub.endpoint, keys: {
+            auth: btoa(String.fromCharCode(...new Uint8Array(auth))),
+            p256dh: btoa(String.fromCharCode(...new Uint8Array(p256dh))),
+          }}),
         });
       }
-
-      toast({ title: "🔔 Notifications enabled", description: "You'll get alerts when location updates happen." });
+      toast({ title: "🔔 Notifications enabled", description: "You'll get alerts for location updates." });
     } catch {
       setState(Notification.permission as NotifState);
       toast({ title: "Could not enable notifications", variant: "destructive" });
@@ -149,23 +105,41 @@ function useNotificationBell(userId: number | null) {
   return { state, subscribe };
 }
 
-interface AppLayoutProps {
-  children: React.ReactNode;
-}
+interface AppLayoutProps { children: React.ReactNode; }
 
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-  { href: "/activity", label: "Activity", icon: ActivityIcon },
-  { href: "/permissions", label: "Permissions", icon: ShieldCheck },
-  { href: "/invites", label: "Invites", icon: Users },
-  { href: "/live-map", label: "Live Map", icon: Map },
-  { href: "/surveillance", label: "Surveillance", icon: Camera },
-  { href: "/geoboard", label: "GeoBoard", icon: Camera },
-  { href: "/location-reports", label: "Location Reports", icon: Flag },
-  { href: "/shared-coordinates", label: "Shared Coordinates", icon: Navigation },
-  { href: "/location-history", label: "Location History", icon: Clock },
-  { href: "/profile", label: "Profile", icon: UserCircle },
-  { href: "/settings", label: "Settings", icon: Settings },
+const NAV_SECTIONS = [
+  {
+    label: "MAIN",
+    items: [
+      { href: "/dashboard",  label: "Overview",     icon: LayoutDashboard },
+      { href: "/live-map",   label: "Live Map",      icon: Map },
+      { href: "/activity",   label: "Activity",      icon: ActivityIcon },
+    ],
+  },
+  {
+    label: "TRACKING",
+    items: [
+      { href: "/permissions",       label: "Permissions",       icon: ShieldCheck },
+      { href: "/invites",           label: "Invites",           icon: Users },
+      { href: "/shared-coordinates",label: "Shared Coordinates",icon: Navigation },
+      { href: "/location-history",  label: "Location History",  icon: Clock },
+      { href: "/location-reports",  label: "Location Reports",  icon: Flag },
+    ],
+  },
+  {
+    label: "SECURITY",
+    items: [
+      { href: "/geoboard",    label: "GeoBoard",    icon: Camera },
+      { href: "/surveillance",label: "Surveillance", icon: Camera },
+    ],
+  },
+  {
+    label: "ACCOUNT",
+    items: [
+      { href: "/profile",  label: "Profile",  icon: UserCircle },
+      { href: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
@@ -184,12 +158,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     "text-muted-foreground";
 
   const handleBellClick = useCallback(() => {
-    if (notifState !== "granted") {
-      subscribe();
-    } else {
-      setPanelOpen((v) => !v);
-      if (!panelOpen) setUnreadCount(0);
-    }
+    if (notifState !== "granted") subscribe();
+    else { setPanelOpen(v => !v); if (!panelOpen) setUnreadCount(0); }
   }, [notifState, subscribe, panelOpen, setUnreadCount]);
 
   const bellTitle =
@@ -199,14 +169,11 @@ export function AppLayout({ children }: AppLayoutProps) {
     "Enable push notifications";
 
   const notificationButton = (
-    <button
-      onClick={handleBellClick}
+    <button onClick={handleBellClick}
       disabled={notifState === "unsupported" || notifState === "loading"}
-      title={bellTitle}
-      aria-label={bellTitle}
-      className={`relative p-2 rounded-lg transition-all hover:bg-secondary ${bellColor}`}
-    >
-      <BellIcon size={20} />
+      title={bellTitle} aria-label={bellTitle}
+      className={`relative p-2 rounded-lg transition-all hover:bg-secondary ${bellColor}`}>
+      <BellIcon size={18} />
       {notifState === "granted" && unreadCount > 0 && (
         <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-1 ring-1 ring-background">
           {unreadCount > 99 ? "99+" : unreadCount}
@@ -223,48 +190,65 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-sidebar border-r border-border">
-      <div className="p-6">
-        <div className="flex items-center justify-between gap-3">
+      {/* Brand */}
+      <div className="px-5 py-5 border-b border-border/60">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-primary text-primary-foreground p-2 rounded-lg">
-              <ShieldCheck size={24} />
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-md">
+              <ShieldCheck size={18} className="text-white" />
             </div>
-            <span className="font-bold text-xl tracking-tight text-foreground">PhoneLink</span>
+            <div>
+              <span className="font-bold text-base tracking-tight text-foreground">PhoneLink</span>
+              <div className="text-[10px] text-muted-foreground font-mono leading-none mt-0.5">Safety Platform</div>
+            </div>
           </div>
           {notificationButton}
         </div>
       </div>
 
-      <div className="flex-1 px-4 py-2 space-y-1">
-        {NAV_ITEMS.map((item) => {
-          const isActive = location === item.href;
-          return (
-            <Link key={item.href} href={item.href}>
-              <div
-                className={`flex items-center gap-3 px-4 py-3 rounded-md transition-colors cursor-pointer ${
-                  isActive
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                }`}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <item.icon size={20} />
-                <span>{item.label}</span>
-              </div>
-            </Link>
-          );
-        })}
+      {/* Navigation */}
+      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
+        {NAV_SECTIONS.map(section => (
+          <div key={section.label}>
+            <p className="text-[10px] font-semibold tracking-widest text-muted-foreground/60 px-3 mb-2">
+              {section.label}
+            </p>
+            <div className="space-y-0.5">
+              {section.items.map(item => {
+                const isActive = location === item.href;
+                return (
+                  <Link key={item.href} href={item.href}>
+                    <div
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={`group flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-all cursor-pointer ${
+                        isActive
+                          ? "bg-indigo-500/10 text-indigo-400"
+                          : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <item.icon size={16} className={isActive ? "text-indigo-400" : ""} />
+                        <span className={`text-sm ${isActive ? "font-semibold" : "font-medium"}`}>{item.label}</span>
+                      </div>
+                      {isActive && <ChevronRight size={14} className="text-indigo-400" />}
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
-      <div className="p-4 border-t border-border">
-        <Button
-          variant="ghost"
-          className="w-full justify-start text-muted-foreground hover:text-foreground"
+      {/* Footer */}
+      <div className="px-3 py-3 border-t border-border/60">
+        <button
           onClick={logout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all text-sm font-medium"
         >
-          <LogOut size={20} className="mr-3" />
+          <LogOut size={16} />
           Sign out
-        </Button>
+        </button>
       </div>
     </div>
   );
@@ -272,32 +256,28 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="flex min-h-[100dvh] w-full bg-background">
       {/* Desktop Sidebar */}
-      <div className="hidden md:block w-72 shrink-0">
-        <div className="fixed inset-y-0 w-72">
-          {sidebarContent}
-        </div>
+      <div className="hidden md:block w-64 shrink-0">
+        <div className="fixed inset-y-0 w-64">{sidebarContent}</div>
       </div>
 
-      {/* Mobile Sidebar & Header */}
+      {/* Mobile */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="md:hidden sticky top-0 z-30 flex items-center justify-between p-4 bg-background border-b border-border">
-          <div className="flex items-center gap-2">
-            <div className="bg-primary text-primary-foreground p-1.5 rounded-md">
-              <ShieldCheck size={20} />
+        <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-background/95 backdrop-blur border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center">
+              <ShieldCheck size={16} className="text-white" />
             </div>
-            <span className="font-bold text-lg text-foreground">PhoneLink</span>
+            <span className="font-bold text-base text-foreground tracking-tight">PhoneLink</span>
           </div>
           <div className="flex items-center gap-1">
             {notificationButton}
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <Menu size={24} />
+                <Button variant="ghost" size="icon" className="h-9 w-9">
+                  <Menu size={20} />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="p-0 w-72">
-                {sidebarContent}
-              </SheetContent>
+              <SheetContent side="left" className="p-0 w-64">{sidebarContent}</SheetContent>
             </Sheet>
           </div>
         </header>
@@ -308,12 +288,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       </div>
 
       {panelOpen && (
-        <NotificationPanel
-          onClose={() => {
-            setPanelOpen(false);
-            setUnreadCount(0);
-          }}
-        />
+        <NotificationPanel onClose={() => { setPanelOpen(false); setUnreadCount(0); }} />
       )}
     </div>
   );
