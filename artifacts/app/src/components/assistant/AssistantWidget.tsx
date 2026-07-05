@@ -43,14 +43,26 @@ const WELCOME: Message = {
     "Hey! 👋 I'm your PhoneLink AI. I can navigate the map, describe locations, and control layers.\n\nTap 📞 to call me, or try: \"go to Tokyo\", \"show heatmap\", \"go back\", \"where is [contact]\".",
 };
 
-// ── Geocoding ──────────────────────────────────────────────────────────────────
-async function geocodePlace(place: string): Promise<{ lat: number; lng: number; displayName: string } | null> {
+// ── Geocoding (via Google Maps on backend) ────────────────────────────────────
+interface GeocodeResult {
+  lat: number;
+  lng: number;
+  formattedAddress: string;
+  placeTypes: string[];
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  neighborhood: string | null;
+}
+
+async function geocodePlace(place: string): Promise<GeocodeResult | null> {
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(place)}&format=json&limit=1`;
-    const r = await fetch(url, { headers: { "Accept-Language": "en" } });
-    const data: { lat: string; lon: string; display_name: string }[] = await r.json();
-    if (!data[0]) return null;
-    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), displayName: data[0].display_name };
+    const url = `${BASE}/api/maps/geocode?place=${encodeURIComponent(place)}`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const data: GeocodeResult = await r.json();
+    if (typeof data.lat !== "number" || typeof data.lng !== "number") return null;
+    return data;
   } catch {
     return null;
   }
@@ -315,7 +327,26 @@ export default function AssistantWidget() {
 
       if (coords) {
         dispatchMapCommand({ type: "flyTo", lat: coords.lat, lng: coords.lng, zoom: 13 });
-        // After flying, narrate Wikipedia info in call mode
+
+        // Build a rich location card from Google Maps metadata
+        const locationParts: string[] = [];
+        if (coords.formattedAddress) locationParts.push(`📍 ${coords.formattedAddress}`);
+        if (coords.placeTypes?.length) {
+          locationParts.push(`🏷️ ${coords.placeTypes.slice(0, 3).join(", ")}`);
+        }
+        if (wiki) {
+          const snippet = wiki.length > 220 ? wiki.slice(0, 220) + "…" : wiki;
+          locationParts.push(snippet);
+        }
+
+        if (locationParts.length) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: locationParts.join("\n") },
+          ]);
+        }
+
+        // Narrate wiki summary in call mode after flying
         if (callModeRef.current && wiki) {
           const t = setTimeout(() => {
             if (!mountedRef.current || !callModeRef.current) return;
@@ -330,14 +361,6 @@ export default function AssistantWidget() {
             });
           }, 1800);
           pendingTimers.current.push(t);
-        }
-        // Show wiki snippet as a chat bubble
-        if (wiki) {
-          const snippet = wiki.length > 220 ? wiki.slice(0, 220) + "…" : wiki;
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: `📍 **${command.place}**\n${snippet}` },
-          ]);
         }
       } else {
         const notFound = `⚠️ Couldn't find "${command.place}" on the map.`;

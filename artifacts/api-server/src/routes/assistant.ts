@@ -120,7 +120,7 @@ Available commands:
 1. Fly to exact coordinates:
 {"reply":"Flying there!","command":{"type":"flyTo","lat":40.7128,"lng":-74.0060,"zoom":14}}
 
-2. Search for a place by name (geocoded on the frontend via Nominatim):
+2. Search for a place by name (geocoded via Google Maps on the backend for precise coordinates):
 {"reply":"Flying to Lagos, Nigeria! Lagos is the largest city in Africa and a major economic hub with over 15 million people.","command":{"type":"geocode","place":"Lagos, Nigeria"}}
 
 3. Enable or disable a layer:

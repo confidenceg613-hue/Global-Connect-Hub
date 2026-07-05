@@ -13,6 +13,7 @@ import geoPhotosRouter from "./geo-photos";
 import geoVideosRouter from "./geo-videos";
 import locationReportsRouter from "./location-reports";
 import assistantRouter from "./assistant";
+import mapsRouter from "./maps";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(geoPhotosRouter);
 router.use(geoVideosRouter);
 router.use(locationReportsRouter);
 router.use(assistantRouter);
+router.use(mapsRouter);
 
 export default router;
