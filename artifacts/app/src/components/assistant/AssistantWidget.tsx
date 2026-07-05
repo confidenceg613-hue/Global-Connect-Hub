@@ -68,15 +68,22 @@ async function geocodePlace(place: string): Promise<GeocodeResult | null> {
   }
 }
 
-// ── Wikipedia place info ───────────────────────────────────────────────────────
-async function fetchPlaceInfo(place: string): Promise<string | null> {
+// ── Google Places info (via backend) ──────────────────────────────────────────
+interface PlaceInfo {
+  name: string | null;
+  summary: string | null;
+  placeTypes: string[];
+  rating: number | null;
+  userRatingCount: number | null;
+}
+
+async function fetchPlaceInfo(place: string): Promise<PlaceInfo | null> {
   try {
-    const encoded = encodeURIComponent(place.split(",")[0].trim());
-    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encoded}`;
-    const r = await fetch(url, { headers: { "Accept": "application/json" } });
+    const url = `${BASE}/api/maps/place-info?place=${encodeURIComponent(place)}`;
+    const r = await fetch(url);
     if (!r.ok) return null;
-    const data: { extract?: string; description?: string } = await r.json();
-    return data.extract ? data.extract.slice(0, 600) : null;
+    const data: PlaceInfo = await r.json();
+    return data;
   } catch {
     return null;
   }
@@ -320,7 +327,7 @@ export default function AssistantWidget() {
   // ── Execute map command ────────────────────────────────────────────────────
   const executeCommand = async (command: MapCommand) => {
     if (command.type === "geocode") {
-      const [coords, wiki] = await Promise.all([
+      const [coords, placeInfo] = await Promise.all([
         geocodePlace(command.place),
         fetchPlaceInfo(command.place),
       ]);
@@ -328,14 +335,31 @@ export default function AssistantWidget() {
       if (coords) {
         dispatchMapCommand({ type: "flyTo", lat: coords.lat, lng: coords.lng, zoom: 13 });
 
-        // Build a rich location card from Google Maps metadata
+        // Build a rich location card from Google data
         const locationParts: string[] = [];
         if (coords.formattedAddress) locationParts.push(`📍 ${coords.formattedAddress}`);
-        if (coords.placeTypes?.length) {
-          locationParts.push(`🏷️ ${coords.placeTypes.slice(0, 3).join(", ")}`);
+
+        // Prefer Places API types; fall back to Geocoding types
+        const displayTypes = placeInfo?.placeTypes?.length
+          ? placeInfo.placeTypes
+          : coords.placeTypes;
+        if (displayTypes?.length) {
+          locationParts.push(`🏷️ ${displayTypes.slice(0, 3).join(", ")}`);
         }
-        if (wiki) {
-          const snippet = wiki.length > 220 ? wiki.slice(0, 220) + "…" : wiki;
+
+        if (placeInfo?.rating != null) {
+          const stars = "★".repeat(Math.round(placeInfo.rating));
+          const count = placeInfo.userRatingCount
+            ? ` (${placeInfo.userRatingCount.toLocaleString()} reviews)`
+            : "";
+          locationParts.push(`${stars} ${placeInfo.rating.toFixed(1)}${count}`);
+        }
+
+        if (placeInfo?.summary) {
+          const snippet =
+            placeInfo.summary.length > 280
+              ? placeInfo.summary.slice(0, 280) + "…"
+              : placeInfo.summary;
           locationParts.push(snippet);
         }
 
@@ -346,12 +370,12 @@ export default function AssistantWidget() {
           ]);
         }
 
-        // Narrate wiki summary in call mode after flying
-        if (callModeRef.current && wiki) {
+        // Narrate Google Places summary in call mode after flying
+        if (callModeRef.current && placeInfo?.summary) {
           const t = setTimeout(() => {
             if (!mountedRef.current || !callModeRef.current) return;
             setSpeaking(true);
-            speak(`Here's some background: ${wiki}`, () => {
+            speak(`Here's what Google says: ${placeInfo.summary}`, () => {
               if (!mountedRef.current) return;
               setSpeaking(false);
               if (callModeRef.current) {

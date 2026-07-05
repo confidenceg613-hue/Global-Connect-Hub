@@ -218,4 +218,76 @@ router.get("/maps/reverse-geocode", rateLimiter, async (req: Request, res: Respo
   }
 });
 
+// ── GET /maps/place-info?place=... ────────────────────────────────────────────
+// Uses Google Places API (New) Text Search to fetch an editorial summary,
+// rating, and place category — replaces Wikipedia for in-chat place cards.
+
+const PlaceResultSchema = z.object({
+  id: z.string().optional(),
+  displayName: z.object({ text: z.string() }).optional(),
+  editorialSummary: z.object({ text: z.string() }).optional(),
+  types: z.array(z.string()).optional(),
+  rating: z.number().optional(),
+  userRatingCount: z.number().optional(),
+});
+
+const PlacesSearchResponseSchema = z.object({
+  places: z.array(PlaceResultSchema).optional(),
+});
+
+router.get("/maps/place-info", rateLimiter, async (req: Request, res: Response) => {
+  if (!GOOGLE_MAPS_KEY) {
+    res.status(503).json({ error: "Google Maps API key not configured" });
+    return;
+  }
+
+  const place = z.string().min(1).max(500).safeParse(req.query.place);
+  if (!place.success) {
+    res.status(400).json({ error: "Missing or invalid `place` query param" });
+    return;
+  }
+
+  try {
+    const resp = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_MAPS_KEY,
+        "X-Goog-FieldMask":
+          "places.id,places.displayName,places.editorialSummary,places.types,places.rating,places.userRatingCount",
+      },
+      body: JSON.stringify({ textQuery: place.data }),
+    });
+
+    if (!resp.ok) {
+      const errBody: unknown = await resp.json().catch(() => ({}));
+      console.error("[maps/place-info] Google Places error:", errBody);
+      res.status(502).json({ error: "Google Places request failed" });
+      return;
+    }
+
+    const raw: unknown = await resp.json();
+    const parsed = PlacesSearchResponseSchema.safeParse(raw);
+    if (!parsed.success || !parsed.data.places?.length) {
+      res.status(404).json({ error: "No place info found" });
+      return;
+    }
+
+    const top = parsed.data.places[0];
+    const placeTypes = humanisePlaceTypes(top.types ?? []);
+
+    res.json({
+      name: top.displayName?.text ?? null,
+      summary: top.editorialSummary?.text ?? null,
+      placeTypes,
+      rating: top.rating ?? null,
+      userRatingCount: top.userRatingCount ?? null,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[maps/place-info] Error:", msg);
+    res.status(500).json({ error: "Failed to fetch place info" });
+  }
+});
+
 export default router;
