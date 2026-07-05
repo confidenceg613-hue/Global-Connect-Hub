@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff, Monitor, XCircle } from "lucide-react";
+import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff, Monitor, Camera, XCircle } from "lucide-react";
 import { dispatchMapCommand, getMapContext } from "@/lib/map-command-bus";
 import type { MapCommand } from "@/lib/map-command-bus";
 import { useAuth } from "@/hooks/use-auth";
@@ -112,6 +112,11 @@ export default function AssistantWidget() {
   const [capturing, setCapturing] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const capturingRef = useRef(false); // synchronous mutex — prevents double-click races
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // True when the browser supports screen sharing (desktop Chrome/Edge/Firefox)
+  const supportsScreenShare = typeof navigator !== "undefined" &&
+    typeof (navigator.mediaDevices as { getDisplayMedia?: unknown })?.getDisplayMedia === "function";
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -362,21 +367,39 @@ export default function AssistantWidget() {
     setCallMode(false);
   }, []);
 
-  // ── Screen capture ─────────────────────────────────────────────────────────
+  // ── File picker fallback (mobile / no getDisplayMedia) ─────────────────────
+  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!e.target) return;
+    // Reset so the same file can be re-selected later
+    (e.target as HTMLInputElement).value = "";
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result;
+      if (typeof result === "string") setScreenCapture(result);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  // ── Screen / image capture ─────────────────────────────────────────────────
   const captureScreen = useCallback(async () => {
     // Synchronous ref mutex — prevents concurrent captures regardless of render lag
     if (capturingRef.current) return;
+    setCaptureError(null);
+
+    // Mobile / browsers without getDisplayMedia → open file/camera picker
+    if (!supportsScreenShare) {
+      fileInputRef.current?.click();
+      return;
+    }
+
     capturingRef.current = true;
     setCapturing(true);
-    setCaptureError(null);
 
     let stream: MediaStream | null = null;
     try {
-      if (!navigator.mediaDevices?.getDisplayMedia) {
-        setCaptureError("Screen sharing is not supported in this browser.");
-        return;
-      }
-
       stream = await (navigator.mediaDevices as MediaDevices & {
         getDisplayMedia(opts?: MediaStreamConstraints): Promise<MediaStream>;
       }).getDisplayMedia({ video: true });
@@ -396,7 +419,6 @@ export default function AssistantWidget() {
       });
 
       const canvas = document.createElement("canvas");
-      // Downscale to max 1280px wide to keep payload reasonable (~300-600 KB JPEG)
       const MAX_W = 1280;
       const scale = Math.min(1, MAX_W / (video.videoWidth || MAX_W));
       canvas.width = Math.round((video.videoWidth || MAX_W) * scale);
@@ -413,12 +435,11 @@ export default function AssistantWidget() {
         setCaptureError("Screen capture failed. Please try again.");
       }
     } finally {
-      // Always stop tracks — runs even if draw/encode threw
       stream?.getTracks().forEach((t) => t.stop());
       capturingRef.current = false;
       setCapturing(false);
     }
-  }, []);
+  }, [supportsScreenShare]);
 
   const clearChat = () => {
     setMessages([WELCOME]);
@@ -693,10 +714,19 @@ export default function AssistantWidget() {
                 {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
 
-              {/* Screen capture button */}
+              {/* Hidden file input — used on mobile / no-getDisplayMedia browsers */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileInput}
+              />
+
+              {/* Screen / image capture button */}
               <button
                 onClick={captureScreen}
-                title="Share your screen with AI"
+                title={supportsScreenShare ? "Share your screen with AI" : "Share a photo with AI"}
                 disabled={capturing}
                 className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center border transition-all ${
                   screenCapture
@@ -706,7 +736,9 @@ export default function AssistantWidget() {
                     : "bg-muted/50 border-border text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <Monitor className="w-4 h-4" />
+                {supportsScreenShare
+                  ? <Monitor className="w-4 h-4" />
+                  : <Camera className="w-4 h-4" />}
               </button>
 
               <Textarea
@@ -751,7 +783,7 @@ export default function AssistantWidget() {
                 onClick={captureScreen}
                 className="text-violet-400 hover:text-violet-300 hover:underline underline-offset-2"
               >
-                🖥️ Share screen
+                {supportsScreenShare ? "🖥️ Share screen" : "📷 Share photo"}
               </button>
               {" · "}Shift+Enter for new line
             </p>
