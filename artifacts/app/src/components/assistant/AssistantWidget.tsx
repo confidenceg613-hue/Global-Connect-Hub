@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff } from "lucide-react";
+import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff, Monitor, XCircle } from "lucide-react";
 import { dispatchMapCommand, getMapContext } from "@/lib/map-command-bus";
 import type { MapCommand } from "@/lib/map-command-bus";
 import { useAuth } from "@/hooks/use-auth";
@@ -108,6 +108,10 @@ export default function AssistantWidget() {
   const [speaking, setSpeaking] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [screenCapture, setScreenCapture] = useState<string | null>(null); // base64 data-URI
+  const [capturing, setCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const capturingRef = useRef(false); // synchronous mutex — prevents double-click races
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -238,7 +242,18 @@ export default function AssistantWidget() {
     if (!msg || loadingRef.current) return;
     if (!overrideText) setInput("");
 
-    setMessages((prev) => [...prev, { role: "user", content: msg }]);
+    // Snapshot + clear the pending screen capture
+    const imageToSend = screenCapture;
+    if (imageToSend) setScreenCapture(null);
+
+    // Show user message with optional image preview indicator
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        content: imageToSend ? `🖥️ [Screen shared]\n${msg}` : msg,
+      },
+    ]);
     setLoading(true);
 
     const mapContext = getMapContext();
@@ -247,7 +262,12 @@ export default function AssistantWidget() {
       const resp = await fetch(`${BASE}/api/assistant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: msg, mapContext, userId: userId ?? undefined }),
+        body: JSON.stringify({
+          message: msg,
+          mapContext,
+          userId: userId ?? undefined,
+          ...(imageToSend ? { image: imageToSend } : {}),
+        }),
       });
 
       const data = await resp.json();
@@ -277,7 +297,7 @@ export default function AssistantWidget() {
     } finally {
       setLoading(false);
     }
-  }, [input, userId, startListening]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [input, userId, startListening, screenCapture]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Execute map command ────────────────────────────────────────────────────
   const executeCommand = async (command: MapCommand) => {
@@ -340,6 +360,64 @@ export default function AssistantWidget() {
 
   const endCall = useCallback(() => {
     setCallMode(false);
+  }, []);
+
+  // ── Screen capture ─────────────────────────────────────────────────────────
+  const captureScreen = useCallback(async () => {
+    // Synchronous ref mutex — prevents concurrent captures regardless of render lag
+    if (capturingRef.current) return;
+    capturingRef.current = true;
+    setCapturing(true);
+    setCaptureError(null);
+
+    let stream: MediaStream | null = null;
+    try {
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        setCaptureError("Screen sharing is not supported in this browser.");
+        return;
+      }
+
+      stream = await (navigator.mediaDevices as MediaDevices & {
+        getDisplayMedia(opts?: MediaStreamConstraints): Promise<MediaStream>;
+      }).getDisplayMedia({ video: true });
+
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      video.muted = true;
+
+      // Wait for metadata with a 10-second timeout + error path
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Video metadata timeout")), 10_000);
+        video.onloadedmetadata = () => {
+          clearTimeout(timer);
+          video.play().then(resolve).catch(reject);
+        };
+        video.onerror = () => { clearTimeout(timer); reject(new Error("Video load error")); };
+      });
+
+      const canvas = document.createElement("canvas");
+      // Downscale to max 1280px wide to keep payload reasonable (~300-600 KB JPEG)
+      const MAX_W = 1280;
+      const scale = Math.min(1, MAX_W / (video.videoWidth || MAX_W));
+      canvas.width = Math.round((video.videoWidth || MAX_W) * scale);
+      canvas.height = Math.round((video.videoHeight || 720) * scale);
+      const ctx = canvas.getContext("2d");
+      if (ctx) ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      setScreenCapture(canvas.toDataURL("image/jpeg", 0.80));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const isCancelled = /cancel|denied|dismissed|NotAllowed/i.test(msg);
+      if (!isCancelled) {
+        console.error("[PhoneLink] Screen capture failed:", e);
+        setCaptureError("Screen capture failed. Please try again.");
+      }
+    } finally {
+      // Always stop tracks — runs even if draw/encode threw
+      stream?.getTracks().forEach((t) => t.stop());
+      capturingRef.current = false;
+      setCapturing(false);
+    }
   }, []);
 
   const clearChat = () => {
@@ -569,6 +647,38 @@ export default function AssistantWidget() {
                 🗺️ Map connected — try "go to Paris", "go back"
               </p>
             )}
+
+            {/* Capture error notice */}
+            {captureError && (
+              <div className="flex items-center gap-2 mb-2 text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-2.5 py-1.5">
+                <span className="flex-1">{captureError}</span>
+                <button onClick={() => setCaptureError(null)} className="shrink-0 hover:text-red-300">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+
+            {/* Screen capture thumbnail preview */}
+            {screenCapture && (
+              <div className="relative mb-2 inline-block">
+                <img
+                  src={screenCapture}
+                  alt="Screen capture preview"
+                  className="h-20 rounded-lg border border-border object-cover shadow-sm"
+                />
+                <button
+                  onClick={() => setScreenCapture(null)}
+                  className="absolute -top-1.5 -right-1.5 text-zinc-400 hover:text-zinc-200 transition-colors"
+                  title="Remove screenshot"
+                >
+                  <XCircle className="w-4 h-4 fill-background" />
+                </button>
+                <span className="absolute bottom-1 left-1 text-[9px] font-mono bg-black/60 text-white px-1 rounded">
+                  screen
+                </span>
+              </div>
+            )}
+
             <div className="flex gap-2 items-end">
               {/* Mic button */}
               <button
@@ -583,13 +693,35 @@ export default function AssistantWidget() {
                 {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
 
+              {/* Screen capture button */}
+              <button
+                onClick={captureScreen}
+                title="Share your screen with AI"
+                disabled={capturing}
+                className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center border transition-all ${
+                  screenCapture
+                    ? "bg-violet-500/20 border-violet-500/40 text-violet-400"
+                    : capturing
+                    ? "bg-muted/50 border-border text-muted-foreground animate-pulse"
+                    : "bg-muted/50 border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Monitor className="w-4 h-4" />
+              </button>
+
               <Textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  listening ? "🎤 Listening…" : onMap ? "Navigate map or ask anything…" : "Ask anything…"
+                  screenCapture
+                    ? "Ask about your screen…"
+                    : listening
+                    ? "🎤 Listening…"
+                    : onMap
+                    ? "Navigate map or ask anything…"
+                    : "Ask anything…"
                 }
                 rows={1}
                 className="flex-1 resize-none text-sm min-h-[36px] max-h-[120px]"
@@ -613,6 +745,13 @@ export default function AssistantWidget() {
                 className="text-emerald-400 hover:text-emerald-300 hover:underline underline-offset-2"
               >
                 📞 Start voice call
+              </button>
+              {" · "}
+              <button
+                onClick={captureScreen}
+                className="text-violet-400 hover:text-violet-300 hover:underline underline-offset-2"
+              >
+                🖥️ Share screen
               </button>
               {" · "}Shift+Enter for new line
             </p>

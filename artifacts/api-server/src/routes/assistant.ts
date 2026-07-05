@@ -22,7 +22,8 @@ const openai = API_KEY
     })
   : null;
 
-const CHAT_MODEL = isGroq ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
+const CHAT_MODEL        = isGroq ? "llama-3.3-70b-versatile"     : "gpt-4o-mini";
+const VISION_MODEL      = isGroq ? "meta-llama/llama-4-scout-17b-16e-instruct" : "gpt-4o-mini";
 
 // ── Command schema (Zod) ──────────────────────────────────────────────────────
 const MapLayerEnum = z.enum(["heatmap", "journeys", "clusters", "surveillance"]);
@@ -71,6 +72,12 @@ const MapContext = z.object({
 const SendMessageBody = z.object({
   message: z.string().min(1).max(4000),
   userId: z.number().int().positive().optional(),
+  // base64 data-URI; validated format + capped at ~2MB encoded (~1.5MB raw image)
+  image: z
+    .string()
+    .regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/, "Invalid image data-URI format")
+    .max(2_800_000, "Image too large — max ~2 MB")
+    .optional(),
   history: z
     .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() }))
     .optional(),
@@ -216,7 +223,7 @@ router.post("/assistant", async (req, res) => {
     return;
   }
 
-  const { message, userId, mapContext } = parsed.data;
+  const { message, userId, image, mapContext } = parsed.data;
 
   // Load persistent history from DB when userId is provided; fall back to in-request history
   let history: { role: "user" | "assistant"; content: string }[] = [];
@@ -226,28 +233,63 @@ router.post("/assistant", async (req, res) => {
     history = parsed.data.history.slice(-20);
   }
 
+  // Build user content — plain text or vision (text + image) content block
+  const userContent: OpenAI.ChatCompletionUserMessageParam["content"] = image
+    ? [
+        {
+          type: "image_url" as const,
+          image_url: { url: image, detail: "high" as const },
+        },
+        { type: "text" as const, text: message },
+      ]
+    : message;
+
+  const useVision = Boolean(image);
+  const model = useVision ? VISION_MODEL : CHAT_MODEL;
+
+  const systemPrompt = buildSystemPrompt(mapContext) +
+    (useVision
+      ? "\n\nThe user has shared a screenshot of their screen. Carefully analyze the image and describe what you see in detail before answering. Identify UI elements, content, errors, or anything notable. Be specific and helpful."
+      : "");
+
   const chatMessages: OpenAI.ChatCompletionMessageParam[] = [
-    { role: "system", content: buildSystemPrompt(mapContext) },
-    ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-    { role: "user", content: message },
+    { role: "system", content: systemPrompt },
+    // Vision models work best without long history — trim to last 6 turns when image present
+    ...(useVision ? history.slice(-6) : history).map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    })),
+    { role: "user", content: userContent },
   ];
 
   try {
     const completion = await openai.chat.completions.create({
-      model: CHAT_MODEL,
-      max_tokens: 700,
+      model,
+      max_tokens: 900,
       messages: chatMessages,
-      response_format: { type: "json_object" },
+      // json_object mode may not be supported by all vision models — omit when using vision
+      ...(useVision ? {} : { response_format: { type: "json_object" } }),
     });
 
     const raw = completion.choices[0]?.message?.content
       ?? '{"reply":"Sorry, I had trouble with that. Try again!"}';
 
+    // Vision responses may be plain prose — extract JSON if present, else wrap in reply
     let aiObj: unknown;
     try {
+      // Try direct parse first
       aiObj = JSON.parse(raw);
     } catch {
-      const reply = typeof raw === "string" ? raw : "Got it!";
+      // Try extracting a JSON object embedded in prose (vision model often adds text around JSON)
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try { aiObj = JSON.parse(jsonMatch[0]); } catch { /* fall through */ }
+      }
+    }
+
+    // If no parseable JSON, treat the whole response as a plain reply (vision plain-text mode)
+    if (!aiObj) {
+      const reply = typeof raw === "string" && raw.trim() ? raw.trim() : "Got it!";
       if (userId) await saveMessages(userId, message, reply);
       res.json({ reply, command: null });
       return;

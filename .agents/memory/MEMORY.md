@@ -1,3 +1,4 @@
 - [Notification architecture](notification-arch.md) — sendPushAndLog in api-server/src/lib/notifications.ts is the single source for all push + DB logging; invites.ts imports from there, not location.ts.
 - [GeoBoard feature](geoboard.md) — auto-captures 5 camera frames when a contact grants location consent; stored in geo_photos table as base64 JPEG; viewed at /geoboard in app.
 - [Auth is localStorage-only](auth-model.md) — no OTP/session verification exists; useAuth just stores userId in localStorage, so any resolve/dismiss-style endpoint MUST verify ownership server-side.
+- [Screen Vision Feature](screen-vision.md) — getDisplayMedia → canvas frame → vision model; mutex ref, finally cleanup, 2.8MB backend cap, flexible JSON/prose parser.
