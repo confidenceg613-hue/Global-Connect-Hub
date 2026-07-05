@@ -111,6 +111,7 @@ export default function AssistantWidget() {
   const [screenCapture, setScreenCapture] = useState<string | null>(null); // base64 data-URI
   const [capturing, setCapturing] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const capturingRef = useRef(false); // synchronous mutex — prevents double-click races
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -418,6 +419,24 @@ export default function AssistantWidget() {
         video.onerror = () => { clearTimeout(timer); reject(new Error("Video load error")); };
       });
 
+      // ── 5-second countdown so the user can position their screen ──────────
+      await new Promise<void>((resolve) => {
+        let secs = 5;
+        setCountdown(secs);
+        const tick = setInterval(() => {
+          secs -= 1;
+          if (secs <= 0) {
+            clearInterval(tick);
+            setCountdown(null);
+            resolve();
+          } else {
+            setCountdown(secs);
+          }
+        }, 1000);
+        // Register the interval so unmount can cancel it
+        pendingTimers.current.push(tick as unknown as ReturnType<typeof setTimeout>);
+      });
+
       const canvas = document.createElement("canvas");
       const MAX_W = 1280;
       const scale = Math.min(1, MAX_W / (video.videoWidth || MAX_W));
@@ -438,6 +457,7 @@ export default function AssistantWidget() {
       stream?.getTracks().forEach((t) => t.stop());
       capturingRef.current = false;
       setCapturing(false);
+      setCountdown(null);
     }
   }, [supportsScreenShare]);
 
@@ -660,6 +680,20 @@ export default function AssistantWidget() {
             )}
             <div ref={bottomRef} />
           </div>
+
+          {/* Countdown overlay */}
+          {countdown !== null && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/90 backdrop-blur-sm rounded-2xl">
+              <div
+                className="text-8xl font-black tabular-nums text-indigo-400 leading-none"
+                style={{ textShadow: "0 0 40px rgba(99,102,241,.6)" }}
+              >
+                {countdown}
+              </div>
+              <p className="mt-4 text-sm text-muted-foreground">Screenshot in {countdown}…</p>
+              <p className="text-xs text-zinc-600 mt-1">Position your screen now</p>
+            </div>
+          )}
 
           {/* Input */}
           <div className="px-3 py-3 border-t border-border bg-muted/20">
