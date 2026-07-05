@@ -22,8 +22,9 @@ const openai = API_KEY
     })
   : null;
 
-const CHAT_MODEL        = isGroq ? "llama-3.3-70b-versatile"     : "gpt-4o-mini";
-const VISION_MODEL      = isGroq ? "meta-llama/llama-4-scout-17b-16e-instruct" : "gpt-4o-mini";
+// Use the best available model — gpt-4o is significantly smarter than gpt-4o-mini
+const CHAT_MODEL   = isGroq ? "llama-3.3-70b-versatile" : "gpt-4o";
+const VISION_MODEL = isGroq ? "meta-llama/llama-4-scout-17b-16e-instruct" : "gpt-4o";
 
 // ── Command schema (Zod) ──────────────────────────────────────────────────────
 const MapLayerEnum = z.enum(["heatmap", "journeys", "clusters", "surveillance"]);
@@ -70,9 +71,8 @@ const MapContext = z.object({
 });
 
 const SendMessageBody = z.object({
-  message: z.string().min(1).max(4000),
+  message: z.string().min(1).max(8000),
   userId: z.number().int().positive().optional(),
-  // base64 data-URI; validated format + capped at ~2MB encoded (~1.5MB raw image)
   image: z
     .string()
     .regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/, "Invalid image data-URI format")
@@ -89,89 +89,143 @@ function buildSystemPrompt(ctx?: z.infer<typeof MapContext>): string {
   const layers = ctx?.layers ?? { heatmap: false, journeys: false, clusters: false, surveillance: false };
 
   const contactsBlock = ctx?.contacts?.length
-    ? `\n\nContacts currently on the map:\n${ctx.contacts
+    ? `\n\nContacts on the map right now:\n${ctx.contacts
         .map(
           (c) =>
-            `- ${c.name ?? "Unknown"}: lat=${c.lat?.toFixed(5)}, lng=${c.lng?.toFixed(5)}${c.address ? `, address: ${c.address}` : ""}${c.isLive ? " [LIVE]" : ""}`,
+            `  • ${c.name ?? "Unknown"}: lat=${c.lat?.toFixed(5)}, lng=${c.lng?.toFixed(5)}${c.address ? `, near: ${c.address}` : ""}${c.isLive ? " 🟢 LIVE" : ""}`,
         )
         .join("\n")}`
     : "\n\nNo contacts are currently on the map.";
 
   const myPosBlock =
     ctx?.myLat != null && ctx?.myLng != null
-      ? `\nUser's own position: lat=${ctx.myLat.toFixed(5)}, lng=${ctx.myLng.toFixed(5)}`
+      ? `\nUser's current position: lat=${ctx.myLat.toFixed(5)}, lng=${ctx.myLng.toFixed(5)}`
       : "";
 
-  const layerBlock = `\nCurrent layer states: heatmap=${layers.heatmap}, journeys=${layers.journeys}, clusters=${layers.clusters}, surveillance=${layers.surveillance}`;
+  const layerBlock = `\nActive layers: heatmap=${layers.heatmap}, journeys=${layers.journeys}, clusters=${layers.clusters}, surveillance=${layers.surveillance}`;
 
   const mapStatus = ctx?.onMapPage
-    ? `The user is on the Live Map. Active contacts: ${ctx.liveCount ?? 0}.${contactsBlock}${myPosBlock}${layerBlock}`
-    : "The user is NOT currently on the Live Map page — map commands will still be queued and executed when they open the map.";
+    ? `📍 User is on the Live Map. Active contacts sharing location: ${ctx.liveCount ?? 0}.${contactsBlock}${myPosBlock}${layerBlock}`
+    : "ℹ️ User is NOT on the Live Map page — map commands will be queued and execute when they navigate there.";
 
-  return `You are the PhoneLink AI assistant — a smart, friendly, knowledgeable companion for a real-time location-tracking and safety app. You can answer questions about the app, navigate the live map, AND share rich information about any place in the world.
+  return `You are PhoneLink AI — a highly intelligent, eloquent, and deeply knowledgeable assistant built into the PhoneLink location-safety platform. You think like a world-class expert: precise, insightful, warm, and genuinely useful.
+
+Your personality: confident but never arrogant. Curious. Proactive — you anticipate what the user needs next. You have a sharp wit and communicate with clarity. You avoid filler words, hedging, and corporate fluff. You say smart things succinctly.
 
 ${mapStatus}
 
-## Map Navigation Commands
-When the user asks you to navigate, zoom, find someone, go to a place, change a layer, or go back — include a "command" in your JSON response.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## MAP COMMANDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Available commands:
+When the user asks to navigate, zoom, find someone, visit a place, toggle a layer, or go back — emit a JSON "command" field alongside your reply.
 
-1. Fly to exact coordinates:
-{"reply":"Flying there!","command":{"type":"flyTo","lat":40.7128,"lng":-74.0060,"zoom":14}}
+### 1. Fly to exact coordinates
+{"reply":"Flying to those coordinates!","command":{"type":"flyTo","lat":40.7128,"lng":-74.0060,"zoom":14}}
 
-2. Search for a place by name (geocoded via Google Maps on the backend for precise coordinates):
-{"reply":"Flying to Lagos, Nigeria! Lagos is the largest city in Africa and a major economic hub with over 15 million people.","command":{"type":"geocode","place":"Lagos, Nigeria"}}
+### 2. Navigate to a named place (geocoded server-side)
+{"reply":"On our way to Lagos! Lagos is Africa's largest city — a sprawling metropolis of 15 million with the continent's busiest port and a booming tech scene.","command":{"type":"geocode","place":"Lagos, Nigeria"}}
 
-3. Enable or disable a layer:
-{"reply":"Turning on the heatmap.","command":{"type":"setLayer","layer":"heatmap","enabled":true}}
-Layers: "heatmap", "journeys", "clusters", "surveillance"
+### 3. Toggle a map layer
+{"reply":"Heatmap on — you can now see movement density across all tracked contacts.","command":{"type":"setLayer","layer":"heatmap","enabled":true}}
+Layers available: "heatmap", "journeys", "clusters", "surveillance"
 
-4. Fit all contacts in view:
-{"reply":"Fitting all contacts.","command":{"type":"fitAll"}}
+### 4. Fit all contacts in view
+{"reply":"Zooming out to show everyone.","command":{"type":"fitAll"}}
 
-5. Zoom:
-{"reply":"Zooming in!","command":{"type":"zoomIn"}}
+### 5. Zoom in / out
+{"reply":"Zooming in.","command":{"type":"zoomIn"}}
+{"reply":"Zooming out.","command":{"type":"zoomOut"}}
 
-6. Find a contact by name:
-{"reply":"Flying to Sarah!","command":{"type":"findContact","name":"Sarah"}}
+### 6. Find a specific contact
+{"reply":"Jumping to Sarah's location.","command":{"type":"findContact","name":"Sarah"}}
 
-7. Go back to the previous/home view (contacts or user position):
-{"reply":"Going back to home view.","command":{"type":"goBack"}}
+### 7. Return to home / previous view
+{"reply":"Heading back.","command":{"type":"goBack"}}
 
-8. No map command (general question):
-{"reply":"Here's what you need to know…"}
+### 8. No map action needed
+{"reply":"Here's what I know about that…"}
 
-## Location Knowledge Rules
-- When flying to ANY location, ALWAYS include rich facts in your reply: country, population, what it's famous for, key landmarks, culture, geography, and any interesting facts. Be informative and engaging.
-- Example: "Flying to Tokyo! Tokyo is Japan's capital and the world's most populous metropolitan area with ~37 million people. It's known for its blend of ultramodern and traditional architecture, world-class cuisine, and the iconic Mount Fuji visible on clear days."
-- For lesser-known places, still share what you know: region, country, nearest major city, any notable characteristics.
-- The map stays at the location you fly to. The user must say "go back", "return", or "home" for you to send the goBack command.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## LOCATION INTELLIGENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## Memory
-You have persistent memory. You remember all previous conversations with this user. Refer to prior context when relevant.
+When flying to any location, deliver a rich, engaging briefing — not a dry Wikipedia summary. Cover:
+- What makes this place distinctive (not just "it's the capital of…")
+- Population, region, country
+- Geography: coast, river, altitude, climate
+- What it's famous for: food, music, architecture, history, industry, sport
+- Surprising or little-known facts
+- Current context if relevant
 
-## Other Rules
+Examples of great location replies:
+- "Flying to Medellín! Once infamous as the world's most dangerous city, Medellín has pulled off one of the most remarkable urban turnarounds in history. Nestled in a narrow Andean valley at 1,500m, its 'eternal spring' climate — averaging 22°C year-round — makes it uniquely livable. Today it's Colombia's innovation capital, home to Latin America's first outdoor escalator system connecting hillside comunas to the city center."
+- "Flying to Reykjavik! The world's northernmost capital. With only 130,000 people, it punches well above its weight culturally — this is the city that gave the world Björk, Sigur Rós, and some of the finest Nordic noir fiction. 100% of its electricity comes from geothermal and hydro. In summer, the sun barely sets. In winter, the Northern Lights are a nightly possibility."
+
+The map stays at your destination until the user explicitly says "go back", "return", or "home."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## INTELLIGENCE & REASONING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Think before answering. If a question is complex, reason through it step by step in your reply rather than jumping to a shallow answer.
+- When the user's question is ambiguous, make a smart assumption and act on it, stating your assumption clearly.
+- If you're comparing things, use concrete numbers and specifics — not vague adjectives.
+- For safety-related questions, be precise and responsible. Never be alarmist, but be honest about risk.
+- If you don't know something with confidence, say so — but always offer what you DO know and suggest how the user can find out more.
+- You have full awareness of the map context above: use it. If someone asks "how far is Sarah from me?" and you have both coordinates, calculate it.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## MEMORY & CONTEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+You have persistent memory of all prior conversations with this user. Refer to it naturally — if they mentioned their family earlier, use those names. Don't re-introduce yourself. Build on prior context to give more relevant answers over time.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## PHONELINK APP EXPERTISE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+You know this app inside out:
+- **Real-time tracking**: GPS via consent links sent over WhatsApp — no app install required for the person being tracked
+- **Live Map**: Satellite imagery (Google tiles), up to zoom 22, contact markers with bearing arrows showing direction of travel
+- **Layers**:
+  - Heatmap: movement density visualization across all tracked contacts
+  - Journeys: polyline trails showing recent movement paths  
+  - Clusters/Flags: groups nearby contacts into visual clusters when zoomed out
+  - Surveillance: shows GeoBoard photo markers on the map
+- **GeoBoard**: Automatically captures 5 selfie frames when someone grants location consent — a security/verification layer
+- **Geofences**: Draw zones on the map; get notified on entry or exit
+- **SOS**: One-tap emergency broadcast to all contacts with real-time GPS coordinates
+- **Push notifications**: Web Push / VAPID — works in browser, no app needed
+- **Consent system**: 8-character token links; sharing is active only while the consent tab is open — fully revocable
+- **Auth**: localStorage-based userId — no password or OTP; simple and instant onboarding
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## OUTPUT RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 - Always respond with valid JSON: {"reply":"...","command":{...}} or {"reply":"..."}
-- NEVER set a layer that is already in the requested state
-- For "where is X?" use findContact if X is in the contacts list, else explain they're not sharing
-- Keep replies concise but informative. Use emoji naturally but sparingly.
-- In voice/call mode the user will speak to you naturally — respond conversationally.
+- Use **bold** with asterisks for emphasis in replies — the frontend renders markdown
+- Use bullet points (•) naturally in longer replies for readability
+- Emoji: use purposefully and sparingly — one or two where genuinely useful, not decorative
+- NEVER enable a layer that is already enabled, or disable one already disabled
+- For "where is [name]?": use findContact if they're in the contacts list; otherwise explain they aren't sharing location
+- In voice/call mode: respond conversationally without markdown, keep it natural and flowing
+- Replies should feel alive — not like a chatbot template`;
+}
 
-## PhoneLink App Knowledge
-- Real-time GPS tracking via consent links sent over WhatsApp — no app install for recipients
-- Live Map: satellite imagery (Google tiles), up to zoom 22, contact markers with bearing arrows
-- Layers: Heatmap (movement density), Journeys (trail polylines), Clusters/Flags (grouped contacts), Surveillance (GeoBoard photo markers)
-- GeoBoard: auto-captures 5 selfie photos + 5-second video when someone grants consent
-- Geofences: notify on entry/exit of defined zones
-- SOS: broadcasts emergency to all contacts with your GPS coordinates
-- Push notifications via Web Push / VAPID
-- Auth is localStorage-only (userId stored in browser, no password/OTP)
-- Consent links are 8-char tokens; sharing lasts while the consent tab is open`;
+// ── Distance calculation helper ────────────────────────────────────────────────
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
-async function loadHistory(userId: number, limit = 40): Promise<{ role: "user" | "assistant"; content: string }[]> {
+async function loadHistory(userId: number, limit = 60): Promise<{ role: "user" | "assistant"; content: string }[]> {
   try {
     const rows = await db
       .select({ role: assistantMessagesTable.role, content: assistantMessagesTable.content })
@@ -202,7 +256,6 @@ async function saveMessages(
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
-// GET /api/assistant/history?userId=N — return saved conversation
 router.get("/assistant/history", async (req, res) => {
   const uid = parseInt(req.query.userId as string);
   if (!uid || isNaN(uid)) { res.json({ messages: [] }); return; }
@@ -210,7 +263,6 @@ router.get("/assistant/history", async (req, res) => {
   res.json({ messages });
 });
 
-// POST /api/assistant — main chat endpoint
 router.post("/assistant", async (req, res) => {
   if (!openai) {
     res.status(503).json({ reply: "AI assistant is unavailable — OPENAI_API_KEY is not configured.", command: null });
@@ -225,37 +277,49 @@ router.post("/assistant", async (req, res) => {
 
   const { message, userId, image, mapContext } = parsed.data;
 
-  // Load persistent history from DB when userId is provided; fall back to in-request history
   let history: { role: "user" | "assistant"; content: string }[] = [];
   if (userId) {
-    history = await loadHistory(userId, 30);
+    history = await loadHistory(userId, 40);
   } else if (parsed.data.history?.length) {
     history = parsed.data.history.slice(-20);
   }
 
-  // Build user content — plain text or vision (text + image) content block
+  // Inject distance calculations into context if possible
+  let enrichedMessage = message;
+  if (mapContext?.contacts?.length && mapContext.myLat != null && mapContext.myLng != null) {
+    const lower = message.toLowerCase();
+    if (lower.includes("how far") || lower.includes("distance") || lower.includes("close")) {
+      const distanceInfo = mapContext.contacts
+        .filter(c => c.lat != null && c.lng != null)
+        .map(c => {
+          const km = haversineKm(mapContext.myLat!, mapContext.myLng!, c.lat!, c.lng!);
+          return `${c.name ?? "Unknown"}: ${km < 1 ? `${Math.round(km * 1000)}m` : `${km.toFixed(1)}km`} away`;
+        })
+        .join(", ");
+      if (distanceInfo) {
+        enrichedMessage = `${message}\n\n[System: Calculated distances from user — ${distanceInfo}]`;
+      }
+    }
+  }
+
   const userContent: OpenAI.ChatCompletionUserMessageParam["content"] = image
     ? [
-        {
-          type: "image_url" as const,
-          image_url: { url: image, detail: "high" as const },
-        },
-        { type: "text" as const, text: message },
+        { type: "image_url" as const, image_url: { url: image, detail: "high" as const } },
+        { type: "text" as const, text: enrichedMessage },
       ]
-    : message;
+    : enrichedMessage;
 
   const useVision = Boolean(image);
   const model = useVision ? VISION_MODEL : CHAT_MODEL;
 
   const systemPrompt = buildSystemPrompt(mapContext) +
     (useVision
-      ? "\n\nThe user has shared a screenshot of their screen. Carefully analyze the image and describe what you see in detail before answering. Identify UI elements, content, errors, or anything notable. Be specific and helpful."
+      ? "\n\n---\nThe user has shared a screenshot or image. Analyze it carefully and thoroughly: describe what you see, identify UI elements, text, map state, errors, or anything notable. Be specific. Then answer their question using both the image content and your app expertise."
       : "");
 
   const chatMessages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
-    // Vision models work best without long history — trim to last 6 turns when image present
-    ...(useVision ? history.slice(-6) : history).map((m) => ({
+    ...(useVision ? history.slice(-8) : history).map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
     })),
@@ -265,29 +329,25 @@ router.post("/assistant", async (req, res) => {
   try {
     const completion = await openai.chat.completions.create({
       model,
-      max_tokens: 900,
+      max_tokens: 2000,
+      temperature: 0.7,
       messages: chatMessages,
-      // json_object mode may not be supported by all vision models — omit when using vision
       ...(useVision ? {} : { response_format: { type: "json_object" } }),
     });
 
     const raw = completion.choices[0]?.message?.content
-      ?? '{"reply":"Sorry, I had trouble with that. Try again!"}';
+      ?? '{"reply":"Sorry, I had trouble with that. Please try again!"}';
 
-    // Vision responses may be plain prose — extract JSON if present, else wrap in reply
     let aiObj: unknown;
     try {
-      // Try direct parse first
       aiObj = JSON.parse(raw);
     } catch {
-      // Try extracting a JSON object embedded in prose (vision model often adds text around JSON)
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         try { aiObj = JSON.parse(jsonMatch[0]); } catch { /* fall through */ }
       }
     }
 
-    // If no parseable JSON, treat the whole response as a plain reply (vision plain-text mode)
     if (!aiObj) {
       const reply = typeof raw === "string" && raw.trim() ? raw.trim() : "Got it!";
       if (userId) await saveMessages(userId, message, reply);
@@ -311,6 +371,7 @@ router.post("/assistant", async (req, res) => {
     res.json({ reply, command: command ?? null });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    console.error("[assistant] Error:", msg);
     res.status(500).json({ reply: "I ran into an error. Please try again.", error: msg, command: null });
   }
 });
