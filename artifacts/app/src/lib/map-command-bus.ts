@@ -9,7 +9,8 @@ export type MapCommand =
   | { type: "fitAll" }
   | { type: "zoomIn" }
   | { type: "zoomOut" }
-  | { type: "findContact"; name: string };
+  | { type: "findContact"; name: string }
+  | { type: "goBack" };
 
 const EVENT_NAME = "phonelink:map-command";
 

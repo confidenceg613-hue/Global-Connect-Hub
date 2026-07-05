@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
 import OpenAI from "openai";
+import { db } from "@workspace/db";
+import { assistantMessagesTable } from "@workspace/db/schema";
+import { eq, desc } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 const router = Router();
 
@@ -18,11 +22,9 @@ const openai = API_KEY
     })
   : null;
 
-// Use a model appropriate for the provider; Groq model supports JSON mode
 const CHAT_MODEL = isGroq ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
 
 // ── Command schema (Zod) ──────────────────────────────────────────────────────
-
 const MapLayerEnum = z.enum(["heatmap", "journeys", "clusters", "surveillance"]);
 
 const MapCommandSchema = z.discriminatedUnion("type", [
@@ -33,6 +35,7 @@ const MapCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("zoomIn") }),
   z.object({ type: z.literal("zoomOut") }),
   z.object({ type: z.literal("findContact"), name: z.string().min(1) }),
+  z.object({ type: z.literal("goBack") }),
 ]);
 
 const AiResponseSchema = z.object({
@@ -41,7 +44,6 @@ const AiResponseSchema = z.object({
 });
 
 // ── Request schema ────────────────────────────────────────────────────────────
-
 const ContactCtx = z.object({
   name: z.string().nullable().optional(),
   lat: z.number().optional(),
@@ -76,7 +78,6 @@ const SendMessageBody = z.object({
 });
 
 // ── System prompt ─────────────────────────────────────────────────────────────
-
 function buildSystemPrompt(ctx?: z.infer<typeof MapContext>): string {
   const layers = ctx?.layers ?? { heatmap: false, journeys: false, clusters: false, surveillance: false };
 
@@ -100,24 +101,23 @@ function buildSystemPrompt(ctx?: z.infer<typeof MapContext>): string {
     ? `The user is on the Live Map. Active contacts: ${ctx.liveCount ?? 0}.${contactsBlock}${myPosBlock}${layerBlock}`
     : "The user is NOT currently on the Live Map page — map commands will still be queued and executed when they open the map.";
 
-  return `You are the PhoneLink AI assistant — a smart, friendly helper for a real-time location-tracking and safety app. You can answer questions about the app AND control the live map directly.
+  return `You are the PhoneLink AI assistant — a smart, friendly, knowledgeable companion for a real-time location-tracking and safety app. You can answer questions about the app, navigate the live map, AND share rich information about any place in the world.
 
 ${mapStatus}
 
 ## Map Navigation Commands
-When the user asks you to navigate, zoom, find someone, go to a place, or change a layer, include a "command" in your JSON response.
+When the user asks you to navigate, zoom, find someone, go to a place, change a layer, or go back — include a "command" in your JSON response.
 
 Available commands:
 
-1. Fly to coordinates:
+1. Fly to exact coordinates:
 {"reply":"Flying there!","command":{"type":"flyTo","lat":40.7128,"lng":-74.0060,"zoom":14}}
 
-2. Search for a place by name (frontend geocodes via Nominatim):
-{"reply":"Flying to London!","command":{"type":"geocode","place":"London, UK"}}
+2. Search for a place by name (geocoded on the frontend via Nominatim):
+{"reply":"Flying to Lagos, Nigeria! Lagos is the largest city in Africa and a major economic hub with over 15 million people.","command":{"type":"geocode","place":"Lagos, Nigeria"}}
 
-3. Enable or disable a layer (use current layer states above to avoid redundant toggles):
+3. Enable or disable a layer:
 {"reply":"Turning on the heatmap.","command":{"type":"setLayer","layer":"heatmap","enabled":true}}
-{"reply":"Hiding journeys.","command":{"type":"setLayer","layer":"journeys","enabled":false}}
 Layers: "heatmap", "journeys", "clusters", "surveillance"
 
 4. Fit all contacts in view:
@@ -125,19 +125,31 @@ Layers: "heatmap", "journeys", "clusters", "surveillance"
 
 5. Zoom:
 {"reply":"Zooming in!","command":{"type":"zoomIn"}}
-{"reply":"Zooming out.","command":{"type":"zoomOut"}}
 
 6. Find a contact by name:
 {"reply":"Flying to Sarah!","command":{"type":"findContact","name":"Sarah"}}
 
-7. No map command (general question):
+7. Go back to the previous/home view (contacts or user position):
+{"reply":"Going back to home view.","command":{"type":"goBack"}}
+
+8. No map command (general question):
 {"reply":"Here's what you need to know…"}
 
-## Rules
+## Location Knowledge Rules
+- When flying to ANY location, ALWAYS include rich facts in your reply: country, population, what it's famous for, key landmarks, culture, geography, and any interesting facts. Be informative and engaging.
+- Example: "Flying to Tokyo! Tokyo is Japan's capital and the world's most populous metropolitan area with ~37 million people. It's known for its blend of ultramodern and traditional architecture, world-class cuisine, and the iconic Mount Fuji visible on clear days."
+- For lesser-known places, still share what you know: region, country, nearest major city, any notable characteristics.
+- The map stays at the location you fly to. The user must say "go back", "return", or "home" for you to send the goBack command.
+
+## Memory
+You have persistent memory. You remember all previous conversations with this user. Refer to prior context when relevant.
+
+## Other Rules
 - Always respond with valid JSON: {"reply":"...","command":{...}} or {"reply":"..."}
-- NEVER set a layer that is already in the requested state (e.g. don't enable heatmap if it's already on)
+- NEVER set a layer that is already in the requested state
 - For "where is X?" use findContact if X is in the contacts list, else explain they're not sharing
-- Keep replies concise. Use emoji naturally but sparingly.
+- Keep replies concise but informative. Use emoji naturally but sparingly.
+- In voice/call mode the user will speak to you naturally — respond conversationally.
 
 ## PhoneLink App Knowledge
 - Real-time GPS tracking via consent links sent over WhatsApp — no app install for recipients
@@ -151,8 +163,47 @@ Layers: "heatmap", "journeys", "clusters", "surveillance"
 - Consent links are 8-char tokens; sharing lasts while the consent tab is open`;
 }
 
+// ── DB helpers ────────────────────────────────────────────────────────────────
+async function loadHistory(userId: number, limit = 40): Promise<{ role: "user" | "assistant"; content: string }[]> {
+  try {
+    const rows = await db
+      .select({ role: assistantMessagesTable.role, content: assistantMessagesTable.content })
+      .from(assistantMessagesTable)
+      .where(eq(assistantMessagesTable.userId, userId))
+      .orderBy(desc(assistantMessagesTable.createdAt))
+      .limit(limit);
+    return rows.reverse() as { role: "user" | "assistant"; content: string }[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveMessages(
+  userId: number,
+  userMsg: string,
+  assistantMsg: string,
+): Promise<void> {
+  try {
+    await db.insert(assistantMessagesTable).values([
+      { id: randomUUID(), userId, role: "user",      content: userMsg },
+      { id: randomUUID(), userId, role: "assistant", content: assistantMsg },
+    ]);
+  } catch (e) {
+    console.error("[assistant] Failed to save messages:", e);
+  }
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
+// GET /api/assistant/history?userId=N — return saved conversation
+router.get("/assistant/history", async (req, res) => {
+  const uid = parseInt(req.query.userId as string);
+  if (!uid || isNaN(uid)) { res.json({ messages: [] }); return; }
+  const messages = await loadHistory(uid, 60);
+  res.json({ messages });
+});
+
+// POST /api/assistant — main chat endpoint
 router.post("/assistant", async (req, res) => {
   if (!openai) {
     res.status(503).json({ reply: "AI assistant is unavailable — OPENAI_API_KEY is not configured.", command: null });
@@ -165,18 +216,26 @@ router.post("/assistant", async (req, res) => {
     return;
   }
 
-  const { message, history = [], mapContext } = parsed.data;
+  const { message, userId, mapContext } = parsed.data;
+
+  // Load persistent history from DB when userId is provided; fall back to in-request history
+  let history: { role: "user" | "assistant"; content: string }[] = [];
+  if (userId) {
+    history = await loadHistory(userId, 30);
+  } else if (parsed.data.history?.length) {
+    history = parsed.data.history.slice(-20);
+  }
 
   const chatMessages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: buildSystemPrompt(mapContext) },
-    ...history.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+    ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     { role: "user", content: message },
   ];
 
   try {
     const completion = await openai.chat.completions.create({
       model: CHAT_MODEL,
-      max_tokens: 512,
+      max_tokens: 700,
       messages: chatMessages,
       response_format: { type: "json_object" },
     });
@@ -188,29 +247,30 @@ router.post("/assistant", async (req, res) => {
     try {
       aiObj = JSON.parse(raw);
     } catch {
-      res.json({ reply: raw, command: null });
+      const reply = typeof raw === "string" ? raw : "Got it!";
+      if (userId) await saveMessages(userId, message, reply);
+      res.json({ reply, command: null });
       return;
     }
 
-    // Validate AI output — drop malformed commands gracefully
     const validated = AiResponseSchema.safeParse(aiObj);
     if (!validated.success) {
-      const fallback = typeof (aiObj as Record<string, unknown>)?.reply === "string"
-        ? (aiObj as { reply: string }).reply
-        : "Got it!";
+      const fallback =
+        typeof (aiObj as Record<string, unknown>)?.reply === "string"
+          ? (aiObj as { reply: string }).reply
+          : "Got it!";
+      if (userId) await saveMessages(userId, message, fallback);
       res.json({ reply: fallback, command: null });
       return;
     }
 
-    res.json({ reply: validated.data.reply, command: validated.data.command ?? null });
+    const { reply, command } = validated.data;
+    if (userId) await saveMessages(userId, message, reply);
+    res.json({ reply, command: command ?? null });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ reply: "I ran into an error. Please try again.", error: msg, command: null });
   }
-});
-
-router.get("/assistant/history", (_req, res) => {
-  res.json({ messages: [] });
 });
 
 export default router;

@@ -658,8 +658,8 @@ export default function LiveMap() {
       } catch { /* ignore */ }
     }
 
-    // Fit bounds
-    if (latlngs.length > 0) {
+    // Fit bounds — only auto-pan when AI hasn't commanded a specific location
+    if (latlngs.length > 0 && !aiViewLocked.current) {
       try {
         if (latlngs.length === 1) map.setView(latlngs[0], 13);
         else map.fitBounds(L.latLngBounds(latlngs).pad(0.08), { maxZoom: 19 });
@@ -807,12 +807,17 @@ export default function LiveMap() {
     return unregister;
   }, []);
 
+  // ── AI view lock — true while AI has commanded a specific location ────────────
+  // When locked, the marker-redraw effect won't auto-pan the map.
+  const aiViewLocked = useRef(false);
+
   // ── Listen for AI map commands ────────────────────────────────────────────────
   useEffect(() => {
     const unsubscribe = onMapCommand((cmd) => {
       const map = mapInst.current;
       switch (cmd.type) {
         case "flyTo":
+          aiViewLocked.current = true;
           map?.flyTo([cmd.lat, cmd.lng], cmd.zoom ?? 14, { duration: 1.5 });
           break;
         case "setLayer":
@@ -822,6 +827,7 @@ export default function LiveMap() {
           else if (cmd.layer === "surveillance") setShowSurveillance(cmd.enabled);
           break;
         case "fitAll": {
+          aiViewLocked.current = false;
           const latlngs: [number, number][] = latestRef.current
             .filter((inv: Invite) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
             .map((inv: Invite) => {
@@ -851,8 +857,25 @@ export default function LiveMap() {
             const lat = live ? live.lat : match.grantedLatitude!;
             const lng = live ? live.lng : match.grantedLongitude!;
             if (isFinite(lat) && isFinite(lng)) {
+              aiViewLocked.current = true;
               map?.flyTo([lat, lng], 16, { duration: 1.5 });
             }
+          }
+          break;
+        }
+        case "goBack": {
+          // Unlock AI view and return to contacts / user position
+          aiViewLocked.current = false;
+          const latlngs: [number, number][] = latestRef.current
+            .filter((inv: Invite) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
+            .map((inv: Invite) => {
+              const live = livePos.current.get(inv.token);
+              return [live ? live.lat : inv.grantedLatitude!, live ? live.lng : inv.grantedLongitude!] as [number, number];
+            });
+          if (myPosRef.current) latlngs.push([myPosRef.current.lat, myPosRef.current.lng]);
+          if (latlngs.length > 0 && map) {
+            if (latlngs.length === 1) map.flyTo(latlngs[0], 13, { duration: 1.5 });
+            else map.flyToBounds(L.latLngBounds(latlngs).pad(0.08), { maxZoom: 17, duration: 1.5 });
           }
           break;
         }
