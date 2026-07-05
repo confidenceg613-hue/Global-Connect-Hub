@@ -419,7 +419,8 @@ export default function AssistantWidget() {
         video.onerror = () => { clearTimeout(timer); reject(new Error("Video load error")); };
       });
 
-      // ── 5-second countdown so the user can position their screen ──────────
+      // ── Close chat panel and count down so the map is fully visible ───────
+      setOpen(false);
       await new Promise<void>((resolve) => {
         let secs = 5;
         setCountdown(secs);
@@ -433,7 +434,6 @@ export default function AssistantWidget() {
             setCountdown(secs);
           }
         }, 1000);
-        // Register the interval so unmount can cancel it
         pendingTimers.current.push(tick as unknown as ReturnType<typeof setTimeout>);
       });
 
@@ -446,6 +446,7 @@ export default function AssistantWidget() {
       if (ctx) ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       setScreenCapture(canvas.toDataURL("image/jpeg", 0.80));
+      setOpen(true); // reopen chat with thumbnail ready
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       const isCancelled = /cancel|denied|dismissed|NotAllowed/i.test(msg);
@@ -590,6 +591,24 @@ export default function AssistantWidget() {
         </div>
       )}
 
+      {/* ── Screenshot countdown overlay (fixed, over the whole screen/map) ── */}
+      {countdown !== null && (
+        <div className="fixed inset-0 z-[9998] flex flex-col items-center justify-center pointer-events-none">
+          <div
+            className="text-[120px] font-black tabular-nums leading-none select-none"
+            style={{
+              color: "white",
+              textShadow: "0 0 60px rgba(99,102,241,.9), 0 4px 24px rgba(0,0,0,.8)",
+            }}
+          >
+            {countdown}
+          </div>
+          <p className="mt-4 text-lg font-semibold text-white/80" style={{ textShadow: "0 2px 8px rgba(0,0,0,.8)" }}>
+            Taking screenshot…
+          </p>
+        </div>
+      )}
+
       {/* ── FAB ───────────────────────────────────────────────────────────────── */}
       {!callMode && (
         <button
@@ -680,20 +699,6 @@ export default function AssistantWidget() {
             )}
             <div ref={bottomRef} />
           </div>
-
-          {/* Countdown overlay */}
-          {countdown !== null && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/90 backdrop-blur-sm rounded-2xl">
-              <div
-                className="text-8xl font-black tabular-nums text-indigo-400 leading-none"
-                style={{ textShadow: "0 0 40px rgba(99,102,241,.6)" }}
-              >
-                {countdown}
-              </div>
-              <p className="mt-4 text-sm text-muted-foreground">Screenshot in {countdown}…</p>
-              <p className="text-xs text-zinc-600 mt-1">Position your screen now</p>
-            </div>
-          )}
 
           {/* Input */}
           <div className="px-3 py-3 border-t border-border bg-muted/20">
