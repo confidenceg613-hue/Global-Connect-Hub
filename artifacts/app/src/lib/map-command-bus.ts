@@ -11,7 +11,9 @@ export type MapCommand =
   | { type: "zoomOut" }
   | { type: "findContact"; name: string }
   | { type: "goBack" }
-  | { type: "showImages"; place: string };
+  | { type: "showImages"; place: string }
+  | { type: "navigate"; path: string }
+  | { type: "openInviteForm"; phone?: string; name?: string };
 
 const EVENT_NAME = "phonelink:map-command";
 

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff, Monitor, Camera, XCircle, Sparkles, Zap, Images, ExternalLink } from "lucide-react";
+import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff, Monitor, Camera, XCircle, Sparkles, Zap, Images, ExternalLink, Radio } from "lucide-react";
 import { dispatchMapCommand, getMapContext } from "@/lib/map-command-bus";
 import type { MapCommand } from "@/lib/map-command-bus";
 import { useAuth } from "@/hooks/use-auth";
@@ -170,6 +170,7 @@ export default function AssistantWidget() {
   const { userId } = useAuth();
   const [open, setOpen] = useState(false);
   const [callMode, setCallMode] = useState(false);
+  const [alwaysOn, setAlwaysOn] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [loading, setLoading] = useState(false);
@@ -191,11 +192,17 @@ export default function AssistantWidget() {
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const callModeRef = useRef(callMode);
+  const alwaysOnRef = useRef(alwaysOn);
   const loadingRef = useRef(loading);
   const mountedRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
+  // Tracks all image URLs ever shown — prevents repeats across the session
+  const shownImagesRef = useRef<Set<string>>(new Set());
+  // Stable ref to sendMessage so background mic can always call latest version
+  const sendMessageRef = useRef<(text: string) => void>(() => {});
 
   useEffect(() => { callModeRef.current = callMode; }, [callMode]);
+  useEffect(() => { alwaysOnRef.current = alwaysOn; }, [alwaysOn]);
   useEffect(() => { loadingRef.current = loading; }, [loading]);
 
   useEffect(() => {
@@ -250,6 +257,43 @@ export default function AssistantWidget() {
 
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
+  // ── Background always-on mic (auto-restarts after each utterance) ────────────
+  const startBackgroundListening = useCallback(() => {
+    const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    if (!SR) return;
+    try { recognitionRef.current?.stop(); } catch {}
+    const rec = new SR();
+    rec.lang = "en-US"; rec.interimResults = false; rec.maxAlternatives = 1;
+    recognitionRef.current = rec;
+    rec.onstart = () => setListening(true);
+    rec.onend = () => {
+      setListening(false);
+      if (alwaysOnRef.current && mountedRef.current) {
+        const t = setTimeout(() => {
+          if (alwaysOnRef.current && mountedRef.current && !loadingRef.current)
+            startBackgroundListening();
+        }, 400);
+        pendingTimers.current.push(t);
+      }
+    };
+    rec.onerror = (e: Event) => {
+      setListening(false);
+      const err = (e as Event & { error?: string }).error;
+      if (err === "aborted") return;
+      if (alwaysOnRef.current && mountedRef.current) {
+        const t = setTimeout(() => {
+          if (alwaysOnRef.current && mountedRef.current) startBackgroundListening();
+        }, 1500);
+        pendingTimers.current.push(t);
+      }
+    };
+    rec.onresult = (event: SREvent) => {
+      const transcript = event.results[0][0].transcript.trim();
+      if (transcript && !loadingRef.current) sendMessageRef.current(transcript);
+    };
+    try { rec.start(); } catch { /* mic unavailable */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const startListening = useCallback(() => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!SR || loadingRef.current) return;
@@ -280,15 +324,38 @@ export default function AssistantWidget() {
     if (listening) stopListening(); else startListening();
   }, [listening, startListening]);
 
-  // ── Execute map / image commands ──────────────────────────────────────────
+  const toggleAlwaysOn = useCallback(() => {
+    setAlwaysOn(prev => {
+      const next = !prev;
+      if (next) { startBackgroundListening(); }
+      else {
+        stopListening();
+        pendingTimers.current.forEach(clearTimeout);
+        pendingTimers.current = [];
+      }
+      return next;
+    });
+  }, [startBackgroundListening]);
+
+  // ── Execute map / image / app commands ───────────────────────────────────
   const executeCommand = useCallback(async (command: MapCommand) => {
+    // App-level commands — handled by AppCommandHandler via the bus
+    if (command.type === "navigate" || command.type === "openInviteForm") {
+      dispatchMapCommand(command);
+      return;
+    }
+
     if (command.type === "showImages") {
       const imgs = await fetchLocationImages(command.place);
+      // Deduplicate: filter out images already shown this session
+      const fresh = imgs.filter(img => !shownImagesRef.current.has(img.url));
+      const toShow = fresh.length >= 2 ? fresh : imgs; // fallback if all repeat
+      toShow.forEach(img => shownImagesRef.current.add(img.url));
       setMessages(prev => {
         const next = [...prev];
         const lastIdx = next.length - 1;
         if (next[lastIdx]?.role === "assistant") {
-          next[lastIdx] = { ...next[lastIdx], images: imgs, command };
+          next[lastIdx] = { ...next[lastIdx], images: toShow, command };
         }
         return next;
       });
@@ -479,6 +546,9 @@ export default function AssistantWidget() {
     }
   }, [input, userId, startListening, screenCapture, executeCommand]);
 
+  // Keep stable ref so background mic always calls latest sendMessage
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
@@ -633,7 +703,18 @@ export default function AssistantWidget() {
       {!callMode && (
         <button onClick={() => setOpen(o => !o)} aria-label="Open AI assistant"
           className="fixed bottom-6 right-6 z-50 flex items-center justify-center w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg transition-all hover:scale-105 active:scale-95">
+          {alwaysOn && (
+            <span className="absolute inset-0 rounded-full border-2 border-emerald-400 animate-ping opacity-60" />
+          )}
           <Bot className="w-6 h-6" />
+          {alwaysOn && listening && (
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-background flex items-center justify-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            </span>
+          )}
+          {alwaysOn && !listening && (
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-background" />
+          )}
         </button>
       )}
 
@@ -665,6 +746,11 @@ export default function AssistantWidget() {
               )}
             </div>
             <div className="flex items-center gap-1">
+              <button onClick={toggleAlwaysOn} aria-label="Toggle always-on mic"
+                title={alwaysOn ? "Always-on mic active — click to stop" : "Enable always-on background mic"}
+                className={`p-1.5 rounded transition-colors ${alwaysOn ? "text-emerald-400 bg-emerald-500/15 hover:text-emerald-300" : "hover:bg-muted text-muted-foreground hover:text-foreground"}`}>
+                <Radio className="w-3.5 h-3.5" />
+              </button>
               <button onClick={startCall} aria-label="Voice call" title="Start voice call"
                 className="p-1.5 rounded hover:bg-muted text-emerald-400 hover:text-emerald-300 transition-colors">
                 <Phone className="w-3.5 h-3.5" />
@@ -809,14 +895,16 @@ export default function AssistantWidget() {
 
 function commandLabel(cmd: MapCommand): string {
   switch (cmd.type) {
-    case "flyTo":       return `Flew to ${cmd.lat.toFixed(4)}, ${cmd.lng.toFixed(4)}`;
-    case "geocode":     return `Searching "${cmd.place}"…`;
-    case "setLayer":    return `${cmd.enabled ? "Enabled" : "Disabled"} ${cmd.layer}`;
-    case "fitAll":      return "Fit all contacts in view";
-    case "zoomIn":      return "Zoomed in";
-    case "zoomOut":     return "Zoomed out";
-    case "findContact": return `Locating: ${cmd.name}`;
-    case "goBack":      return "Returned to home view";
-    case "showImages":  return `Photos of ${cmd.place}`;
+    case "flyTo":          return `Flew to ${cmd.lat.toFixed(4)}, ${cmd.lng.toFixed(4)}`;
+    case "geocode":        return `Searching "${cmd.place}"…`;
+    case "setLayer":       return `${cmd.enabled ? "Enabled" : "Disabled"} ${cmd.layer}`;
+    case "fitAll":         return "Fit all contacts in view";
+    case "zoomIn":         return "Zoomed in";
+    case "zoomOut":        return "Zoomed out";
+    case "findContact":    return `Locating: ${cmd.name}`;
+    case "goBack":         return "Returned to home view";
+    case "showImages":     return `Photos of ${cmd.place}`;
+    case "navigate":       return `Navigated to ${cmd.path}`;
+    case "openInviteForm": return `Opened invite form${cmd.name ? ` for ${cmd.name}` : ""}`;
   }
 }

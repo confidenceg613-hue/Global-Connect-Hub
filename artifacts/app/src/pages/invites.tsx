@@ -1,5 +1,5 @@
 import { useAuth } from "@/hooks/use-auth";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useListInvites,
   useCreateInvite,
@@ -29,6 +29,18 @@ export default function Invites() {
 
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
+
+  // Listen for AI prefill events (e.g. "send invite to John +234...")
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { phone: p, name: n } = (e as CustomEvent<{ phone: string; name: string }>).detail;
+      if (p) setPhone(p);
+      if (n) setName(n);
+    };
+    window.addEventListener("phonelink:prefill-invite", handler);
+    return () => window.removeEventListener("phonelink:prefill-invite", handler);
+  }, []);
+
   const [message, setMessage] = useState(
     "Yo, you gotta check this out… PhoneLink just added a new location thing. I tried it and it's actually really useful. Can I send you the invite real quick?",
   );

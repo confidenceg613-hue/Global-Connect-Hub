@@ -64,6 +64,8 @@ const MapCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("findContact"), name: z.string().min(1) }),
   z.object({ type: z.literal("goBack") }),
   z.object({ type: z.literal("showImages"), place: z.string().min(1) }),
+  z.object({ type: z.literal("navigate"), path: z.string().min(1) }),
+  z.object({ type: z.literal("openInviteForm"), phone: z.string().optional(), name: z.string().optional() }),
 ]);
 
 const AiResponseSchema = z.object({
@@ -134,7 +136,9 @@ ${mapStatus}
 6. findContact: {"reply":"Finding Sarah.","command":{"type":"findContact","name":"Sarah"}}
 7. goBack: {"reply":"Back.","command":{"type":"goBack"}}
 8. showImages: {"reply":"Here are photos!","command":{"type":"showImages","place":"Abuja, Nigeria"}} — use when user says "show image/photo/picture" or "what does X look like"
-9. No command: {"reply":"..."}
+9. navigate: {"reply":"Opening invites page.","command":{"type":"navigate","path":"/invites"}} — paths: /dashboard /invites /live-map /activity /permissions /geoboard /settings /profile /location-history /location-reports /surveillance
+10. openInviteForm: {"reply":"Pre-filling invite form for John.","command":{"type":"openInviteForm","phone":"+2348012345678","name":"John"}} — use when user says "send invite to [name] [phone]" or "invite [name]"
+11. No command: {"reply":"..."}
 
 When navigating to a place, give a 2-3 sentence vivid briefing about it.
 

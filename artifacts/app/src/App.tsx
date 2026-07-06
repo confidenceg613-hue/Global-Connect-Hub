@@ -26,6 +26,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
 import { ErrorBoundary } from "@/components/error-boundary";
 import AssistantWidget from "@/components/assistant/AssistantWidget";
+import { AppCommandHandler } from "@/components/assistant/AppCommandHandler";
 
 const queryClient = new QueryClient();
 
@@ -181,6 +182,7 @@ function AppInner() {
         <Router />
       </WouterRouter>
       <GrantNotifier />
+      <AppCommandHandler />
       <AssistantWidget />
       <Toaster />
     </>
