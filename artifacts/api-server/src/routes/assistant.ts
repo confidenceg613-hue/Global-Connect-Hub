@@ -15,25 +15,42 @@ if (!API_KEY) {
 
 const isGroq       = API_KEY?.startsWith("gsk_");
 const isOpenRouter = API_KEY?.startsWith("sk-or-");
+const customBase   = process.env.OPENAI_BASE_URL?.trim() || null;
+
+// Resolve base URL: explicit env var wins, then key-prefix detection
+const resolvedBase = customBase
+  ?? (isGroq       ? "https://api.groq.com/openai/v1"
+    : isOpenRouter ? "https://openrouter.ai/api/v1"
+    : undefined);
+
+if (customBase) {
+  console.log(`[assistant] Using custom base URL: ${customBase}`);
+} else if (isGroq) {
+  console.log("[assistant] Detected Groq key — routing to Groq");
+} else if (isOpenRouter) {
+  console.log("[assistant] Detected OpenRouter key — routing to OpenRouter");
+} else {
+  console.log("[assistant] Using OpenAI direct endpoint");
+}
 
 const openai = API_KEY
   ? new OpenAI({
       apiKey: API_KEY,
-      ...(isGroq       ? { baseURL: "https://api.groq.com/openai/v1" } : {}),
-      ...(isOpenRouter ? { baseURL: "https://openrouter.ai/api/v1",
-                           defaultHeaders: {
-                             "HTTP-Referer": "https://phonelink.app",
-                             "X-Title": "PhoneLink AI",
-                           } } : {}),
+      ...(resolvedBase ? { baseURL: resolvedBase } : {}),
+      defaultHeaders: {
+        "HTTP-Referer": "https://phonelink.app",
+        "X-Title": "PhoneLink AI",
+      },
     })
   : null;
 
-const CHAT_MODEL   = isGroq ? "llama-3.3-70b-versatile"
-                   : isOpenRouter ? "openai/gpt-4o"
-                   : "gpt-4o";
-const VISION_MODEL = isGroq ? "meta-llama/llama-4-scout-17b-16e-instruct"
-                   : isOpenRouter ? "openai/gpt-4o"
-                   : "gpt-4o";
+// Allow model override via env var, otherwise pick sensible default
+const defaultChatModel =
+  process.env.OPENAI_MODEL
+  ?? (isGroq ? "llama-3.3-70b-versatile" : "gpt-4o");
+
+const CHAT_MODEL   = defaultChatModel;
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? defaultChatModel;
 
 // ── Command schema ────────────────────────────────────────────────────────────
 const MapLayerEnum = z.enum(["heatmap", "journeys", "clusters", "surveillance"]);
