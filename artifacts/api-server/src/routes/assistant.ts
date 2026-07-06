@@ -13,16 +13,27 @@ if (!API_KEY) {
   console.error("[assistant] OPENAI_API_KEY is not set — /api/assistant will return 503");
 }
 
-const isGroq = API_KEY?.startsWith("gsk_");
+const isGroq       = API_KEY?.startsWith("gsk_");
+const isOpenRouter = API_KEY?.startsWith("sk-or-");
+
 const openai = API_KEY
   ? new OpenAI({
       apiKey: API_KEY,
-      ...(isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}),
+      ...(isGroq       ? { baseURL: "https://api.groq.com/openai/v1" } : {}),
+      ...(isOpenRouter ? { baseURL: "https://openrouter.ai/api/v1",
+                           defaultHeaders: {
+                             "HTTP-Referer": "https://phonelink.app",
+                             "X-Title": "PhoneLink AI",
+                           } } : {}),
     })
   : null;
 
-const CHAT_MODEL   = isGroq ? "llama-3.3-70b-versatile" : "gpt-4o";
-const VISION_MODEL = isGroq ? "meta-llama/llama-4-scout-17b-16e-instruct" : "gpt-4o";
+const CHAT_MODEL   = isGroq ? "llama-3.3-70b-versatile"
+                   : isOpenRouter ? "openai/gpt-4o"
+                   : "gpt-4o";
+const VISION_MODEL = isGroq ? "meta-llama/llama-4-scout-17b-16e-instruct"
+                   : isOpenRouter ? "openai/gpt-4o"
+                   : "gpt-4o";
 
 // ── Command schema ────────────────────────────────────────────────────────────
 const MapLayerEnum = z.enum(["heatmap", "journeys", "clusters", "surveillance"]);
