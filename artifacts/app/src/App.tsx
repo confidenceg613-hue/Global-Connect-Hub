@@ -178,11 +178,11 @@ function AppInner() {
   return (
     <>
       <ServiceWorkerManager userId={userId} />
-      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}> 
+      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
         <Router />
+        <AppCommandHandler />
       </WouterRouter>
       <GrantNotifier />
-      <AppCommandHandler />
       <AssistantWidget />
       <Toaster />
     </>

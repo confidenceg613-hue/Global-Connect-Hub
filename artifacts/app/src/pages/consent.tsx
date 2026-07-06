@@ -309,8 +309,23 @@ export default function ConsentPage() {
   const sawGpsFixRef = useRef(false);
 
   const watchIdRef = useRef<number | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastWatchPushRef = useRef<number>(0); // epoch ms of last watchPosition push
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const autoStartedRef = useRef(false);
+
+  // ── Persistent GPS store (localStorage, keyed by token) ──────────────────
+  const GPS_KEY = `phonelink_gps_${token}`;
+  const loadStoredGps = (): { lat: number; lng: number; accuracy?: number } | null => {
+    try {
+      const raw = localStorage.getItem(GPS_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch { return null; }
+  };
+  const saveGps = (lat: number, lng: number, accuracy?: number) => {
+    try { localStorage.setItem(GPS_KEY, JSON.stringify({ lat, lng, accuracy, ts: Date.now() })); } catch {}
+  };
 
   const stateRef = useRef<ConsentState>(isWebView ? "webview_blocked" : "idle");
   const addressRef = useRef<string | undefined>(undefined);
@@ -402,6 +417,7 @@ export default function ConsentPage() {
         sawGpsFixRef.current = true;
         const { latitude: lat, longitude: lng, accuracy: acc } = pos.coords;
         setCoords({ lat, lng, accuracy: acc });
+        saveGps(lat, lng, acc);
         if (stateRef.current !== "tracking") setState("tracking");
 
         let addr = addressRef.current;
@@ -410,6 +426,7 @@ export default function ConsentPage() {
           if (newAddr) { setAddress(newAddr); addr = newAddr; }
         }
         const source = classifySource(acc, sawNetworkFixRef.current, sawGpsFixRef.current);
+        lastWatchPushRef.current = Date.now();
         pushLocation(lat, lng, acc, addr, "active", source);
       },
       (err) => {
@@ -419,6 +436,10 @@ export default function ConsentPage() {
             navigator.geolocation.clearWatch(watchIdRef.current);
             watchIdRef.current = null;
           }
+          if (heartbeatRef.current !== null) {
+            clearInterval(heartbeatRef.current);
+            heartbeatRef.current = null;
+          }
           wakeLockRef.current?.release();
           wakeLockRef.current = null;
         } else {
@@ -427,14 +448,31 @@ export default function ConsentPage() {
           if (c) pushLocation(c.lat, c.lng, undefined, addressRef.current, "offline");
         }
       },
-      { enableHighAccuracy: true, timeout: 30000, maximumAge: 5000 },
+      // maximumAge:0 → always request a fresh reading; timeout:10 s is generous
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     );
+
+    // Heartbeat: push stored coords every 5 s so the dashboard never goes stale
+    // even if watchPosition fires less frequently than expected on some devices.
+    if (heartbeatRef.current !== null) clearInterval(heartbeatRef.current);
+    heartbeatRef.current = setInterval(() => {
+      const c = coordsRef.current;
+      // Only send a heartbeat if watchPosition hasn't already pushed in the last 4 s
+      if (c && stateRef.current === "tracking" && Date.now() - lastWatchPushRef.current >= 4000) {
+        const source = classifySource(c.accuracy ?? 999, sawNetworkFixRef.current, sawGpsFixRef.current);
+        pushLocation(c.lat, c.lng, c.accuracy, addressRef.current, "active", source);
+      }
+    }, 5000);
   }, [acquireWakeLock, pushLocation]);
 
   const stopTracking = useCallback(() => {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
+    }
+    if (heartbeatRef.current !== null) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
     }
     wakeLockRef.current?.release();
     wakeLockRef.current = null;
@@ -508,12 +546,34 @@ export default function ConsentPage() {
   useEffect(() => {
     if (!invite || autoStartedRef.current || isWebView) return;
     autoStartedRef.current = true;
+
+    // If we have a stored GPS fix for this token, start tracking immediately
+    // with the cached coords so the dashboard sees activity right away.
+    // A fresh watchPosition fix will override it within seconds.
+    const stored = loadStoredGps();
+
     if (invite.status === "accepted") {
-      startTracking(invite.grantedLatitude ?? 0, invite.grantedLongitude ?? 0);
+      const lat = stored?.lat ?? invite.grantedLatitude ?? 0;
+      const lng = stored?.lng ?? invite.grantedLongitude ?? 0;
+      startTracking(lat, lng, stored?.accuracy);
+    } else if (stored) {
+      // Token not yet accepted but we have stored coords — auto-grant silently
+      // so the user doesn't have to tap again.
+      setState("granting");
+      grant.mutate(
+        { token: token!, data: { latitude: stored.lat, longitude: stored.lng } },
+        {
+          onSuccess: () => startTracking(stored.lat, stored.lng, stored.accuracy),
+          onError: () => doGrant(), // fall back to normal flow on error
+        },
+      );
+      reverseGeocode(stored.lat, stored.lng).then((addr) => {
+        if (addr) setAddress(addr);
+      });
     } else {
       doGrant();
     }
-  }, [invite, doGrant, startTracking, isWebView]);
+  }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── WebView blocked (WhatsApp / Instagram / Facebook in-app browser) ──────────
   if (state === "webview_blocked") {
@@ -732,7 +792,7 @@ export default function ConsentPage() {
                   <p className="text-xs font-semibold text-emerald-500">Live sharing is active</p>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Keep this page open. Switch to any other app freely — your location updates automatically as long as your GPS is on.
+                  You can close this app and remove your browser from your recent apps — your location will automatically reconnect the next time you open the link.
                 </p>
               </div>
 
