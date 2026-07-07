@@ -37,8 +37,12 @@ if (groqKey2) clients.push({ label: "Groq-2", client: makeClient(groqKey2) });
 if (!groqKey1 && !groqKey2 && legacyKey) {
   const isGsk = legacyKey.startsWith("gsk_");
   const isOr  = legacyKey.startsWith("sk-or-");
+  // Only override base URL for non-OpenAI keys; standard sk-* keys use OpenAI's default endpoint
   const base  = isGsk ? GROQ_BASE : isOr ? "https://openrouter.ai/api/v1" : undefined;
-  clients.push({ label: "legacy", client: makeClient(legacyKey, base) });
+  const client = base
+    ? new OpenAI({ apiKey: legacyKey, baseURL: base, defaultHeaders: GROQ_HEADERS })
+    : new OpenAI({ apiKey: legacyKey, defaultHeaders: GROQ_HEADERS }); // OpenAI default base URL
+  clients.push({ label: "legacy", client });
 }
 
 const hasAnyClient = clients.length > 0;
@@ -303,6 +307,9 @@ router.post("/assistant", async (req, res) => {
     const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
     try {
+      // withFallback protects stream *creation* — if key 1 returns a 429/5xx before
+      // the stream opens, key 2 is tried automatically. Once a stream is open,
+      // mid-stream errors fall through to the outer catch and return an SSE error event.
       const stream = await withFallback((client) => client.chat.completions.create({
         model,
         max_tokens: 2000,
