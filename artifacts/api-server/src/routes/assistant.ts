@@ -47,19 +47,38 @@ if (!groqKey1 && !groqKey2 && legacyKey) {
 
 const hasAnyClient = clients.length > 0;
 
-// Model: env override wins, then Groq default
-const CHAT_MODEL   = process.env.OPENAI_MODEL        ?? "llama-3.3-70b-versatile";
-const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? CHAT_MODEL;
+// Each Groq model has its own daily free-tier token quota (100k TPD each).
+// When the primary model is exhausted we fall through to the next automatically.
+const GROQ_MODEL_CHAIN = (process.env.OPENAI_MODEL
+  ? [process.env.OPENAI_MODEL]
+  : [
+      "llama-3.3-70b-versatile",   // best quality — try first
+      "llama-3.1-8b-instant",      // fast, separate 100k TPD quota
+      "gemma2-9b-it",              // separate quota
+      "mixtral-8x7b-32768",        // separate quota
+    ]);
 
-/** Run fn with primary client; on rate-limit / server error, retry with next. */
-async function withFallback<T>(fn: (client: OpenAI, label: string) => Promise<T>): Promise<T> {
-  let lastErr: unknown;
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? GROQ_MODEL_CHAIN[0];
+
+// Flat attempt matrix: iterate models first so we exhaust all model quotas
+// before repeating with the same model on a different key.
+interface Attempt { label: string; client: OpenAI; model: string; }
+const attempts: Attempt[] = [];
+for (const model of GROQ_MODEL_CHAIN) {
   for (const { label, client } of clients) {
+    attempts.push({ label: `${label}/${model}`, client, model });
+  }
+}
+
+/** Run fn with primary client+model; on rate-limit/server error, try next combo. */
+async function withFallback<T>(fn: (client: OpenAI, model: string, label: string) => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (const { label, client, model } of attempts) {
     try {
-      return await fn(client, label);
+      return await fn(client, model, label);
     } catch (err: unknown) {
       const status = (err as { status?: number })?.status;
-      // Retry on rate-limit (429) or server errors (5xx); surface others immediately
+      // Retry only on rate-limit (429) or server errors (5xx)
       if (status && status !== 429 && status < 500) throw err;
       console.warn(`[assistant] ${label} failed (${status ?? "network"}), trying next…`);
       lastErr = err;
@@ -308,10 +327,10 @@ router.post("/assistant", async (req, res) => {
 
     try {
       // withFallback protects stream *creation* — if key 1 returns a 429/5xx before
-      // the stream opens, key 2 is tried automatically. Once a stream is open,
-      // mid-stream errors fall through to the outer catch and return an SSE error event.
-      const stream = await withFallback((client) => client.chat.completions.create({
-        model,
+      // the stream opens, the next key+model combo is tried automatically.
+      // Once a stream is open, mid-stream errors fall to the outer catch (SSE error event).
+      const stream = await withFallback((client, mdl) => client.chat.completions.create({
+        model: mdl,
         max_tokens: 2000,
         temperature: 0.7,
         messages: chatMessages,
@@ -361,8 +380,8 @@ router.post("/assistant", async (req, res) => {
 
   // ── Non-streaming fallback (vision / backward-compat) ──────────────────────
   try {
-    const completion = await withFallback((client) => client.chat.completions.create({
-      model,
+    const completion = await withFallback((client, mdl) => client.chat.completions.create({
+      model: useVision ? VISION_MODEL : mdl,
       max_tokens: 2000,
       temperature: 0.7,
       messages: chatMessages,

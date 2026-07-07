@@ -305,11 +305,12 @@ export default function LocationHistory() {
     };
   }, [selectedToken]);
 
-  // A device is truly live only if the last update is recent (≤2 min).
-  // Handles cases where the device loses connectivity without sending "offline".
+  // A device is truly live only if the last update is recent (≤5 min).
+  // 5 min matches the live-map staleness threshold and is generous enough
+  // to survive GPS pauses, network hiccups, and heartbeat jitter.
   const isLive =
     liveStatus?.status === "active" &&
-    differenceInMinutes(new Date(), new Date(liveStatus.createdAt)) < 2;
+    differenceInMinutes(new Date(), new Date(liveStatus.createdAt)) < 5;
 
   const selectedContact = contacts.find((c) => c.token === selectedToken);
   const stats = computeStats(updates);
@@ -379,7 +380,7 @@ export default function LocationHistory() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-6 animate-in fade-in duration-300">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -395,7 +396,7 @@ export default function LocationHistory() {
             <Download size={13} />
             Export CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={fetchHistory} disabled={loading} className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => { fetchHistory(); fetchLiveStatus(); }} disabled={loading} className="gap-2">
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
             Refresh
           </Button>

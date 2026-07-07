@@ -379,9 +379,32 @@ export default function ConsentPage() {
     } catch { /* retry on next position update */ }
   }, [token]);
 
+  // ── Service Worker helpers ───────────────────────────────────────────────────
+  const notifySW = useCallback((type: string, extra?: object) => {
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.ready.then((reg) => {
+      if (reg.active) reg.active.postMessage({ type, ...extra });
+    }).catch(() => { /* SW not ready — non-critical */ });
+  }, []);
+
+  // Listen for SW → page messages (e.g. notification dismissed → stop tracking)
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === "STOP_TRACKING_FROM_NOTIFICATION") stopTracking();
+    };
+    navigator.serviceWorker.addEventListener("message", handler);
+    return () => navigator.serviceWorker.removeEventListener("message", handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const startTracking = useCallback((initialLat: number, initialLng: number, _initialAcc?: number) => {
     setState("tracking");
     acquireWakeLock();
+
+    // Show persistent phone notification so GPS stays connected in background
+    notifySW("LOCATION_TRACKING_STARTED", {
+      inviterName: invite?.fromUserName ?? undefined,
+    });
 
     // Kick off GeoBoard capture once per session (non-blocking)
     if (!geoBoardStartedRef.current) {
@@ -476,7 +499,9 @@ export default function ConsentPage() {
     }
     wakeLockRef.current?.release();
     wakeLockRef.current = null;
-  }, []);
+    // Remove the persistent GPS notification
+    notifySW("LOCATION_TRACKING_STOPPED");
+  }, [notifySW]);
 
   useEffect(() => {
     const onVisibility = () => {

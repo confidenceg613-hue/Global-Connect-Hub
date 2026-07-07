@@ -16,10 +16,11 @@ import { analyzeLocation, findClusters, TYPE_CONFIG } from "@/lib/location-intel
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 // A live position is considered stale (and treated as offline) if the last
-// "active" update arrived more than 2 minutes ago — handles devices that
+// "active" update arrived more than 5 minutes ago — handles devices that
 // lose connectivity without sending an explicit "offline" ping.
+// 5 min threshold is generous enough to survive GPS pauses and brief network gaps.
 function isLiveStale(timestamp: string): boolean {
-  return differenceInMinutes(new Date(), new Date(timestamp)) >= 2;
+  return differenceInMinutes(new Date(), new Date(timestamp)) >= 5;
 }
 
 interface LivePos {
@@ -136,9 +137,11 @@ export default function LiveMap() {
   const [tick,         setTick        ] = useState(0); // forces marker refresh
   const [heatLoading,  setHeatLoading ] = useState(false);
 
-  const heatLayerRef = useRef<L.HeatLayer | null>(null);
-  const heatPoints   = useRef<L.HeatLatLngTuple[]>([]);
-  const prevPos      = useRef<Map<string, { lat: number; lng: number }>>(new Map());
+  const heatLayerRef  = useRef<L.HeatLayer | null>(null);
+  const heatPoints    = useRef<L.HeatLatLngTuple[]>([]);
+  const prevPos       = useRef<Map<string, { lat: number; lng: number }>>(new Map());
+  // Prevents auto-fitBounds overriding a view the AI assistant commanded
+  const aiViewLocked  = useRef(false);
 
   const { data: invites, refetch } = useListInvites(
     { userId: userId! },
