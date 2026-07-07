@@ -2,6 +2,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { request as httpRequest } from "node:http";
 
 const PORT = Number(process.env.PORT) || 5000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,7 +28,23 @@ const mime = {
 const cacheHeader = (ext) =>
   ext === ".html" ? "no-cache, no-store, must-revalidate" : "public, max-age=31536000, immutable";
 
+const API_PORT = Number(process.env.API_PORT) || 8080;
+
 const server = http.createServer((req, res) => {
+  // Proxy /api/* requests to the Express backend
+  if (req.url.startsWith("/api")) {
+    const proxy = httpRequest(
+      { hostname: "127.0.0.1", port: API_PORT, path: req.url, method: req.method, headers: req.headers },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+      }
+    );
+    proxy.on("error", () => { try { res.writeHead(502); res.end("Bad Gateway"); } catch {} });
+    req.pipe(proxy, { end: true });
+    return;
+  }
+
   // Handle CORS pre-flight quickly
   if (req.method === "OPTIONS") {
     res.writeHead(204, { "Content-Length": "0", Connection: "keep-alive" });
@@ -36,14 +53,19 @@ const server = http.createServer((req, res) => {
   }
 
   let url = req.url.split("?")[0];
-  let filePath = path.join(root, url);
+
+  // Guard against malformed percent-encoding
+  let decoded;
+  try { decoded = decodeURIComponent(url); } catch {
+    res.writeHead(400); res.end("Bad Request"); return;
+  }
 
   // Guard against path traversal — resolve against root so ../.. tricks are neutralised
-  const resolved = path.resolve(root, "." + decodeURIComponent(url));
+  const resolved = path.resolve(root, "." + decoded);
   if (resolved !== root && !resolved.startsWith(root + path.sep)) {
     res.writeHead(403); res.end("Forbidden"); return;
   }
-  filePath = resolved;
+  let filePath = resolved;
 
   // SPA fallback: anything without an extension → index.html
   const ext = path.extname(filePath);
