@@ -8,49 +8,61 @@ import { randomUUID } from "crypto";
 
 const router = Router();
 
-const API_KEY = process.env.OPENAI_API_KEY;
-if (!API_KEY) {
-  console.error("[assistant] OPENAI_API_KEY is not set — /api/assistant will return 503");
-}
+// ── Dual Groq client setup ────────────────────────────────────────────────────
+const GROQ_BASE = "https://api.groq.com/openai/v1";
+const GROQ_HEADERS = { "HTTP-Referer": "https://phonelink.app", "X-Title": "PhoneLink AI" };
 
-const isGroq       = API_KEY?.startsWith("gsk_");
-const isOpenRouter = API_KEY?.startsWith("sk-or-");
-const customBase   = process.env.OPENAI_BASE_URL?.trim() || null;
+const groqKey1 = process.env.GROQ_API_KEY_1?.trim();
+const groqKey2 = process.env.GROQ_API_KEY_2?.trim();
 
-// Resolve base URL: explicit env var wins, then key-prefix detection
-const resolvedBase = customBase
-  ?? (isGroq       ? "https://api.groq.com/openai/v1"
-    : isOpenRouter ? "https://openrouter.ai/api/v1"
-    : undefined);
+// Legacy single-key fallback (OPENAI_API_KEY) kept for backward-compat
+const legacyKey = process.env.OPENAI_API_KEY?.trim();
 
-if (customBase) {
-  console.log(`[assistant] Using custom base URL: ${customBase}`);
-} else if (isGroq) {
-  console.log("[assistant] Detected Groq key — routing to Groq");
-} else if (isOpenRouter) {
-  console.log("[assistant] Detected OpenRouter key — routing to OpenRouter");
+if (!groqKey1 && !groqKey2 && !legacyKey) {
+  console.error("[assistant] No API keys set — /api/assistant will return 503");
 } else {
-  console.log("[assistant] Using OpenAI direct endpoint");
+  if (groqKey1) console.log("[assistant] Groq key 1 (primary) ready");
+  if (groqKey2) console.log("[assistant] Groq key 2 (backup) ready");
+  if (!groqKey1 && !groqKey2 && legacyKey) console.log("[assistant] Using legacy OPENAI_API_KEY");
 }
 
-const openai = API_KEY
-  ? new OpenAI({
-      apiKey: API_KEY,
-      ...(resolvedBase ? { baseURL: resolvedBase } : {}),
-      defaultHeaders: {
-        "HTTP-Referer": "https://phonelink.app",
-        "X-Title": "PhoneLink AI",
-      },
-    })
-  : null;
+function makeClient(apiKey: string, base?: string): OpenAI {
+  return new OpenAI({ apiKey, baseURL: base ?? GROQ_BASE, defaultHeaders: GROQ_HEADERS });
+}
 
-// Allow model override via env var, otherwise pick sensible default
-const defaultChatModel =
-  process.env.OPENAI_MODEL
-  ?? (isGroq ? "llama-3.1-8b-instant" : "gpt-4o");
+// Ordered list of clients to try: [groqKey1, groqKey2, legacyKey]
+const clients: { label: string; client: OpenAI }[] = [];
+if (groqKey1) clients.push({ label: "Groq-1", client: makeClient(groqKey1) });
+if (groqKey2) clients.push({ label: "Groq-2", client: makeClient(groqKey2) });
+if (!groqKey1 && !groqKey2 && legacyKey) {
+  const isGsk = legacyKey.startsWith("gsk_");
+  const isOr  = legacyKey.startsWith("sk-or-");
+  const base  = isGsk ? GROQ_BASE : isOr ? "https://openrouter.ai/api/v1" : undefined;
+  clients.push({ label: "legacy", client: makeClient(legacyKey, base) });
+}
 
-const CHAT_MODEL   = defaultChatModel;
-const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? defaultChatModel;
+const hasAnyClient = clients.length > 0;
+
+// Model: env override wins, then Groq default
+const CHAT_MODEL   = process.env.OPENAI_MODEL        ?? "llama-3.3-70b-versatile";
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? CHAT_MODEL;
+
+/** Run fn with primary client; on rate-limit / server error, retry with next. */
+async function withFallback<T>(fn: (client: OpenAI, label: string) => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (const { label, client } of clients) {
+    try {
+      return await fn(client, label);
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
+      // Retry on rate-limit (429) or server errors (5xx); surface others immediately
+      if (status && status !== 429 && status < 500) throw err;
+      console.warn(`[assistant] ${label} failed (${status ?? "network"}), trying next…`);
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
 
 // ── Command schema ────────────────────────────────────────────────────────────
 const MapLayerEnum = z.enum(["heatmap", "journeys", "clusters", "surveillance"]);
@@ -222,8 +234,8 @@ router.get("/assistant/history", async (req, res) => {
 });
 
 router.post("/assistant", async (req, res) => {
-  if (!openai) {
-    res.status(503).json({ reply: "AI assistant is unavailable — OPENAI_API_KEY is not configured.", command: null });
+  if (!hasAnyClient) {
+    res.status(503).json({ reply: "AI assistant is unavailable — no API keys configured.", command: null });
     return;
   }
 
@@ -291,14 +303,14 @@ router.post("/assistant", async (req, res) => {
     const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
     try {
-      const stream = await openai.chat.completions.create({
+      const stream = await withFallback((client) => client.chat.completions.create({
         model,
         max_tokens: 2000,
         temperature: 0.7,
         messages: chatMessages,
         response_format: { type: "json_object" },
         stream: true,
-      });
+      }));
 
       for await (const chunk of stream) {
         const text = chunk.choices[0]?.delta?.content ?? "";
@@ -342,13 +354,13 @@ router.post("/assistant", async (req, res) => {
 
   // ── Non-streaming fallback (vision / backward-compat) ──────────────────────
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await withFallback((client) => client.chat.completions.create({
       model,
       max_tokens: 2000,
       temperature: 0.7,
       messages: chatMessages,
       ...(useVision ? {} : { response_format: { type: "json_object" } }),
-    });
+    }));
 
     const raw = completion.choices[0]?.message?.content ?? '{"reply":"Sorry, something went wrong."}';
     let aiObj: unknown;
