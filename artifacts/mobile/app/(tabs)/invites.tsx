@@ -16,7 +16,8 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons as _Ionicons } from '@expo/vector-icons';
+const Ionicons = _Ionicons as any;
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/contexts/AuthContext';
 import { useColors } from '@/hooks/useColors';
@@ -97,7 +98,7 @@ export default function InvitesScreen() {
 
   const { data: invites, isLoading, refetch, isRefetching } = useListInvites(
     { userId: userId! },
-    { enabled: !!userId }
+    { query: { enabled: !!userId } } as any,
   );
   const createInvite = useCreateInvite();
 

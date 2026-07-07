@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS location_points (
   source          TEXT,
   timestamp       TEXT    NOT NULL,
   day_of_week     INTEGER NOT NULL DEFAULT 0,
-  hour_of_day     INTEGER NOT NULL DEFAULT 0
+  hour_of_day     INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (contact_token, timestamp)
 );
 CREATE INDEX IF NOT EXISTS idx_lp_token ON location_points (contact_token);
 CREATE INDEX IF NOT EXISTS idx_lp_ts    ON location_points (timestamp);

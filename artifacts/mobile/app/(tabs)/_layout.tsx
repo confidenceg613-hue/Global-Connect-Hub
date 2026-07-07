@@ -1,9 +1,13 @@
 import React from 'react';
 import { Platform, StyleSheet, View, useColorScheme } from 'react-native';
 import { useColors } from '@/hooks/useColors';
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { Ionicons as _Ionicons, Feather as _Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Tabs } from 'expo-router';
+
+// React 19 stricter JSX types conflict with @expo/vector-icons — cast to any.
+const Ionicons = _Ionicons as any;
+const Feather  = _Feather  as any;
 
 export default function TabLayout() {
   const colors = useColors();

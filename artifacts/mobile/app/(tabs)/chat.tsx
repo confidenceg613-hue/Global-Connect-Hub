@@ -38,10 +38,10 @@ import InputBar from '@/components/chat/InputBar';
 import QuickChips from '@/components/chat/QuickChips';
 import ModelLoader from '@/components/chat/ModelLoader';
 
-import { isModelLoaded, type ModelInfo } from '@/lib/ai/model-manager';
+import { isModelLoaded, getLoadedModelInfo, type ModelInfo } from '@/lib/ai/model-manager';
 import { runRag, type RagMessage } from '@/lib/ai/rag';
 import { parseAction, dispatchAction } from '@/lib/ai/app-actions';
-import { saveNote } from '@/lib/db/location-repo';
+import { saveNote, getFirstContactToken } from '@/lib/db/location-repo';
 import { syncAll } from '@/lib/ai/sync';
 
 let _msgCounter = 0;
@@ -62,8 +62,9 @@ export default function ChatTab() {
   const { startTracking, stopTracking, lastLocation } = useLocationTracking();
 
   // ── Model state ────────────────────────────────────────────────────────────
+  // Recover activeModel if a model was already loaded before this tab mounted.
   const [modelReady, setModelReady] = useState(() => isModelLoaded());
-  const [activeModel, setActiveModel] = useState<ModelInfo | null>(null);
+  const [activeModel, setActiveModel] = useState<ModelInfo | null>(() => getLoadedModelInfo());
 
   // ── Chat state ─────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
@@ -115,9 +116,12 @@ export default function ChatTab() {
       let tokenBuffer = '';
 
       try {
+        // Resolve a contact token for intents that require one (e.g. pattern_analysis).
+        const resolvedContactToken = await getFirstContactToken();
+
         const result = await runRag(text, {
           modelInfo: activeModel,
-          contactToken: undefined, // uses all synced contacts
+          contactToken: resolvedContactToken ?? undefined,
           conversationHistory: historyRef.current.slice(-8),
           signal: abortRef.current.signal,
           onToken: (tok) => {

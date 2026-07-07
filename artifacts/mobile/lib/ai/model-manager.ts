@@ -183,6 +183,16 @@ export function isModelLoaded(modelId?: string): boolean {
   return true;
 }
 
+/**
+ * Returns the ModelInfo for the currently loaded model, or null.
+ * Used by the chat screen to recover activeModel when the model was
+ * already in memory from a previous session (avoiding the disabled-input bug).
+ */
+export function getLoadedModelInfo(): ModelInfo | null {
+  if (!_llamaContext || !_loadedModelId) return null;
+  return AVAILABLE_MODELS.find((m) => m.id === _loadedModelId) ?? null;
+}
+
 /** Release the loaded model to free RAM. */
 export async function releaseModel(): Promise<void> {
   try {

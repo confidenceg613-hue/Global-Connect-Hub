@@ -52,30 +52,38 @@ export async function runCompletion(opts: CompletionOptions): Promise<Completion
   // Build accumulated text from streaming tokens
   let fullText = '';
 
-  await ctx.completion(
-    {
-      messages,
-      n_predict: maxTokens,
-      temperature,
-      top_p: topP,
-      top_k: topK,
-      min_p: 0.05,
-      stop: modelInfo.stopTokens,
-    },
-    (data: { token: string }) => {
-      if (signal?.aborted) {
-        stopped = true;
-        return;
-      }
-      // Filter out bare stop tokens that leaked into the stream
-      const tok = data.token;
-      if (modelInfo.stopTokens.some((s) => tok.includes(s))) return;
+  // Wire up abort signal to stop the llama.rn completion immediately.
+  const abortHandler = () => {
+    stopped = true;
+    ctx.stopCompletion().catch(() => {});
+  };
+  signal?.addEventListener('abort', abortHandler);
 
-      fullText += tok;
-      tokens++;
-      onToken?.(tok);
-    },
-  );
+  try {
+    await ctx.completion(
+      {
+        messages,
+        n_predict: maxTokens,
+        temperature,
+        top_p: topP,
+        top_k: topK,
+        min_p: 0.05,
+        stop: modelInfo.stopTokens,
+      },
+      (data: { token: string }) => {
+        if (stopped) return;
+        // Filter out bare stop tokens that leaked into the stream
+        const tok = data.token;
+        if (modelInfo.stopTokens.some((s) => tok.includes(s))) return;
+
+        fullText += tok;
+        tokens++;
+        onToken?.(tok);
+      },
+    );
+  } finally {
+    signal?.removeEventListener('abort', abortHandler);
+  }
 
   const elapsed = (Date.now() - startMs) / 1000;
 

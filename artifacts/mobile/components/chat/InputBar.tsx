@@ -9,7 +9,8 @@ import {
   Keyboard,
   Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons as _Ionicons } from '@expo/vector-icons';
+const Ionicons = _Ionicons as any;
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import colors from '@/constants/colors';
 

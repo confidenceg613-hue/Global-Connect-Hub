@@ -1,6 +1,7 @@
 /**
  * Location data repository — all queries the RAG pipeline uses.
  */
+import type { SQLiteBindParams } from 'expo-sqlite';
 import { dbAll, dbFirst, dbRun, dbBulkInsert } from './database';
 import type { LocalLocationPoint, LocalRoute, LocalNote, RagDocument } from './schema';
 import { haversineM } from '../utils/geo';
@@ -118,8 +119,8 @@ export async function buildNoteDocuments(): Promise<void> {
   await dbRun(`DELETE FROM rag_documents WHERE doc_type='note'`);
   const notes = await dbAll<LocalNote>(`SELECT * FROM notes ORDER BY created_at`);
   for (const n of notes) {
-    const locPart = n.address ? `at ${n.address}` : n.latitude ? `at (${n.latitude.toFixed(4)},${n.longitude.toFixed(4)})` : '';
-    const content = `Note ${n.created_at.slice(0, 10)} ${locPart}: ${n.note}`;
+    const locPart = n.address ? `at ${n.address}` : (n.latitude != null && n.longitude != null) ? `at (${n.latitude.toFixed(4)},${n.longitude.toFixed(4)})` : '';
+    const content = `Note ${n.created_at.slice(0, 10)}${locPart ? ' ' + locPart : ''}: ${n.note}`;
     await dbRun(
       `INSERT INTO rag_documents (doc_type, content, metadata, date_key)
        VALUES ('note', ?, ?, ?)`,
@@ -139,15 +140,15 @@ export async function getRagDocuments(opts: {
   limit?: number;
 } = {}): Promise<RagDocument[]> {
   const clauses: string[] = [];
-  const args: unknown[] = [];
+  const args: SQLiteBindParams = [];
 
   if (opts.docTypes?.length) {
     clauses.push(`doc_type IN (${opts.docTypes.map(() => '?').join(',')})`);
-    args.push(...opts.docTypes);
+    (args as string[]).push(...opts.docTypes);
   }
-  if (opts.contactToken) { clauses.push('contact_token=?'); args.push(opts.contactToken); }
-  if (opts.fromDate)     { clauses.push('date_key>=?');     args.push(opts.fromDate); }
-  if (opts.toDate)       { clauses.push('date_key<=?');     args.push(opts.toDate); }
+  if (opts.contactToken) { clauses.push('contact_token=?'); (args as string[]).push(opts.contactToken); }
+  if (opts.fromDate)     { clauses.push('date_key>=?');     (args as string[]).push(opts.fromDate); }
+  if (opts.toDate)       { clauses.push('date_key<=?');     (args as string[]).push(opts.toDate); }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const limit = opts.limit ? `LIMIT ${opts.limit}` : 'LIMIT 500';
@@ -163,10 +164,10 @@ export async function getLocationPoints(opts: {
   limit?: number;
 }): Promise<LocalLocationPoint[]> {
   const clauses: string[] = ['status=\'active\''];
-  const args: unknown[] = [];
-  if (opts.contactToken) { clauses.push('contact_token=?'); args.push(opts.contactToken); }
-  if (opts.from) { clauses.push('timestamp>=?'); args.push(opts.from); }
-  if (opts.to)   { clauses.push('timestamp<=?'); args.push(opts.to); }
+  const args: SQLiteBindParams = [];
+  if (opts.contactToken) { clauses.push('contact_token=?'); (args as string[]).push(opts.contactToken); }
+  if (opts.from) { clauses.push('timestamp>=?'); (args as string[]).push(opts.from); }
+  if (opts.to)   { clauses.push('timestamp<=?'); (args as string[]).push(opts.to); }
   const where = `WHERE ${clauses.join(' AND ')}`;
   return dbAll<LocalLocationPoint>(
     `SELECT * FROM location_points ${where} ORDER BY timestamp LIMIT ${opts.limit ?? 2000}`,
@@ -227,6 +228,14 @@ export async function getPatternStats(contactToken: string): Promise<{
     totalDays: dayCount?.n ?? 0,
     totalDistanceKm: totalDist / 1000,
   };
+}
+
+/** Return the first synced contact token, or null if no data exists. */
+export async function getFirstContactToken(): Promise<string | null> {
+  const row = await dbFirst<{ contact_token: string }>(
+    `SELECT contact_token FROM location_points LIMIT 1`,
+  );
+  return row?.contact_token ?? null;
 }
 
 /** Save a user note. */

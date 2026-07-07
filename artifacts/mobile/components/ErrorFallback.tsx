@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
-import { Feather } from '@expo/vector-icons';
+import { Feather as _Feather } from '@expo/vector-icons';
+const Feather = _Feather as any;
 import { reloadAppAsync } from 'expo';
 
 export type ErrorFallbackProps = {

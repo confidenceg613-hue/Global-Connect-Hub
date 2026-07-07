@@ -12,7 +12,8 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons as _Ionicons } from '@expo/vector-icons';
+const Ionicons = _Ionicons as any;
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/contexts/AuthContext';
@@ -85,8 +86,8 @@ export default function HomeScreen() {
   const isDark = colorScheme === 'dark';
 
   const { data: user } = useGetUser(
-    { id: userId! },
-    { enabled: !!userId, retry: 1 }
+    userId!,
+    { query: { enabled: !!userId, retry: 1 } } as any,
   );
 
   const {
@@ -96,7 +97,7 @@ export default function HomeScreen() {
     isRefetching,
   } = useListInvites(
     { userId: userId! },
-    { enabled: !!userId }
+    { query: { enabled: !!userId } } as any,
   );
 
   const accepted = invites?.filter((i: any) => i.status === 'accepted') ?? [];

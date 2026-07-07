@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons as _Ionicons } from '@expo/vector-icons';
+const Ionicons = _Ionicons as any;
 import * as Haptics from 'expo-haptics';
 import { useCreateUser } from '@workspace/api-client-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -45,9 +46,11 @@ export default function LoginScreen() {
     }
   }, [userId, isLoading]);
 
+  const s = makeStyles(colors, isDark);
+
   if (isLoading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+      <View style={[s.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
@@ -99,7 +102,7 @@ export default function LoginScreen() {
         },
       },
       {
-        onSuccess: async (user) => {
+        onSuccess: async (user: { id: number }) => {
           await login(user.id);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           router.replace('/(tabs)');
@@ -111,8 +114,6 @@ export default function LoginScreen() {
       }
     );
   };
-
-  const s = makeStyles(colors, isDark);
 
   return (
     <View style={[s.root, { paddingTop: insets.top }]}>

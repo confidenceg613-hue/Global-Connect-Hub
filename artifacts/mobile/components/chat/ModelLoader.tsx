@@ -169,7 +169,7 @@ export default function ModelLoader({ onReady }: Props) {
             {status === 'downloading' && (
               <>
                 <View style={[styles.progressTrack, { backgroundColor: c.muted }]}>
-                  <View style={[styles.progressFill, { backgroundColor: c.primary, width: `${(progress * 100).toFixed(0)}%` }]} />
+                  <View style={[styles.progressFill, { backgroundColor: c.primary, width: `${(progress * 100).toFixed(0)}%` as any }]} />
                 </View>
                 <Text style={[styles.progressText, { color: c.mutedForeground }]}>
                   {(progress * 100).toFixed(1)}%  ·  {bytes(bytesWritten)} / {bytes(selectedModel.sizeBytes)}

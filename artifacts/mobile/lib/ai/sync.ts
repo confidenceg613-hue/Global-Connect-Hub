@@ -9,7 +9,7 @@
  *   - Runs in the background; never blocks the chat UI
  */
 import { dbFirst, dbRun } from '../db/database';
-import { syncLocationPoints, buildDaySummaries, buildNoteDocuments } from '../db/location-repo';
+import { syncLocationPoints, buildDaySummaries, buildNoteDocuments, buildRouteDocuments } from '../db/location-repo';
 
 function apiBase(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -91,6 +91,7 @@ export async function syncAll(userId: number): Promise<number> {
 
         // Rebuild RAG documents for this contact
         await buildDaySummaries(invite.token);
+        await buildRouteDocuments(invite.token);
       } catch { /* skip this contact on error */ }
     }
 

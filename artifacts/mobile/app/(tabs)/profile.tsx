@@ -12,7 +12,8 @@ import {
   TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons as _Ionicons } from '@expo/vector-icons';
+const Ionicons = _Ionicons as any;
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/contexts/AuthContext';
@@ -69,8 +70,8 @@ export default function ProfileScreen() {
   const [editingToken, setEditingToken] = useState(false);
 
   const { data: user, isLoading } = useGetUser(
-    { id: userId! },
-    { enabled: !!userId }
+    userId!,
+    { query: { enabled: !!userId } } as any,
   );
 
   const {
