@@ -1,12 +1,7 @@
 /**
- * PhoneLink AI Chat — fully offline, on-device inference via llama.rn.
+ * PhoneLink AI — Advanced Rule-Based Chat Interface
  *
- * Features:
- *   - On-device RAG over local SQLite location history
- *   - BM25 + trigram embedding re-ranking
- *   - Streaming token output
- *   - App actions (start/stop tracking, create note, share location)
- *   - Automatic sync from API on mount (caches locally for offline use)
+ * Zero native deps. Instant responses. Full location data awareness.
  */
 import React, {
   useState,
@@ -25,6 +20,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -36,22 +33,36 @@ import colors from '@/constants/colors';
 import MessageBubble, { type Message } from '@/components/chat/MessageBubble';
 import InputBar from '@/components/chat/InputBar';
 import QuickChips from '@/components/chat/QuickChips';
-import ModelLoader from '@/components/chat/ModelLoader';
 
-import { isModelLoaded, getLoadedModelInfo, type ModelInfo } from '@/lib/ai/model-manager';
-import { runRag, type RagMessage } from '@/lib/ai/rag';
-import { parseAction, dispatchAction } from '@/lib/ai/app-actions';
-import { saveNote, getFirstContactToken } from '@/lib/db/location-repo';
+import {
+  processMessage,
+  createContext,
+  type ConversationContext,
+} from '@/lib/ai/rule-engine';
+import { saveNote } from '@/lib/db/location-repo';
 import { syncAll } from '@/lib/ai/sync';
 
-let _msgCounter = 0;
-const uid = () => String(++_msgCounter);
+let _msgId = 0;
+const uid = () => String(++_msgId);
 
 const WELCOME: Message = {
   id: uid(),
   role: 'assistant',
-  content: `Hi! I'm your offline AI assistant powered by an on-device language model.\n\nI can help you:\n- **Summarize** your location history\n- **Analyze** movement patterns and habits\n- **Answer** questions like "Where was I last Tuesday?"\n- **Control** the app (start/stop tracking, create notes)\n\nAll data stays 100% on your device. 🔒`,
+  content: `👋 Hi! I'm **PhoneLink AI**, your personal location assistant.\n\nI can answer questions about your movements, travel patterns, routes, and more — all from data stored on your device.\n\nWhat would you like to know?`,
+  suggestions: [
+    'Where was I this week?',
+    'Analyze my patterns',
+    'How far did I travel?',
+    'What can you do?',
+  ],
 };
+
+const TYPING_MSG = (id: string): Message => ({
+  id,
+  role: 'assistant',
+  content: '',
+  isTyping: true,
+});
 
 export default function ChatTab() {
   const scheme = useColorScheme();
@@ -59,22 +70,15 @@ export default function ChatTab() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { userId } = useAuth();
-  const { startTracking, stopTracking, lastLocation } = useLocationTracking();
+  const { startTracking, stopTracking, lastLocation, status: trackingStatus } = useLocationTracking();
 
-  // ── Model state ────────────────────────────────────────────────────────────
-  // Recover activeModel if a model was already loaded before this tab mounted.
-  const [modelReady, setModelReady] = useState(() => isModelLoaded());
-  const [activeModel, setActiveModel] = useState<ModelInfo | null>(() => getLoadedModelInfo());
-
-  // ── Chat state ─────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
-  const [generating, setGenerating] = useState(false);
+  const [responding, setResponding] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done'>('idle');
-  const abortRef = useRef<AbortController | null>(null);
   const flatRef = useRef<FlatList>(null);
-  const historyRef = useRef<RagMessage[]>([]);
+  const ctxRef = useRef<ConversationContext>(createContext());
 
-  // ── Sync location data from API ────────────────────────────────────────────
+  // ── Sync on mount ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
@@ -85,204 +89,163 @@ export default function ChatTab() {
     return () => { cancelled = true; };
   }, [userId]);
 
-  // ── Abort LLM generation on unmount ────────────────────────────────────────
+  // ── Keep context in sync with tracking state ───────────────────────────────
   useEffect(() => {
-    return () => { abortRef.current?.abort(); };
-  }, []);
+    ctxRef.current = {
+      ...ctxRef.current,
+      isTracking: trackingStatus === 'tracking',
+    };
+  }, [trackingStatus]);
 
-  // ── Scroll helpers ─────────────────────────────────────────────────────────
   const scrollToBottom = useCallback(() => {
-    flatRef.current?.scrollToEnd({ animated: true });
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 60);
   }, []);
 
-  // ── Send a message ─────────────────────────────────────────────────────────
-  const handleSend = useCallback(
-    async (text: string) => {
-      if (!activeModel || generating) return;
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  // ── Send message ───────────────────────────────────────────────────────────
+  const handleSend = useCallback(async (text: string) => {
+    if (responding || !text.trim()) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      // Append user message
-      const userMsg: Message = { id: uid(), role: 'user', content: text };
-      setMessages((prev) => [...prev, userMsg]);
-      historyRef.current = [...historyRef.current, { role: 'user', content: text }];
-      setTimeout(scrollToBottom, 50);
+    // Append user message
+    const userMsg: Message = { id: uid(), role: 'user', content: text };
+    setMessages(prev => [...prev, userMsg]);
+    scrollToBottom();
 
-      // Placeholder streaming message
-      const botId = uid();
-      setMessages((prev) => [...prev, { id: botId, role: 'assistant', content: '', streaming: true }]);
-      setGenerating(true);
-      abortRef.current = new AbortController();
+    // Show typing indicator
+    const typingId = uid();
+    setResponding(true);
+    setMessages(prev => [...prev, TYPING_MSG(typingId)]);
+    scrollToBottom();
 
-      let tokenBuffer = '';
+    try {
+      const { response, nextContext } = await processMessage(
+        text,
+        ctxRef.current,
+        { isTracking: trackingStatus === 'tracking' },
+      );
+      ctxRef.current = nextContext;
 
-      try {
-        // Resolve a contact token for intents that require one (e.g. pattern_analysis).
-        const resolvedContactToken = await getFirstContactToken();
+      // Delay simulates thinking (scaled to response complexity)
+      const delay = response.typingMs ?? 600;
+      await new Promise(r => setTimeout(r, Math.min(delay, 1500)));
 
-        const result = await runRag(text, {
-          modelInfo: activeModel,
-          contactToken: resolvedContactToken ?? undefined,
-          conversationHistory: historyRef.current.slice(-8),
-          signal: abortRef.current.signal,
-          onToken: (tok) => {
-            tokenBuffer += tok;
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === botId ? { ...m, content: tokenBuffer } : m,
-              ),
-            );
-          },
-        });
+      // Replace typing indicator with real response
+      const botMsg: Message = {
+        id: typingId,
+        role: 'assistant',
+        content: response.text,
+        suggestions: response.suggestions,
+        cardData: response.cardData,
+      };
+      setMessages(prev => prev.map(m => m.id === typingId ? botMsg : m));
+      scrollToBottom();
 
-        // Finalise message
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === botId
-              ? {
-                  ...m,
-                  content: result.answer,
-                  streaming: false,
-                  tokensPerSec: result.tokensPerSec,
-                }
-              : m,
-          ),
-        );
-
-        historyRef.current = [
-          ...historyRef.current,
-          { role: 'assistant', content: result.answer },
-        ];
-
-        // Execute AI action command if present
-        if (result.action) {
-          const action = parseAction(result.action as any);
-          const confirmText = await dispatchAction(action, {
-            startTracking,
-            stopTracking,
-            createNote: async (noteText, lat, lng) => {
-              await saveNote({
-                text: noteText,
-                latitude: lat ?? lastLocation?.coords.latitude,
-                longitude: lng ?? lastLocation?.coords.longitude,
-              });
-            },
-            shareLocation: () => { router.push('/(tabs)'); },
-            navigate: (screen) => { router.push(screen as any); },
+      // Execute app action if any
+      if (response.action) {
+        const { type, noteText } = response.action;
+        if (type === 'START_TRACKING') {
+          await startTracking();
+        } else if (type === 'STOP_TRACKING') {
+          await stopTracking();
+        } else if (type === 'CREATE_NOTE' && noteText) {
+          await saveNote({
+            text: noteText,
+            latitude: lastLocation?.coords.latitude,
+            longitude: lastLocation?.coords.longitude,
           });
-
-          // Show confirmation
-          if (confirmText) {
-            const confirmMsg: Message = {
-              id: uid(),
-              role: 'assistant',
-              content: `✅ ${confirmText}`,
-            };
-            setMessages((prev) => [...prev, confirmMsg]);
-          }
+        } else if (type === 'SHARE_LOCATION') {
+          router.push('/(tabs)');
         }
-
-        setTimeout(scrollToBottom, 100);
-      } catch (err: any) {
-        const errText = abortRef.current?.signal.aborted
-          ? 'Generation stopped.'
-          : `Error: ${err?.message ?? 'Unknown error'}`;
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === botId ? { ...m, content: errText, streaming: false } : m,
-          ),
-        );
-      } finally {
-        setGenerating(false);
-        abortRef.current = null;
       }
-    },
-    [activeModel, generating, scrollToBottom, startTracking, stopTracking, lastLocation, router],
-  );
+    } catch (err) {
+      setMessages(prev => prev.map(m =>
+        m.id === typingId
+          ? { ...m, content: '⚠️ Something went wrong. Please try again.', isTyping: false }
+          : m,
+      ));
+    } finally {
+      setResponding(false);
+    }
+  }, [responding, trackingStatus, startTracking, stopTracking, lastLocation, router, scrollToBottom]);
 
-  const handleStop = useCallback(() => {
-    abortRef.current?.abort();
-  }, []);
+  const handleSuggestion = useCallback((q: string) => {
+    if (!responding) handleSend(q);
+  }, [responding, handleSend]);
 
   const handleClear = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setMessages([WELCOME]);
-    historyRef.current = [];
+    ctxRef.current = createContext();
   }, []);
 
-  // ── Model ready callback ───────────────────────────────────────────────────
-  const handleModelReady = useCallback((model: ModelInfo) => {
-    setActiveModel(model);
-    setModelReady(true);
-  }, []);
-
-  // ── Reversed messages for inverted FlatList ────────────────────────────────
   const reversed = useMemo(() => [...messages].reverse(), [messages]);
 
-  // ── Render: model not loaded ───────────────────────────────────────────────
-  if (!modelReady) {
-    return <ModelLoader onReady={handleModelReady} />;
-  }
-
-  // ── Render: chat UI ────────────────────────────────────────────────────────
   return (
     <KeyboardAvoidingView
       style={[styles.root, { backgroundColor: c.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
     >
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: c.card, borderBottomColor: c.border }]}>
+      {/* ── Header ── */}
+      <View style={[
+        styles.header,
+        { paddingTop: insets.top + 8, backgroundColor: c.card, borderBottomColor: c.border },
+      ]}>
         <View style={styles.headerLeft}>
-          <Text style={[styles.headerTitle, { color: c.foreground }]}>AI Assistant</Text>
+          <View style={styles.headerTitleRow}>
+            <View style={[styles.aiBadge, { backgroundColor: c.primary }]}>
+              <Text style={styles.aiBadgeText}>AI</Text>
+            </View>
+            <Text style={[styles.headerTitle, { color: c.foreground }]}>PhoneLink AI</Text>
+          </View>
           {syncStatus === 'syncing' && (
             <View style={styles.syncRow}>
               <ActivityIndicator size="small" color={c.primary} style={{ marginRight: 4 }} />
-              <Text style={[styles.syncText, { color: c.mutedForeground }]}>Syncing…</Text>
+              <Text style={[styles.syncText, { color: c.mutedForeground }]}>Syncing data…</Text>
             </View>
           )}
           {syncStatus === 'done' && (
-            <Text style={[styles.syncText, { color: c.success }]}>✓ Up to date</Text>
+            <Text style={[styles.syncText, { color: c.success }]}>✓ Data up to date</Text>
           )}
         </View>
         <View style={styles.headerActions}>
-          <View style={[styles.offlineBadge, { backgroundColor: `${c.success}20` }]}>
-            <Text style={[styles.offlineBadgeText, { color: c.success }]}>100% offline</Text>
-          </View>
+          <View style={[styles.statusDot, { backgroundColor: trackingStatus === 'tracking' ? c.success : c.muted }]} />
           <TouchableOpacity onPress={handleClear} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Text style={[styles.clearBtn, { color: c.mutedForeground }]}>Clear</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Messages — inverted so newest is at bottom */}
+      {/* ── Messages ── */}
       <FlatList
         ref={flatRef}
         data={reversed}
-        keyExtractor={(m) => m.id}
-        renderItem={({ item }) => <MessageBubble message={item} />}
+        keyExtractor={m => m.id}
+        renderItem={({ item }) => (
+          <MessageBubble message={item} onSuggestion={handleSuggestion} />
+        )}
         inverted
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="interactive"
         ListHeaderComponent={
-          // Sits at visual bottom (FlatList is inverted) — quick chips
-          <QuickChips onSelect={handleSend} disabled={generating} />
+          <QuickChips onSelect={handleSend} disabled={responding} />
         }
       />
 
-      {/* Input */}
+      {/* ── Input ── */}
       <InputBar
         onSend={handleSend}
-        onStop={handleStop}
-        disabled={!activeModel}
-        generating={generating}
+        disabled={responding}
+        generating={responding}
       />
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  root:    { flex: 1 },
-  header:  {
+  root: { flex: 1 },
+  header: {
     paddingHorizontal: 16,
     paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -291,13 +254,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
-  headerLeft:    { flex: 1, gap: 2 },
+  headerLeft: { flex: 1, gap: 2 },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  aiBadge: {
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  aiBadgeText: {
+    fontSize: 10,
+    fontFamily: 'Inter_700Bold',
+    color: '#fff',
+    letterSpacing: 0.5,
+  },
+  headerTitle: { fontSize: 17, fontFamily: 'Inter_700Bold' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerTitle:   { fontSize: 18, fontFamily: 'Inter_700Bold' },
-  syncRow:       { flexDirection: 'row', alignItems: 'center' },
-  syncText:      { fontSize: 11, fontFamily: 'Inter_400Regular' },
-  offlineBadge:  { borderRadius: 6, paddingVertical: 3, paddingHorizontal: 7 },
-  offlineBadgeText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.3 },
-  clearBtn:      { fontSize: 13, fontFamily: 'Inter_500Medium' },
-  listContent:   { paddingVertical: 8 },
+  syncRow: { flexDirection: 'row', alignItems: 'center' },
+  syncText: { fontSize: 11, fontFamily: 'Inter_400Regular' },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  clearBtn: { fontSize: 13, fontFamily: 'Inter_500Medium' },
+  listContent: { paddingVertical: 8 },
 });
