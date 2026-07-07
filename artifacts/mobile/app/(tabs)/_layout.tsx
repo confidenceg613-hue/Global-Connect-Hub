@@ -68,6 +68,18 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="chat"
+        options={{
+          title: 'AI Chat',
+          tabBarIcon: ({ color, focused }) =>
+            isIOS ? (
+              <Ionicons name={focused ? 'sparkles' : 'sparkles-outline'} size={24} color={color} />
+            ) : (
+              <Feather name="cpu" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',

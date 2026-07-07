@@ -28,7 +28,22 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-sqlite",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26,
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "extraMavenRepos": []
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
