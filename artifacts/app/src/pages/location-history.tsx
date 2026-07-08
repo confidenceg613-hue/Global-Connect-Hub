@@ -66,6 +66,9 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInst = useRef<L.Map | null>(null);
   const layersRef = useRef<L.Layer[]>([]);
+  // Track previous update count so incremental SSE appends pan smoothly
+  // instead of re-fitting all bounds (which is jarring during live tracking).
+  const prevCountRef = useRef(0);
 
   useEffect(() => {
     if (!mapRef.current || mapInst.current) return;
@@ -84,6 +87,10 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
   useEffect(() => {
     const map = mapInst.current;
     if (!map) return;
+
+    const wasIncremental = updates.length > prevCountRef.current && prevCountRef.current > 0;
+    prevCountRef.current = updates.length;
+
     layersRef.current.forEach((l) => l.remove());
     layersRef.current = [];
     if (updates.length === 0) return;
@@ -129,7 +136,12 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
       );
     }
 
-    latlngs.length === 1 ? map.setView(latlngs[0], 19) : map.fitBounds(L.latLngBounds(latlngs).pad(0.05), { maxZoom: 20 });
+    if (wasIncremental) {
+      // New live point — smoothly pan to the latest position without re-fitting
+      map.panTo(latlngs[latlngs.length - 1], { animate: true, duration: 0.6 });
+    } else {
+      latlngs.length === 1 ? map.setView(latlngs[0], 19) : map.fitBounds(L.latLngBounds(latlngs).pad(0.05), { maxZoom: 20 });
+    }
   }, [updates, isLive]);
 
   // Pulse keyframe
@@ -183,11 +195,11 @@ export default function LocationHistory() {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [visibleCount, setVisibleCount] = useState(25);
   const TIMELINE_PAGE_SIZE = 25;
-  // True current online/offline state, fetched independently of the date filter —
-  // the last item in a filtered `updates` window (e.g. "Today") can be empty even
-  // while the device is actively sharing right now, which previously made the
-  // badge wrongly show "Offline".
+  // True current online/offline state, fetched independently of the date filter
   const [liveStatus, setLiveStatus] = useState<{ status: "active" | "offline"; createdAt: string } | null>(null);
+  // Live session counters — reset when contact/filter changes
+  const [receivedCount, setReceivedCount] = useState(0);
+  const [lastReceived, setLastReceived] = useState<Date | null>(null);
   const sseRef = useRef<EventSource | null>(null);
 
   // Auto-select first contact
@@ -220,11 +232,12 @@ export default function LocationHistory() {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
-  // Reset pagination whenever the contact or date range changes so we don't
-  // carry over a stale "load more" position from a different data set.
+  // Reset pagination + live counters whenever the contact or date range changes
   useEffect(() => {
     setVisibleCount(TIMELINE_PAGE_SIZE);
     setExpandedIdx(null);
+    setReceivedCount(0);
+    setLastReceived(null);
   }, [selectedToken, dateFilter]);
 
   const fetchLiveStatus = useCallback(async () => {
@@ -244,12 +257,25 @@ export default function LocationHistory() {
 
   useEffect(() => { fetchLiveStatus(); }, [fetchLiveStatus]);
 
-  // Poll every 15s as a fallback (handles edge cases where SSE doesn't fire)
+  // Poll live status every 5 s as a fallback for SSE gaps
   useEffect(() => {
     if (!selectedToken) return;
-    const id = setInterval(fetchLiveStatus, 15_000);
+    const id = setInterval(fetchLiveStatus, 5_000);
     return () => clearInterval(id);
   }, [selectedToken, fetchLiveStatus]);
+
+  // When contact is live: hard-poll history every 5 s so new points always appear
+  // even if the SSE connection drops temporarily. `liveStatus` drives this instead
+  // of `isLive` (which is computed below) so the hook doesn't break hoisting rules.
+  const liveStatusIsActive =
+    liveStatus?.status === "active" &&
+    differenceInMinutes(new Date(), new Date(liveStatus.createdAt)) < 5;
+
+  useEffect(() => {
+    if (!selectedToken || !liveStatusIsActive) return;
+    const id = setInterval(fetchHistory, 5_000);
+    return () => clearInterval(id);
+  }, [selectedToken, liveStatusIsActive, fetchHistory]);
 
   // SSE subscription — flips the badge instantly and appends new points to the
   // trail in real time so the user sees the location automatically when active.
@@ -269,14 +295,16 @@ export default function LocationHistory() {
           const data = JSON.parse(e.data) as { lat: number; lng: number; accuracy?: number; address?: string; status: "active" | "offline"; timestamp: string };
           if (typeof data.lat !== "number" || typeof data.lng !== "number") return;
 
-          // Update live badge immediately
+          // Update live badge + session counters
           setLiveStatus({ status: data.status, createdAt: data.timestamp });
 
-          // Append new location point to the trail if it's an active fix
           if (data.status === "active") {
+            setReceivedCount((c) => c + 1);
+            setLastReceived(new Date());
+
             setUpdates((prev) => {
               const newPoint: LocationUpdate = {
-                id: Date.now(), // ephemeral id for the key prop
+                id: Date.now(),
                 token: selectedToken,
                 latitude: data.lat,
                 longitude: data.lng,
@@ -483,6 +511,28 @@ export default function LocationHistory() {
               </Card>
             ))}
           </div>
+
+          {/* Live session tracker — shown only while actively receiving updates */}
+          {isLive && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-sm font-semibold text-emerald-400">Live — auto-refreshes every 5s</span>
+              </div>
+              <div className="flex items-center gap-6">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-foreground leading-none">{receivedCount}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Updates received</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-base font-bold text-foreground leading-none">
+                    {lastReceived ? format(lastReceived, "hh:mm:ss aa") : "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Last update</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Trail map */}
           <div>

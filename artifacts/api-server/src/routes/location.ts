@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, desc, and, lt, gte } from "drizzle-orm";
+import { eq, desc, and, lt, gte, sql } from "drizzle-orm";
 import { db, locationUpdatesTable, invitesTable, geofencesTable } from "@workspace/db";
 import { z } from "zod";
 import { sendPushAndLog, haversineMeters } from "../lib/notifications";
@@ -121,6 +121,27 @@ router.post("/location/push", async (req, res): Promise<void> => {
     }
 
     if (status === "active") {
+      // Count total updates for this token (used in the live notification counter)
+      const [countRow] = await db
+        .select({ n: sql<number>`cast(count(*) as int)` })
+        .from(locationUpdatesTable)
+        .where(eq(locationUpdatesTable.token, token));
+      const updateNumber = countRow?.n ?? 1;
+
+      // Live location update notification — uses a single tag so it REPLACES
+      // the previous notification (Android) or collapses (iOS), giving the owner
+      // a live counter without spamming them with separate notifications.
+      const locationLabel = address
+        ? address.split(",").slice(0, 2).join(",")
+        : `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+      sendPushAndLog(invite.fromUserId, {
+        type: "location_update",
+        title: `📍 ${contactName} — Update #${updateNumber}`,
+        body: `${locationLabel}`,
+        tag: `live-update-${token}`,
+        data: { token, contactName, latitude, longitude },
+      }).catch(() => {});
+
       // Fresh location received — reset staleness alert so it can fire again
       // if this contact goes stale in the future
       clearStalenessAlert(token);

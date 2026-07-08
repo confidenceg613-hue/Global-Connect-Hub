@@ -475,17 +475,17 @@ export default function ConsentPage() {
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     );
 
-    // Heartbeat: push stored coords every 5 s so the dashboard never goes stale
+    // Heartbeat: push stored coords every 3 s so the dashboard never goes stale
     // even if watchPosition fires less frequently than expected on some devices.
     if (heartbeatRef.current !== null) clearInterval(heartbeatRef.current);
     heartbeatRef.current = setInterval(() => {
       const c = coordsRef.current;
-      // Only send a heartbeat if watchPosition hasn't already pushed in the last 4 s
-      if (c && stateRef.current === "tracking" && Date.now() - lastWatchPushRef.current >= 4000) {
+      // Only send a heartbeat if watchPosition hasn't already pushed in the last 2.5 s
+      if (c && stateRef.current === "tracking" && Date.now() - lastWatchPushRef.current >= 2500) {
         const source = classifySource(c.accuracy ?? 999, sawNetworkFixRef.current, sawGpsFixRef.current);
         pushLocation(c.lat, c.lng, c.accuracy, addressRef.current, "active", source);
       }
-    }, 5000);
+    }, 3000);
   }, [acquireWakeLock, pushLocation]);
 
   const stopTracking = useCallback(() => {
