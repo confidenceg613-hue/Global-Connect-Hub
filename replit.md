@@ -19,17 +19,18 @@ A real-time location tracking and safety platform with trust-first consent manag
 
 ## Running
 
-Two services must be running:
+Two workflows must be running:
 
-| Service | Workflow | Port |
+| Workflow | Command | Port |
 |---|---|---|
-| API Server | `artifacts/api-server: API Server` | 8080 |
-| Web App | `artifacts/app: web` | `$PORT` |
+| `API Server` | `node --enable-source-maps artifacts/api-server/dist/index.mjs` | 8080 |
+| `PhoneLink` | builds `artifacts/app` then serves the static bundle + proxies `/api` via `scripts/serve-app.mjs` | `$PORT` (5000) |
 
 ### First-time setup
 ```bash
-pnpm install                          # install all workspace deps
-pnpm --filter @workspace/db run push  # push schema to database
+pnpm install                                # install all workspace deps
+pnpm --filter @workspace/db run push        # push schema to database
+pnpm --filter @workspace/api-server run build  # build the API server (required before the API Server workflow can start)
 ```
 
 ## Environment Variables / Secrets
