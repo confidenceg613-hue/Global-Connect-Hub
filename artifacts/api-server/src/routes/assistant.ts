@@ -78,8 +78,7 @@ async function withFallback<T>(fn: (client: OpenAI, model: string, label: string
       return await fn(client, model, label);
     } catch (err: unknown) {
       const status = (err as { status?: number })?.status;
-      // Retry only on rate-limit (429) or server errors (5xx)
-      if (status && status !== 429 && status < 500) throw err;
+      // Always try next — auth errors (401) on one provider shouldn't block others
       console.warn(`[assistant] ${label} failed (${status ?? "network"}), trying next…`);
       lastErr = err;
     }
