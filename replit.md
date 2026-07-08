@@ -1,57 +1,68 @@
 # PhoneLink
 
-A real-time location tracking and safety platform with trust-first consent management.
-
-## Features
-- Location sharing with trusted contacts
-- Geofencing and SOS alerts
-- Push notifications (Web Push / VAPID)
-- Auto-capture camera frames (geo_photos) when location consent is granted
-- International phone registration
+A full-stack trust-first safety platform for real-time location intelligence. Contacts receive a link and grant granular consent for location sharing, camera captures, and push notifications — no app install required.
 
 ## Stack
-- **Monorepo**: pnpm workspaces
-- **Backend**: Node.js 20, Express 5, esbuild
-- **Frontend**: React 19, Vite 7, Tailwind CSS 4, wouter, react-query, shadcn/ui, Leaflet
-- **Database**: PostgreSQL + Drizzle ORM
-- **API**: OpenAPI spec-first (`lib/api-spec/openapi.yaml`), Orval codegen, Zod validation
-- **Notifications**: web-push (VAPID)
 
-## Running
+- **Frontend**: React 19 + Vite 7, Tailwind CSS 4, Wouter routing, TanStack Query, Framer Motion, Radix UI, Lucide React
+- **Backend**: Node.js + Express 5, Drizzle ORM, PostgreSQL
+- **Mobile**: React Native / Expo (in `artifacts/mobile`)
+- **Monorepo**: pnpm workspaces across `artifacts/` and `lib/`
 
-Two workflows must be running:
+## Project structure
 
-| Workflow | Command | Port |
-|---|---|---|
-| `API Server` | `node --enable-source-maps artifacts/api-server/dist/index.mjs` | 8080 |
-| `PhoneLink` | builds `artifacts/app` then serves the static bundle + proxies `/api` via `scripts/serve-app.mjs` | `$PORT` (5000) |
-
-### First-time setup
-```bash
-pnpm install                                # install all workspace deps
-pnpm --filter @workspace/db run push        # push schema to database
-pnpm --filter @workspace/api-server run build  # build the API server (required before the API Server workflow can start)
+```
+artifacts/
+  app/          React frontend (Vite dev server, port 5000)
+  api-server/   Express API (port 8080)
+  mobile/       Expo mobile app
+lib/
+  db/           Drizzle ORM schema and connection
+  api-spec/     Shared Zod API schema
+  api-client-react/  TanStack Query hooks
+scripts/
+  start-dev.sh  Dev startup script (builds api-server, starts both services)
+  serve-app.mjs Production static file server + API proxy
 ```
 
-## Environment Variables / Secrets
+## Running the app
 
-| Key | Type | Notes |
-|---|---|---|
-| `DATABASE_URL` | Auto (Replit) | Injected automatically |
-| `SESSION_SECRET` | Secret | Session signing |
-| `VAPID_PUBLIC_KEY` | Env var | Web push public key |
-| `VAPID_PRIVATE_KEY` | Secret | Web push private key |
-| `VAPID_SUBJECT` | Env var | e.g. `mailto:admin@phonelink.app` |
+The workflow **Start application** runs `bash scripts/start-dev.sh`, which:
+1. Builds the API server (`artifacts/api-server`)
+2. Starts the API server on **port 8080** (`PORT=8080`)
+3. Starts the Vite dev server on **port 5000** (proxies `/api` → `localhost:8080`)
 
-## Auth Model
-Auth is client-side only — `userId` is stored in `localStorage`. There is no server-side session verification. All endpoints should validate resource ownership server-side against the provided `userId`.
+The preview pane connects to port 5000.
 
-## Key Directories
-- `artifacts/api-server/` — Express API server
-- `artifacts/app/` — React web frontend
-- `lib/db/` — Drizzle ORM schema and config
-- `lib/api-spec/` — OpenAPI source of truth
-- `scripts/` — workspace scripts
+## Environment variables
 
-## User Preferences
-- Max 2 responses per interaction; complete work within 10 seconds.
+Set in `.replit` shared env:
+- `PORT=5000` — Vite dev server port
+- `BASE_PATH=/` — Vite base path
+- `VAPID_PUBLIC_KEY` — Web push public key
+- `VAPID_SUBJECT` — Web push contact email
+
+Required secrets (add in Replit Secrets):
+- `VAPID_PRIVATE_KEY` — Web push private key (push notifications)
+- `SESSION_SECRET` — Session signing secret
+
+Optional secrets (features degrade gracefully without them):
+- `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_VISION_MODEL` — AI assistant + screen vision
+- `MISTRAL_API_KEY` — Mistral AI model
+- `GROQ_API_KEY_1` / `GROQ_API_KEY_2` — Groq inference
+- `GOOGLE_MAPS_API_KEY` — Maps integration
+
+Database (`DATABASE_URL`) is managed automatically by Replit.
+
+## Database
+
+Schema is managed with Drizzle ORM. To push schema changes to the dev database:
+```bash
+cd lib/db && pnpm run push
+```
+
+Tables: `users`, `assistant-messages`, `geo-videos`, `geo-photos`, `geofences`, `location-updates`, `invites`, `consents`, `push-subscriptions`
+
+## User preferences
+
+- Keep the existing monorepo structure and stack; do not restructure or migrate.
