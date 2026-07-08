@@ -8,64 +8,64 @@ import { randomUUID } from "crypto";
 
 const router = Router();
 
-// ── Dual Groq client setup ────────────────────────────────────────────────────
-const GROQ_BASE = "https://api.groq.com/openai/v1";
-const GROQ_HEADERS = { "HTTP-Referer": "https://phonelink.app", "X-Title": "PhoneLink AI" };
+// ── Client setup ─────────────────────────────────────────────────────────────
+const SHARED_HEADERS = { "HTTP-Referer": "https://phonelink.app", "X-Title": "PhoneLink AI" };
+const GROQ_BASE    = "https://api.groq.com/openai/v1";
+const MISTRAL_BASE = "https://api.mistral.ai/v1";
 
-const groqKey1 = process.env.GROQ_API_KEY_1?.trim();
-const groqKey2 = process.env.GROQ_API_KEY_2?.trim();
+const mistralKey = process.env.MISTRAL_API_KEY?.trim();
+const groqKey1   = process.env.GROQ_API_KEY_1?.trim();
+const groqKey2   = process.env.GROQ_API_KEY_2?.trim();
+// Legacy single-key fallback kept for backward-compat
+const legacyKey  = process.env.OPENAI_API_KEY?.trim();
 
-// Legacy single-key fallback (OPENAI_API_KEY) kept for backward-compat
-const legacyKey = process.env.OPENAI_API_KEY?.trim();
-
-if (!groqKey1 && !groqKey2 && !legacyKey) {
+if (!mistralKey && !groqKey1 && !groqKey2 && !legacyKey) {
   console.error("[assistant] No API keys set — /api/assistant will return 503");
 } else {
-  if (groqKey1) console.log("[assistant] Groq key 1 (primary) ready");
-  if (groqKey2) console.log("[assistant] Groq key 2 (backup) ready");
-  if (!groqKey1 && !groqKey2 && legacyKey) console.log("[assistant] Using legacy OPENAI_API_KEY");
+  if (mistralKey) console.log("[assistant] Mistral key ready (primary)");
+  if (groqKey1)   console.log("[assistant] Groq key 1 ready");
+  if (groqKey2)   console.log("[assistant] Groq key 2 ready");
+  if (!mistralKey && !groqKey1 && !groqKey2 && legacyKey) console.log("[assistant] Using legacy OPENAI_API_KEY");
 }
 
 function makeClient(apiKey: string, base?: string): OpenAI {
-  return new OpenAI({ apiKey, baseURL: base ?? GROQ_BASE, defaultHeaders: GROQ_HEADERS });
+  return new OpenAI({ apiKey, baseURL: base ?? GROQ_BASE, defaultHeaders: SHARED_HEADERS });
 }
 
-// Ordered list of clients to try: [groqKey1, groqKey2, legacyKey]
+// Ordered list of clients: Mistral first, then Groq fallbacks
 const clients: { label: string; client: OpenAI }[] = [];
-if (groqKey1) clients.push({ label: "Groq-1", client: makeClient(groqKey1) });
-if (groqKey2) clients.push({ label: "Groq-2", client: makeClient(groqKey2) });
-if (!groqKey1 && !groqKey2 && legacyKey) {
+if (mistralKey) clients.push({ label: "Mistral", client: makeClient(mistralKey, MISTRAL_BASE) });
+if (groqKey1)   clients.push({ label: "Groq-1",  client: makeClient(groqKey1) });
+if (groqKey2)   clients.push({ label: "Groq-2",  client: makeClient(groqKey2) });
+if (!mistralKey && !groqKey1 && !groqKey2 && legacyKey) {
   const isGsk = legacyKey.startsWith("gsk_");
   const isOr  = legacyKey.startsWith("sk-or-");
-  // Only override base URL for non-OpenAI keys; standard sk-* keys use OpenAI's default endpoint
   const base  = isGsk ? GROQ_BASE : isOr ? "https://openrouter.ai/api/v1" : undefined;
   const client = base
-    ? new OpenAI({ apiKey: legacyKey, baseURL: base, defaultHeaders: GROQ_HEADERS })
-    : new OpenAI({ apiKey: legacyKey, defaultHeaders: GROQ_HEADERS }); // OpenAI default base URL
+    ? new OpenAI({ apiKey: legacyKey, baseURL: base, defaultHeaders: SHARED_HEADERS })
+    : new OpenAI({ apiKey: legacyKey, defaultHeaders: SHARED_HEADERS });
   clients.push({ label: "legacy", client });
 }
 
 const hasAnyClient = clients.length > 0;
 
-// Each Groq model has its own daily free-tier token quota (100k TPD each).
-// When the primary model is exhausted we fall through to the next automatically.
-const GROQ_MODEL_CHAIN = (process.env.OPENAI_MODEL
-  ? [process.env.OPENAI_MODEL]
-  : [
-      "llama-3.3-70b-versatile",   // best quality — try first
-      "llama-3.1-8b-instant",      // fast, separate 100k TPD quota
-      "gemma2-9b-it",              // separate quota
-      "mixtral-8x7b-32768",        // separate quota
-    ]);
+// Model chain per client type: Mistral uses its own model names, Groq uses llama/gemma
+function modelsFor(label: string): string[] {
+  if (label === "Mistral") {
+    return [process.env.OPENAI_MODEL ?? "mistral-large-latest"];
+  }
+  return (process.env.OPENAI_MODEL
+    ? [process.env.OPENAI_MODEL]
+    : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]);
+}
 
-const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? GROQ_MODEL_CHAIN[0];
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? "mistral-large-latest";
 
-// Flat attempt matrix: iterate models first so we exhaust all model quotas
-// before repeating with the same model on a different key.
+// Flat attempt matrix: Mistral first, then Groq model chain
 interface Attempt { label: string; client: OpenAI; model: string; }
 const attempts: Attempt[] = [];
-for (const model of GROQ_MODEL_CHAIN) {
-  for (const { label, client } of clients) {
+for (const { label, client } of clients) {
+  for (const model of modelsFor(label)) {
     attempts.push({ label: `${label}/${model}`, client, model });
   }
 }
@@ -291,7 +291,6 @@ router.post("/assistant", async (req, res) => {
   }
 
   const useVision = Boolean(image);
-  const model = useVision ? VISION_MODEL : CHAT_MODEL;
 
   const userContent: OpenAI.ChatCompletionUserMessageParam["content"] = image
     ? [
