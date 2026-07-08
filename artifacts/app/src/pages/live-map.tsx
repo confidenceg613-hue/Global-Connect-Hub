@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Siren, Flame, X, Camera, ChevronRight, Compass } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -15,10 +15,16 @@ import { analyzeLocation, findClusters, TYPE_CONFIG } from "@/lib/location-intel
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-// A live position is considered stale (and treated as offline) if the last
-// "active" update arrived more than 5 minutes ago — handles devices that
-// lose connectivity without sending an explicit "offline" ping.
-// 5 min threshold is generous enough to survive GPS pauses and brief network gaps.
+/** Escape a value for safe insertion into an innerHTML HTML string. */
+function esc(v: unknown): string {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function isLiveStale(timestamp: string): boolean {
   return differenceInMinutes(new Date(), new Date(timestamp)) >= 5;
 }
@@ -29,7 +35,7 @@ interface LivePos {
   accuracy?: number;
   status: "active" | "offline";
   timestamp: string;
-  bearing?: number; // degrees 0–360, calculated from previous position
+  bearing?: number;
 }
 
 function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -43,6 +49,29 @@ function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number):
 
 const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}";
 const LABELS_URL    = "https://mt{s}.google.com/vt/lyrs=h&x={x}&y={y}&z={z}";
+const ROAD_URL      = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+
+type MapMode = "satellite" | "hybrid" | "road";
+const MAP_MODES: MapMode[] = ["satellite", "hybrid", "road"];
+const MAP_MODE_LABELS: Record<MapMode, string> = {
+  satellite: "Satellite",
+  hybrid: "Hybrid",
+  road: "Road",
+};
+
+/** Convert decimal degrees to DMS string, e.g. 8°56′59.8″N */
+function toDMS(dd: number, isLat: boolean): string {
+  const dir = isLat ? (dd >= 0 ? "N" : "S") : (dd >= 0 ? "E" : "W");
+  const abs = Math.abs(dd);
+  const deg = Math.floor(abs);
+  const minFull = (abs - deg) * 60;
+  const min = Math.floor(minFull);
+  const sec = ((minFull - min) * 60).toFixed(1);
+  return `${deg}°${min}′${sec}″${dir}`;
+}
+function formatDMS(lat: number, lng: number): string {
+  return `${toDMS(lat, true)} ${toDMS(lng, false)}`;
+}
 
 function initials(name: string | null | undefined) {
   if (!name) return "?";
@@ -62,7 +91,6 @@ function makePin(color: string, label: string, isMine = false, bearing?: number)
   const size = isMine ? 46 : 38;
   const bg = isMine ? "#fff" : color;
   const fg = isMine ? color : "#fff";
-  // Compass arrow: shown when bearing is known, rotated to direction of travel
   const arrow = bearing != null
     ? `<div style="position:absolute;top:50%;left:50%;width:0;height:0;transform-origin:0 0;transform:rotate(${bearing}deg) translateX(-50%);">
          <svg width="14" height="22" viewBox="0 0 14 22" style="position:absolute;left:-7px;top:-22px;" xmlns="http://www.w3.org/2000/svg">
@@ -86,20 +114,21 @@ function makePin(color: string, label: string, isMine = false, bearing?: number)
   });
 }
 
-// Cardinal direction label for a compass heading in degrees (0 = north).
 function cardinal(deg: number): string {
   const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
   return dirs[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 }
 
 function csvExport(grants: Invite[]) {
-  const cols = ["ID", "Contact", "Phone", "Latitude", "Longitude", "Address", "Granted At"];
+  const cols = ["ID", "Contact", "Phone", "Latitude", "Longitude", "DMS", "Address", "Granted At"];
   const rows = grants.map((g) => [
     g.id,
     `"${(g.toName ?? "Unknown").replace(/"/g, '""')}"`,
     g.toPhone,
     g.grantedLatitude ?? "",
     g.grantedLongitude ?? "",
+    g.grantedLatitude != null && g.grantedLongitude != null
+      ? `"${formatDMS(g.grantedLatitude, g.grantedLongitude)}"` : "",
     `"${(g.grantedAddress ?? "").replace(/"/g, '""')}"`,
     g.grantedAt ? format(new Date(g.grantedAt), "yyyy-MM-dd HH:mm:ss") : "",
   ]);
@@ -110,6 +139,8 @@ function csvExport(grants: Invite[]) {
   a.click();
 }
 
+interface StreetViewPos { lat: number; lng: number; name: string }
+
 export default function LiveMap() {
   const { userId } = useAuth();
   const { toast } = useToast();
@@ -117,11 +148,11 @@ export default function LiveMap() {
   const mapRef      = useRef<HTMLDivElement>(null);
   const mapInst     = useRef<L.Map | null>(null);
   const layersRef   = useRef<L.Layer[]>([]);
-  const sseRefs     = useRef<Map<string, EventSource>>(new Map());
-  const livePos     = useRef<Map<string, LivePos>>(new Map());
+  const sseRefs     = useRef<globalThis.Map<string, EventSource>>(new globalThis.Map());
+  const livePos     = useRef<globalThis.Map<string, LivePos>>(new globalThis.Map());
+  const tileBaseRef = useRef<L.TileLayer | null>(null);
+  const tileLabelRef= useRef<L.TileLayer | null>(null);
 
-  // throttle/batch updates to avoid causing a React re-render and Leaflet redraw
-  // for every incoming SSE frame which can cause UI jank on mobile.
   const pendingUpdateRef = useRef(false);
 
   const scheduleMarkerUpdate = useCallback(() => {
@@ -142,19 +173,18 @@ export default function LiveMap() {
   const [myPos,        setMyPos       ] = useState<{ lat: number; lng: number } | null>(null);
   const [locating,     setLocating    ] = useState(false);
   const [refreshing,   setRefreshing  ] = useState(false);
-  const [tick,         setTick        ] = useState(0); // forces marker refresh
+  const [tick,         setTick        ] = useState(0);
   const [heatLoading,  setHeatLoading ] = useState(false);
-  // Compass mode: rotates the map to match the device's facing direction, like
-  // turn-by-turn nav apps. `heading` is degrees clockwise from true/magnetic north.
-  const [compassMode,  setCompassMode] = useState(false);
-  const [heading,       setHeading    ] = useState<number | null>(null);
+  const [compassMode,  setCompassMode ] = useState(false);
+  const [heading,      setHeading     ] = useState<number | null>(null);
+  const [mapMode,      setMapMode     ] = useState<MapMode>("satellite");
+  const [streetView,   setStreetView  ] = useState<StreetViewPos | null>(null);
+
   const compassCleanupRef = useRef<(() => void) | null>(null);
   const myMarkerRef = useRef<L.Marker | null>(null);
-
   const heatLayerRef  = useRef<L.HeatLayer | null>(null);
   const heatPoints    = useRef<L.HeatLatLngTuple[]>([]);
-  const prevPos       = useRef<Map<string, { lat: number; lng: number }>>(new Map());
-  // Prevents auto-fitBounds overriding a view the AI assistant commanded
+  const prevPos       = useRef<globalThis.Map<string, { lat: number; lng: number }>>(new globalThis.Map());
   const aiViewLocked  = useRef(false);
 
   const { data: invites, refetch } = useListInvites(
@@ -162,21 +192,22 @@ export default function LiveMap() {
     { query: { enabled: !!userId, queryKey: getListInvitesQueryKey({ userId: userId! }), refetchInterval: 20000 } },
   );
 
-  const [overridesByToken, setOverridesByToken] = useState<Map<string, Map<string, string>>>(new Map());
+  // Use globalThis.Map to avoid shadowing by any local import
+  const [overridesByToken, setOverridesByToken] = useState<globalThis.Map<string, globalThis.Map<string, string>>>(new globalThis.Map());
 
   useEffect(() => {
-    const tokens: string[] = Array.from(new Set((invites ?? []).map((inv: Invite) => inv.token as string)));
+    const tokens: string[] = Array.from(new globalThis.Set((invites ?? []).map((inv: Invite) => inv.token as string)));
     if (tokens.length === 0) return;
     let cancelled = false;
     (async () => {
-      const next = new Map<string, Map<string, string>>();
+      const next = new globalThis.Map<string, globalThis.Map<string, string>>();
       await Promise.all(
         tokens.map(async (token) => {
           try {
             const r = await fetch(`${API_BASE}/api/location-overrides/by-token/${token}`);
             if (!r.ok) return;
             const rows: { latKey: number; lngKey: number; overrideType: string }[] = await r.json();
-            const m = new Map<string, string>();
+            const m = new globalThis.Map<string, string>();
             rows.forEach((o) => m.set(`${o.latKey},${o.lngKey}`, o.overrideType));
             next.set(token, m);
           } catch { /* non-critical */ }
@@ -197,54 +228,43 @@ export default function LiveMap() {
     const overrideType = m?.get(key);
     if (!overrideType || !(overrideType in TYPE_CONFIG)) return intel;
     const cfg = TYPE_CONFIG[overrideType as keyof typeof TYPE_CONFIG];
-    return {
-      ...intel,
-      locationType: overrideType as typeof intel.locationType,
-      typeLabel: cfg.label,
-      typeIcon: cfg.icon,
-      pinColor: cfg.color,
-      riskLevel: cfg.risk,
-    };
+    return { ...intel, locationType: overrideType as typeof intel.locationType, typeLabel: cfg.label, typeIcon: cfg.icon, pinColor: cfg.color, riskLevel: cfg.risk };
   }
 
   const granted = (invites ?? []).filter(
     (inv: Invite) => inv.status === "accepted" && inv.grantedLatitude != null && inv.grantedLongitude != null,
   );
 
-  const latestByPhone = granted.reduce<Record<string, Invite>>((acc, inv: Invite) => {
-    const ex = acc[inv.toPhone];
-    if (!ex || (inv.grantedAt ?? inv.sentAt) > (ex.grantedAt ?? ex.sentAt)) acc[inv.toPhone] = inv;
-    return acc;
-  }, {});
+  const latestByPhone = granted.reduce<Record<string, Invite>>(
+    (acc: Record<string, Invite>, inv: Invite) => {
+      const ex = acc[inv.toPhone];
+      if (!ex || (inv.grantedAt ?? inv.sentAt) > (ex.grantedAt ?? ex.sentAt)) acc[inv.toPhone] = inv;
+      return acc;
+    }, {});
   const latest = Object.values(latestByPhone) as Invite[];
 
-  const allByPhone = granted.reduce<Record<string, Invite[]>>((acc, inv: Invite) => {
-    if (!acc[inv.toPhone]) acc[inv.toPhone] = [];
-    acc[inv.toPhone].push(inv);
-    return acc;
-  }, {});
+  const allByPhone = granted.reduce<Record<string, Invite[]>>(
+    (acc: Record<string, Invite[]>, inv: Invite) => {
+      if (!acc[inv.toPhone]) acc[inv.toPhone] = [];
+      acc[inv.toPhone].push(inv);
+      return acc;
+    }, {});
 
-  // Cluster detection — computed here (not just inside the marker effect) so the
-  // HUD flag count can read it too.
   const geoClusteredPhones = findClusters(
-    latest
-      .filter((inv) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
+    latest.filter((inv) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
       .map((inv) => ({ id: inv.id, lat: inv.grantedLatitude!, lng: inv.grantedLongitude!, phone: inv.toPhone })),
     2,
   );
   const clusterCount = geoClusteredPhones.size;
 
-  // ── Map init ──────────────────────────────────────────────────────────[...] 
+  // ── Map init ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current || mapInst.current) return;
     try {
       const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: false });
-      L.tileLayer(SATELLITE_URL, { maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"] }).addTo(map);
-      L.tileLayer(LABELS_URL,    { maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"] }).addTo(map);
       L.control.zoom({ position: "bottomright" }).addTo(map);
       mapInst.current = map;
 
-      // Inject styles once
       if (!document.getElementById("pl-map-styles")) {
         const s = document.createElement("style");
         s.id = "pl-map-styles";
@@ -271,6 +291,93 @@ export default function LiveMap() {
     };
   }, []);
 
+  // ── Tile layer mode switching ─────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapInst.current;
+    if (!map) return;
+
+    try {
+      tileBaseRef.current?.remove();
+      tileLabelRef.current?.remove();
+    } catch { /* ignore */ }
+
+    try {
+      if (mapMode === "road") {
+        tileBaseRef.current = L.tileLayer(ROAD_URL, {
+          maxZoom: 22,
+          subdomains: "abcd",
+          attribution: '© <a href="https://carto.com/">CARTO</a> © <a href="https://openstreetmap.org">OSM</a>',
+        }).addTo(map);
+        tileLabelRef.current = null;
+      } else {
+        tileBaseRef.current = L.tileLayer(SATELLITE_URL, {
+          maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"],
+        }).addTo(map);
+        tileLabelRef.current = mapMode === "hybrid"
+          ? L.tileLayer(LABELS_URL, { maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"] }).addTo(map)
+          : null;
+      }
+    } catch (err) {
+      console.error("Tile layer error:", err);
+    }
+  }, [mapMode]);
+
+  // ── Refs kept fresh every render so command-bus callbacks never go stale ──────
+  const latestRef       = useRef(latest);
+  const liveCountRef    = useRef(liveCount);
+  const myPosRef        = useRef(myPos);
+  const showHeatmapRef  = useRef(showHeatmap);
+  const showJourneysRef = useRef(showJourneys);
+  const showClustersRef = useRef(showClusters);
+  // Sync every render (no dep array — intentionally runs every render)
+  useEffect(() => {
+    latestRef.current       = latest;
+    liveCountRef.current    = liveCount;
+    myPosRef.current        = myPos;
+    showHeatmapRef.current  = showHeatmap;
+    showJourneysRef.current = showJourneys;
+    showClustersRef.current = showClusters;
+  });
+
+  // ── AI command bus ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapInst.current) return;
+    const unregister = registerMapContext(() => ({
+      onMapPage: true,
+      contacts: latestRef.current.map((inv) => ({
+        name: inv.toName ?? null,
+        lat: inv.grantedLatitude!,
+        lng: inv.grantedLongitude!,
+        address: inv.grantedAddress ?? null,
+        isLive: livePos.current.get(inv.token)?.status === "active",
+      })),
+      liveCount: liveCountRef.current,
+      myLat: myPosRef.current?.lat,
+      myLng: myPosRef.current?.lng,
+      layers: {
+        heatmap:     showHeatmapRef.current,
+        journeys:    showJourneysRef.current,
+        clusters:    showClustersRef.current,
+        surveillance: false,
+      },
+    }));
+    const cleanup = onMapCommand((cmd) => {
+      const map = mapInst.current;
+      if (!map) return;
+      aiViewLocked.current = true;
+      if (cmd.type === "flyTo") map.flyTo([cmd.lat, cmd.lng], cmd.zoom ?? 14, { duration: 1.2 });
+      else if (cmd.type === "fitAll") {
+        const pts = latestRef.current.map(
+          (i) => [i.grantedLatitude!, i.grantedLongitude!] as [number, number],
+        );
+        if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.08), { maxZoom: 19 });
+      }
+    });
+    return () => { unregister(); cleanup(); };
+  // Only re-run when the map instance first becomes available — state is read
+  // through refs above so they never go stale without re-registering.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapInst.current != null]);
 
   // ── Heatmap fetch & render ────────────────────────────────────────────────────
   const buildHeatmap = useCallback(async (tokens: string[], basePoints: L.HeatLatLngTuple[]) => {
@@ -286,10 +393,7 @@ export default function LiveMap() {
           const rows: { latitude: number; longitude: number; timestamp?: string }[] = await r.json();
           rows.forEach((row) => {
             if (!isFinite(row.latitude) || !isFinite(row.longitude)) return;
-            const ageSec = row.timestamp
-              ? (now - new Date(row.timestamp).getTime()) / 1000
-              : 86400;
-            // Newer = more intense (max 1.0 within last hour, fades to 0.2 after 7d)
+            const ageSec = row.timestamp ? (now - new Date(row.timestamp).getTime()) / 1000 : 86400;
             const intensity = Math.max(0.2, Math.min(1.0, 1 - ageSec / (7 * 86400)));
             allPoints.push([row.latitude, row.longitude, intensity]);
           });
@@ -307,11 +411,7 @@ export default function LiveMap() {
       heatLayerRef.current.setLatLngs(allPoints).redraw();
     } else {
       const layer = L.heatLayer(allPoints, {
-        radius: 28,
-        blur: 22,
-        maxZoom: 17,
-        max: 1.0,
-        minOpacity: 0.35,
+        radius: 28, blur: 22, maxZoom: 17, max: 1.0, minOpacity: 0.35,
         gradient: { 0.0: "#0ea5e9", 0.25: "#22c55e", 0.5: "#f59e0b", 0.75: "#f97316", 1.0: "#ef4444" },
       });
       layer.addTo(map);
@@ -324,46 +424,37 @@ export default function LiveMap() {
     if (!map) return;
 
     if (!showHeatmap) {
-      if (heatLayerRef.current) {
-        try { heatLayerRef.current.remove(); } catch { /* */ }
-        heatLayerRef.current = null;
-      }
+      if (heatLayerRef.current) { try { heatLayerRef.current.remove(); } catch { /* */ } heatLayerRef.current = null; }
       return;
     }
 
-    // Seed with grant positions immediately, then enrich with full GPS history
     const acceptedTokens = (invites ?? [])
       .filter((inv: Invite) => inv.status === "accepted")
       .map((inv: Invite) => inv.token as string)
       .filter(Boolean);
 
     const basePoints: L.HeatLatLngTuple[] = granted
-      .filter((inv) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
-      .map((inv) => [inv.grantedLatitude!, inv.grantedLongitude!, 0.6] as L.HeatLatLngTuple);
+      .filter((inv: Invite) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
+      .map((inv: Invite) => [inv.grantedLatitude!, inv.grantedLongitude!, 0.6] as L.HeatLatLngTuple);
 
     buildHeatmap(acceptedTokens, basePoints);
 
     return () => {
-      if (heatLayerRef.current) {
-        try { heatLayerRef.current.remove(); } catch { /* */ }
-        heatLayerRef.current = null;
-      }
+      if (heatLayerRef.current) { try { heatLayerRef.current.remove(); } catch { /* */ } heatLayerRef.current = null; }
     };
   }, [showHeatmap, (invites ?? []).map((inv: Invite) => inv.token).join(","), buildHeatmap]);
 
-  // ── SSE subscriptions ───────────────────────────────────────────────────────[...] 
+  // ── SSE subscriptions ─────────────────────────────────────────────────────────
   useEffect(() => {
     const tokens = new Set((invites ?? [])
       .filter((inv: Invite) => inv.status === "accepted")
       .map((inv: Invite) => inv.token)
       .filter(Boolean) as string[]);
 
-    // Close removed tokens
     for (const [t, es] of sseRefs.current) {
       if (!tokens.has(t)) { try { es.close(); } catch { /* */ } sseRefs.current.delete(t); }
     }
 
-    // Open new tokens
     for (const token of tokens) {
       if (sseRefs.current.has(token)) continue;
       try {
@@ -375,23 +466,18 @@ export default function LiveMap() {
             if (!isFinite(data.lat) || !isFinite(data.lng)) return;
             const prev = prevPos.current.get(token);
             if (prev) {
-              const dist = haversineKm(prev.lat, prev.lng, data.lat, data.lng) * 1000; // metres
-              if (dist > 1) { // 1 m threshold to avoid GPS noise
-                data.bearing = computeBearing(prev.lat, prev.lng, data.lat, data.lng);
-              } else {
-                data.bearing = livePos.current.get(token)?.bearing; // keep last known
-              }
+              const dist = haversineKm(prev.lat, prev.lng, data.lat, data.lng) * 1000;
+              if (dist > 1) data.bearing = computeBearing(prev.lat, prev.lng, data.lat, data.lng);
+              else data.bearing = livePos.current.get(token)?.bearing;
             }
             prevPos.current.set(token, { lat: data.lat, lng: data.lng });
             livePos.current.set(token, data);
-
-            // Batch UI updates to the next animation frame to avoid frequent React re-renders
             scheduleMarkerUpdate();
-          } catch { /* ignore bad SSE data */ }
+          } catch { /* ignore */ }
         };
         es.onerror = () => { /* auto-reconnects */ };
         sseRefs.current.set(token, es);
-      } catch { /* ignore SSE setup errors */ }
+      } catch { /* ignore */ }
     }
 
     return () => {
@@ -401,27 +487,19 @@ export default function LiveMap() {
   }, [(invites ?? []).map((inv: Invite) => inv.token).join(",")]);
 
   // ── Staleness recompute timer ─────────────────────────────────────────────────
-  // Recomputes active count and triggers marker redraw every 30s so that
-  // devices that silently drop connection (without sending "offline") transition
-  // from green→grey at the 2-minute threshold without waiting for a new SSE frame.
   useEffect(() => {
-    const id = setInterval(() => {
-      // schedule a single batched update rather than forcing two state updates here
-      scheduleMarkerUpdate();
-    }, 30_000);
+    const id = setInterval(() => { scheduleMarkerUpdate(); }, 30_000);
     return () => clearInterval(id);
   }, [scheduleMarkerUpdate]);
 
-  // ── Render markers ────────────────────────────────────────────────────────[...] 
+  // ── Render markers ────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapInst.current;
     if (!map) return;
 
-    // Clear old layers
     for (const layer of layersRef.current) { try { layer.remove(); } catch { /* */ } }
     layersRef.current = [];
 
-    // Journey lines
     if (showJourneys) {
       const colors = ["#6366f1","#ec4899","#f59e0b","#10b981","#3b82f6","#8b5cf6"];
       Object.values(allByPhone).forEach((grants, i) => {
@@ -435,11 +513,10 @@ export default function LiveMap() {
             { color: colors[i % colors.length], weight: 2, opacity: 0.75, dashArray: "6 4" },
           ).addTo(map);
           layersRef.current.push(line);
-        } catch { /* ignore bad coordinates */ }
+        } catch { /* ignore */ }
       });
     }
 
-    // Place markers
     const latlngs: [number, number][] = [];
 
     latest.forEach((inv) => {
@@ -455,15 +532,11 @@ export default function LiveMap() {
         const pinColor = isLive ? "#10b981" : intel.pinColor;
         const grantCount = allByPhone[inv.toPhone]?.length ?? 1;
 
-        // Live pulse ring
         if (isLive) {
-          const ring = L.circle([lat, lng], {
-            radius: 60, color: "#10b981", fillColor: "#10b981", fillOpacity: 0.12, weight: 2,
-          }).addTo(map);
+          const ring = L.circle([lat, lng], { radius: 60, color: "#10b981", fillColor: "#10b981", fillOpacity: 0.12, weight: 2 }).addTo(map);
           layersRef.current.push(ring);
         }
 
-        // Cluster overlay
         if (showClusters && geoClusteredPhones.has(inv.toPhone)) {
           const ring = L.circle([lat, lng], {
             radius: 2000,
@@ -477,25 +550,29 @@ export default function LiveMap() {
         const marker = L.marker([lat, lng], { icon: makePin(pinColor, initials(inv.toName), false, isLive ? rawLive?.bearing : undefined) }).addTo(map);
         layersRef.current.push(marker);
 
-        // Popup
-        marker.bindPopup("", { className: "pl-popup", maxWidth: 300, minWidth: 260 });
+        marker.bindPopup("", { className: "pl-popup", maxWidth: 320, minWidth: 280 });
         marker.on("popupopen", () => {
           const distRow = myPos
             ? `<div style="font-size:10px;color:#a1a1aa;margin-top:3px;">📐 ${formatDistance(haversineKm(myPos.lat, myPos.lng, lat, lng))} from you</div>`
             : "";
+          const dmsStr = formatDMS(lat, lng);
+          const svUrl = `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lng}&cbp=11,0,0,0,0&z=17`;
+          const gmUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+
+          // All untrusted values are run through esc() before HTML insertion
           marker.setPopupContent(`
-            <div style="width:250px;font-family:system-ui,sans-serif;color:#f4f4f5;">
+            <div style="width:270px;font-family:system-ui,sans-serif;color:#f4f4f5;">
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-                <div style="width:40px;height:40px;border-radius:10px;flex-shrink:0;background:${intel.pinColor}22;border:1.5px solid ${intel.pinColor}55;display:flex;align-items:center;justify-content:center;font-weight:700;color:${intel.pinColor}">${initials(inv.toName)}</div>
+                <div style="width:40px;height:40px;border-radius:10px;flex-shrink:0;background:${esc(intel.pinColor)}22;border:1.5px solid ${esc(intel.pinColor)}55;display:flex;align-items:center;justify-content:center;font-weight:700;color:${esc(intel.pinColor)}">${esc(initials(inv.toName))}</div>
                 <div>
-                  <p style="margin:0;font-weight:700;font-size:14px;">${inv.toName ?? "Unknown"}</p>
-                  <p style="margin:0;font-size:10px;color:#71717a;font-family:ui-monospace,monospace;">${inv.toPhone}</p>
+                  <p style="margin:0;font-weight:700;font-size:14px;">${esc(inv.toName ?? "Unknown")}</p>
+                  <p style="margin:0;font-size:10px;color:#71717a;font-family:ui-monospace,monospace;">${esc(inv.toPhone)}</p>
                 </div>
               </div>
               <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:9px 11px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
                 <div>
                   <div style="font-size:9px;font-weight:600;letter-spacing:.1em;color:#71717a;text-transform:uppercase;margin-bottom:2px;">Type</div>
-                  <div style="font-size:12px;font-weight:600;color:${intel.pinColor};">${intel.typeIcon} ${intel.typeLabel}</div>
+                  <div style="font-size:12px;font-weight:600;color:${esc(intel.pinColor)};">${esc(intel.typeIcon)} ${esc(intel.typeLabel)}</div>
                 </div>
                 <div>
                   <div style="font-size:9px;font-weight:600;letter-spacing:.1em;color:#71717a;text-transform:uppercase;margin-bottom:2px;">Risk</div>
@@ -503,20 +580,43 @@ export default function LiveMap() {
                 </div>
               </div>
               <div style="background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:9px 11px;margin-bottom:10px;font-family:ui-monospace,monospace;">
-                <div style="font-size:10px;font-weight:600;color:#f4f4f5;">${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
-                ${inv.grantedAddress ? `<div style="font-size:10px;color:#71717a;margin-top:3px;">${inv.grantedAddress.slice(0,80)}</div>` : ""}
-                <div style="font-size:10px;color:#a1a1aa;margin-top:4px;">🕒 ${inv.grantedAt ? formatDistanceToNow(new Date(inv.grantedAt), { addSuffix: true }) : "—"}</div>
+                <div style="font-size:11px;font-weight:700;color:#f4f4f5;letter-spacing:0.02em;">${esc(dmsStr)}</div>
+                <div style="font-size:10px;color:#71717a;margin-top:2px;">${esc(lat.toFixed(6))}, ${esc(lng.toFixed(6))}</div>
+                ${inv.grantedAddress ? `<div style="font-size:10px;color:#71717a;margin-top:3px;">${esc(inv.grantedAddress.slice(0, 80))}</div>` : ""}
+                <div style="font-size:10px;color:#a1a1aa;margin-top:4px;">🕒 ${inv.grantedAt ? esc(formatDistanceToNow(new Date(inv.grantedAt), { addSuffix: true })) : "—"}</div>
                 ${distRow}
               </div>
-              <div style="display:flex;align-items:center;justify-content:space-between;">
-                <span style="font-size:10px;color:#71717a;font-family:ui-monospace,monospace;">🔁 ${grantCount} grant${grantCount !== 1 ? "s" : ""}</span>
-                <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noreferrer" style="padding:5px 12px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.3);border-radius:6px;color:#818cf8;font-weight:600;text-decoration:none;">Open</a>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:10px;">
+                <span style="font-size:10px;color:#71717a;font-family:ui-monospace,monospace;">🔁 ${esc(grantCount)} grant${grantCount !== 1 ? "s" : ""}</span>
+                <div style="display:flex;gap:6px;">
+                  <a href="${esc(svUrl)}" target="_blank" rel="noreferrer" style="padding:5px 10px;background:rgba(14,165,233,.15);border:1px solid rgba(14,165,233,.3);border-radius:6px;color:#38bdf8;font-weight:600;font-size:11px;text-decoration:none;">🛣 Street View</a>
+                  <a href="${esc(gmUrl)}" target="_blank" rel="noreferrer" style="padding:5px 10px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:6px;color:#818cf8;font-weight:600;font-size:11px;text-decoration:none;">Maps ↗</a>
+                </div>
               </div>
-              <div id="wx-${inv.id}" style="margin-top:10px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:8px;padding:9px 11px;font-size:12px;color:#818cf8;">...</div>
-              <div id="area-${inv.id}" style="margin-top:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:9px 11px;font-size:11px;color:#a1a1aa;">...</div>
+              <div id="wx-${esc(inv.id)}" style="margin-top:6px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:8px;padding:9px 11px;font-size:12px;color:#818cf8;">...</div>
+              <div id="area-${esc(inv.id)}" style="margin-top:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:9px 11px;font-size:11px;color:#a1a1aa;">...</div>
             </div>`);
 
-          // ... setup report buttons and async content fills (weather / area) ...
+          // Async weather + area enrichment
+          // Async weather + area enrichment — all external values escaped
+          Promise.all([
+            fetchWeather(lat, lng).catch(() => null),
+            fetchAreaInfo(lat, lng).catch(() => null),
+          ]).then(([wx, area]) => {
+            const wxEl  = document.getElementById(`wx-${esc(inv.id)}`);
+            const areaEl = document.getElementById(`area-${esc(inv.id)}`);
+            if (wxEl && wx) {
+              wxEl.innerHTML =
+                `<strong>${esc(wx.icon)} Weather</strong> · ${esc(wx.temperature)}°C · ` +
+                `${esc(wx.description)} · 💨 ${esc(wx.windSpeed)} km/h ${esc(windDirLabel(wx.windDirection))} · 💧 ${esc(wx.humidity)}%`;
+            } else if (wxEl) wxEl.style.display = "none";
+            if (areaEl && area) {
+              const aqiInfo = area.aqi != null ? aqiLabel(area.aqi).label : "";
+              areaEl.innerHTML =
+                `🏙 ${esc(area.city ?? "Unknown area")} · AQI ${esc(area.aqi ?? "—")} ` +
+                `<span style="font-size:10px;">${esc(aqiInfo)}</span>`;
+            } else if (areaEl) areaEl.style.display = "none";
+          });
         });
 
         latlngs.push([lat, lng]);
@@ -525,15 +625,11 @@ export default function LiveMap() {
       }
     });
 
-    // My position pin — shows a heading cone once the compass has a reading,
-    // same way live contacts show a direction-of-travel arrow. The icon itself
-    // is kept fresh on every heading tick by a separate lightweight effect
-    // below (see myMarkerRef), so this rebuild doesn't need to depend on heading.
     if (myPos && isFinite(myPos.lat) && isFinite(myPos.lng)) {
       try {
         const myMarker = L.marker([myPos.lat, myPos.lng], {
           icon: makePin("#ffffff", "ME", true, heading ?? undefined), zIndexOffset: 1000,
-        }).bindPopup(`<div style="color:#f4f4f5;font-family:ui-monospace,monospace;font-size:11px;"><strong>Your position</strong><br/>${myPos.lat.toFixed(6)}, ${myPos.lng.toFixed(6)}</div>`).addTo(map);
+        }).bindPopup(`<div style="color:#f4f4f5;font-family:ui-monospace,monospace;font-size:11px;"><strong>Your position</strong><br/>${formatDMS(myPos.lat, myPos.lng)}<br/><span style="color:#71717a">${myPos.lat.toFixed(6)}, ${myPos.lng.toFixed(6)}</span></div>`).addTo(map);
         layersRef.current.push(myMarker);
         myMarkerRef.current = myMarker;
         latlngs.push([myPos.lat, myPos.lng]);
@@ -542,29 +638,22 @@ export default function LiveMap() {
       myMarkerRef.current = null;
     }
 
-    // Fit bounds — only auto-pan when AI hasn't commanded a specific location
     if (latlngs.length > 0 && !aiViewLocked.current) {
       try {
         if (latlngs.length === 1) map.setView(latlngs[0], 13);
         else map.fitBounds(L.latLngBounds(latlngs).pad(0.08), { maxZoom: 19 });
-      } catch { /* ignore fitBounds errors */ }
+      } catch { /* ignore */ }
     }
-    // NOTE: `heading` is intentionally excluded here — compass updates arrive many
-    // times per second and must not re-run marker rebuild + auto-fit each tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest.map((i) => i.toPhone).join(","), tick, showJourneys, showClusters, myPos]);
 
-  // Keep the "ME" marker's heading arrow current without rebuilding every marker
-  // on the map — compass events can fire much faster than the full redraw above.
+  // ── Compass marker heading update ─────────────────────────────────────────────
   useEffect(() => {
     const marker = myMarkerRef.current;
     if (!marker) return;
     try { marker.setIcon(makePin("#ffffff", "ME", true, heading ?? undefined)); } catch { /* ignore */ }
   }, [heading]);
 
-  // Rotate the map's tile layer to match the device heading, and publish the
-  // rotation amount as a CSS var so marker badges can counter-rotate to stay
-  // upright (see .pl-pin-upright in index.css).
   useEffect(() => {
     const el = mapRef.current;
     if (!el) return;
@@ -575,9 +664,7 @@ export default function LiveMap() {
     }
   }, [compassMode, heading]);
 
-  // ── Compass mode ──────────────────────────────────────────────────────────
-  // Reads the device's magnetometer/orientation sensor and rotates the map so
-  // "up" always matches the direction the phone is physically facing.
+  // ── Compass mode ──────────────────────────────────────────────────────────────
   const handleToggleCompass = async () => {
     if (compassMode) {
       compassCleanupRef.current?.();
@@ -592,29 +679,19 @@ export default function LiveMap() {
       return;
     }
 
-    // iOS requires an explicit user-gesture-triggered permission prompt.
     const RequestPermission = (DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<"granted" | "denied"> }).requestPermission;
     if (typeof RequestPermission === "function") {
       try {
         const result = await RequestPermission();
-        if (result !== "granted") {
-          toast({ title: "Compass permission denied", variant: "destructive" });
-          return;
-        }
-      } catch {
-        toast({ title: "Could not access the compass", variant: "destructive" });
-        return;
-      }
+        if (result !== "granted") { toast({ title: "Compass permission denied", variant: "destructive" }); return; }
+      } catch { toast({ title: "Could not access the compass", variant: "destructive" }); return; }
     }
 
     const handler = (e: DeviceOrientationEvent) => {
       const webkitHeading = (e as unknown as { webkitCompassHeading?: number }).webkitCompassHeading;
       let h: number | null = null;
-      if (typeof webkitHeading === "number" && !Number.isNaN(webkitHeading)) {
-        h = webkitHeading; // iOS: already 0–360, clockwise from true north
-      } else if (typeof e.alpha === "number") {
-        h = (360 - e.alpha) % 360; // Android: alpha increases counter-clockwise
-      }
+      if (typeof webkitHeading === "number" && !Number.isNaN(webkitHeading)) h = webkitHeading;
+      else if (typeof e.alpha === "number") h = (360 - e.alpha) % 360;
       if (h == null || Number.isNaN(h)) return;
       setHeading(h);
     };
@@ -627,10 +704,9 @@ export default function LiveMap() {
     toast({ title: "Compass mode on", description: "The map now rotates to match the direction you're facing." });
   };
 
-  // Stop listening to the sensor when the page unmounts.
   useEffect(() => () => compassCleanupRef.current?.(), []);
 
-  // ── Actions ──────────────────────────────────────────────────────────────
+  // ── Actions ───────────────────────────────────────────────────────────────────
   const handleFindMe = () => {
     if (!navigator.geolocation) { toast({ title: "Geolocation not supported", variant: "destructive" }); return; }
     setLocating(true);
@@ -640,7 +716,7 @@ export default function LiveMap() {
         setMyPos({ lat: latitude, lng: longitude });
         try { mapInst.current?.flyTo([latitude, longitude], 11, { duration: 1.5 }); } catch { /* */ }
         setLocating(false);
-        toast({ title: "Your position pinned" });
+        toast({ title: "Your position pinned", description: formatDMS(latitude, longitude) });
       },
       () => { setLocating(false); toast({ title: "Could not locate you", variant: "destructive" }); },
       { enableHighAccuracy: true, timeout: 10000 },
@@ -654,14 +730,23 @@ export default function LiveMap() {
     toast({ title: "Map refreshed" });
   };
 
+  const cycleMapMode = () => {
+    setMapMode((prev) => {
+      const idx = MAP_MODES.indexOf(prev);
+      const next = MAP_MODES[(idx + 1) % MAP_MODES.length];
+      toast({ title: `Map: ${MAP_MODE_LABELS[next]}` });
+      return next;
+    });
+  };
+
   const mapRotorStyle: React.CSSProperties =
-    compassMode && heading != null
-      ? { transform: `rotate(${-heading}deg) scale(1.6)` }
-      : {};
+    compassMode && heading != null ? { transform: `rotate(${-heading}deg) scale(1.6)` } : {};
+
+  const mapModeIcon = mapMode === "road" ? <MapIcon className="w-3.5 h-3.5" /> : <Satellite className="w-3.5 h-3.5" />;
 
   return (
     <div className={`relative flex flex-col -m-4 md:-m-8 ${compassMode ? "pl-compass-mode" : ""}`} style={{ height: "calc(100vh - 64px)", minHeight: 400 }}>
-      {/* Map viewport — clips the oversized, rotatable map layer beneath it */}
+      {/* Map viewport */}
       <div className="relative flex-1 w-full overflow-hidden" style={{ zIndex: 0, minHeight: 300 }}>
         <div ref={mapRef} className="pl-map-rotor absolute inset-0" style={mapRotorStyle} />
       </div>
@@ -675,10 +760,12 @@ export default function LiveMap() {
           {liveCount > 0 && <><div className="w-px h-7 bg-white/10" /><HudStat label="Live" value={liveCount} accent="#10b981" /></>}
           {showClusters && clusterCount > 0 && <><div className="w-px h-7 bg-white/10" /><HudStat label="Flags" value={clusterCount} accent="#f59e0b" /></>}
           {myPos && <><div className="w-px h-7 bg-white/10" /><HudStat label="You" value="📍" /></>}
+          <div className="w-px h-7 bg-white/10" />
+          <HudStat label="View" value={MAP_MODE_LABELS[mapMode]} accent="#a1a1aa" />
         </div>
       </div>
 
-      {/* Compass readout — top right, only while compass mode is active */}
+      {/* Compass readout — top right */}
       {compassMode && (
         <div className="absolute top-3 right-3 z-[1000] pointer-events-none">
           <div className="pl-hud-card flex items-center gap-2 px-3 py-2">
@@ -690,11 +777,43 @@ export default function LiveMap() {
         </div>
       )}
 
+      {/* Street View panel */}
+      {streetView && (
+        <div className="absolute inset-x-3 top-14 z-[1001] bg-[#111113] border border-white/10 rounded-2xl overflow-hidden shadow-2xl" style={{ height: 280 }}>
+          <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+            <div>
+              <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Street View</span>
+              <span className="text-xs text-zinc-500 ml-2">{streetView.name}</span>
+            </div>
+            <button onClick={() => setStreetView(null)} className="text-zinc-500 hover:text-zinc-200 transition-colors p-1">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <iframe
+            title="Street View"
+            src={`https://maps.google.com/maps?q=&layer=c&cbll=${streetView.lat},${streetView.lng}&cbp=11,0,0,0,0&z=17&output=svembed`}
+            className="w-full border-0"
+            style={{ height: 238 }}
+            loading="lazy"
+          />
+        </div>
+      )}
+
       {/* Command bar — bottom center */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000]">
         <div className="pl-command-bar flex items-center gap-0.5 px-1.5 py-1.5">
           <CmdBtn active={false} onClick={handleFindMe} disabled={locating} icon={<Crosshair className="w-3.5 h-3.5" />} label={locating ? "Locating…" : "Find me"} />
           <CmdBtn active={false} onClick={handleRefresh} disabled={refreshing} icon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />} label="Refresh" />
+          <div className="w-px h-5 bg-white/10 mx-1" />
+          <CmdBtn active={mapMode !== "satellite"} onClick={cycleMapMode} icon={mapModeIcon} label={MAP_MODE_LABELS[mapMode]} activeClass="border-violet-500/40 text-violet-300 bg-violet-500/10" />
+          <CmdBtn active={streetView != null} onClick={() => {
+            const first = latest[0];
+            if (!first) { toast({ title: "No contacts to show Street View for", variant: "destructive" }); return; }
+            const rawLive = livePos.current.get(first.token);
+            const lat = rawLive ? rawLive.lat : first.grantedLatitude!;
+            const lng = rawLive ? rawLive.lng : first.grantedLongitude!;
+            setStreetView(streetView ? null : { lat, lng, name: first.toName ?? "Contact" });
+          }} icon={<Eye className="w-3.5 h-3.5" />} label="Street View" activeClass="border-sky-500/40 text-sky-300 bg-sky-500/10" />
           <div className="w-px h-5 bg-white/10 mx-1" />
           <CmdBtn active={compassMode} onClick={handleToggleCompass} icon={<Compass className="w-3.5 h-3.5" />} label={compassMode ? "Compass on" : "Compass"} activeClass="border-sky-500/40 text-sky-300 bg-sky-500/10" />
           <div className="w-px h-5 bg-white/10 mx-1" />
