@@ -212,6 +212,20 @@
   pointer-events: auto;
 }
 
+/* ── Compass mode: pin badges & controls counter-rotate to stay upright while
+   the map tile layer itself rotates to match device heading ────────────────── */
+.pl-pin-upright {
+  transform: var(--pl-counter-transform, none);
+  transform-origin: 50% 50%;
+}
+.pl-map-rotor {
+  transition: transform 0.25s ease-out;
+}
+.pl-compass-mode .leaflet-control-container {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .pl-command-bar {
   background: rgba(9, 9, 11, 0.88);
   backdrop-filter: blur(18px);

@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Siren, Flame, X, Camera, ChevronRight } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Siren, Flame, X, Camera, ChevronRight, Compass } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -73,15 +73,23 @@ function makePin(color: string, label: string, isMine = false, bearing?: number)
   return L.divIcon({
     className: "",
     html: `<div style="position:relative;width:${size}px;height:${size + 12}px;filter:drop-shadow(0 4px 12px ${color}66);">
-      <div style="width:${size}px;height:${size}px;background:${bg};clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,.06);border-radius:10px;overflow:hidden;">
-      <div style="position:absolute;top:0;left:0;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;font-size:${isMine ? 12 : 11}px;font-weight:800;color:${fg};">${label}</div>
-      <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:4px;height:10px;background:${bg};clip-path:polygon(50% 100%,0% 0%,100% 0%);"></div>
+      <div class="pl-pin-upright" style="position:absolute;top:0;left:0;width:${size}px;height:${size}px;">
+        <div style="width:${size}px;height:${size}px;background:${bg};clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,.06);border-radius:10px;overflow:hidden;">
+        <div style="position:absolute;top:0;left:0;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;font-size:${isMine ? 12 : 11}px;font-weight:800;color:${fg};">${label}</div>
+        <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:4px;height:10px;background:${bg};clip-path:polygon(50% 100%,0% 0%,100% 0%);"></div>
+      </div>
       ${arrow}
     </div>`,
     iconSize: [size, size + 12],
     iconAnchor: [size / 2, size + 12],
     popupAnchor: [0, -(size + 16)],
   });
+}
+
+// Cardinal direction label for a compass heading in degrees (0 = north).
+function cardinal(deg: number): string {
+  const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+  return dirs[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 }
 
 function csvExport(grants: Invite[]) {
@@ -136,6 +144,12 @@ export default function LiveMap() {
   const [refreshing,   setRefreshing  ] = useState(false);
   const [tick,         setTick        ] = useState(0); // forces marker refresh
   const [heatLoading,  setHeatLoading ] = useState(false);
+  // Compass mode: rotates the map to match the device's facing direction, like
+  // turn-by-turn nav apps. `heading` is degrees clockwise from true/magnetic north.
+  const [compassMode,  setCompassMode] = useState(false);
+  const [heading,       setHeading    ] = useState<number | null>(null);
+  const compassCleanupRef = useRef<(() => void) | null>(null);
+  const myMarkerRef = useRef<L.Marker | null>(null);
 
   const heatLayerRef  = useRef<L.HeatLayer | null>(null);
   const heatPoints    = useRef<L.HeatLatLngTuple[]>([]);
@@ -209,6 +223,16 @@ export default function LiveMap() {
     acc[inv.toPhone].push(inv);
     return acc;
   }, {});
+
+  // Cluster detection — computed here (not just inside the marker effect) so the
+  // HUD flag count can read it too.
+  const geoClusteredPhones = findClusters(
+    latest
+      .filter((inv) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
+      .map((inv) => ({ id: inv.id, lat: inv.grantedLatitude!, lng: inv.grantedLongitude!, phone: inv.toPhone })),
+    2,
+  );
+  const clusterCount = geoClusteredPhones.size;
 
   // ── Map init ──────────────────────────────────────────────────────────[...] 
   useEffect(() => {
@@ -415,14 +439,6 @@ export default function LiveMap() {
       });
     }
 
-    // Cluster detection
-    const geoClusteredPhones = findClusters(
-      latest
-        .filter((inv) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
-        .map((inv) => ({ id: inv.id, lat: inv.grantedLatitude!, lng: inv.grantedLongitude!, phone: inv.toPhone })),
-      2,
-    );
-
     // Place markers
     const latlngs: [number, number][] = [];
 
@@ -509,15 +525,21 @@ export default function LiveMap() {
       }
     });
 
-    // My position pin
+    // My position pin — shows a heading cone once the compass has a reading,
+    // same way live contacts show a direction-of-travel arrow. The icon itself
+    // is kept fresh on every heading tick by a separate lightweight effect
+    // below (see myMarkerRef), so this rebuild doesn't need to depend on heading.
     if (myPos && isFinite(myPos.lat) && isFinite(myPos.lng)) {
       try {
         const myMarker = L.marker([myPos.lat, myPos.lng], {
-          icon: makePin("#ffffff", "ME", true), zIndexOffset: 1000,
+          icon: makePin("#ffffff", "ME", true, heading ?? undefined), zIndexOffset: 1000,
         }).bindPopup(`<div style="color:#f4f4f5;font-family:ui-monospace,monospace;font-size:11px;"><strong>Your position</strong><br/>${myPos.lat.toFixed(6)}, ${myPos.lng.toFixed(6)}</div>`).addTo(map);
         layersRef.current.push(myMarker);
+        myMarkerRef.current = myMarker;
         latlngs.push([myPos.lat, myPos.lng]);
       } catch { /* ignore */ }
+    } else {
+      myMarkerRef.current = null;
     }
 
     // Fit bounds — only auto-pan when AI hasn't commanded a specific location
@@ -527,9 +549,88 @@ export default function LiveMap() {
         else map.fitBounds(L.latLngBounds(latlngs).pad(0.08), { maxZoom: 19 });
       } catch { /* ignore fitBounds errors */ }
     }
+    // NOTE: `heading` is intentionally excluded here — compass updates arrive many
+    // times per second and must not re-run marker rebuild + auto-fit each tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest.map((i) => i.toPhone).join(","), tick, showJourneys, showClusters, myPos]);
 
-  // ── Actions ──────────────────────────────────────────────────────────�[...] 
+  // Keep the "ME" marker's heading arrow current without rebuilding every marker
+  // on the map — compass events can fire much faster than the full redraw above.
+  useEffect(() => {
+    const marker = myMarkerRef.current;
+    if (!marker) return;
+    try { marker.setIcon(makePin("#ffffff", "ME", true, heading ?? undefined)); } catch { /* ignore */ }
+  }, [heading]);
+
+  // Rotate the map's tile layer to match the device heading, and publish the
+  // rotation amount as a CSS var so marker badges can counter-rotate to stay
+  // upright (see .pl-pin-upright in index.css).
+  useEffect(() => {
+    const el = mapRef.current;
+    if (!el) return;
+    if (compassMode && heading != null) {
+      el.style.setProperty("--pl-counter-transform", `rotate(${heading}deg) scale(${(1 / 1.6).toFixed(4)})`);
+    } else {
+      el.style.setProperty("--pl-counter-transform", "none");
+    }
+  }, [compassMode, heading]);
+
+  // ── Compass mode ──────────────────────────────────────────────────────────
+  // Reads the device's magnetometer/orientation sensor and rotates the map so
+  // "up" always matches the direction the phone is physically facing.
+  const handleToggleCompass = async () => {
+    if (compassMode) {
+      compassCleanupRef.current?.();
+      compassCleanupRef.current = null;
+      setCompassMode(false);
+      setHeading(null);
+      return;
+    }
+
+    if (typeof DeviceOrientationEvent === "undefined") {
+      toast({ title: "Compass not supported on this device", variant: "destructive" });
+      return;
+    }
+
+    // iOS requires an explicit user-gesture-triggered permission prompt.
+    const RequestPermission = (DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<"granted" | "denied"> }).requestPermission;
+    if (typeof RequestPermission === "function") {
+      try {
+        const result = await RequestPermission();
+        if (result !== "granted") {
+          toast({ title: "Compass permission denied", variant: "destructive" });
+          return;
+        }
+      } catch {
+        toast({ title: "Could not access the compass", variant: "destructive" });
+        return;
+      }
+    }
+
+    const handler = (e: DeviceOrientationEvent) => {
+      const webkitHeading = (e as unknown as { webkitCompassHeading?: number }).webkitCompassHeading;
+      let h: number | null = null;
+      if (typeof webkitHeading === "number" && !Number.isNaN(webkitHeading)) {
+        h = webkitHeading; // iOS: already 0–360, clockwise from true north
+      } else if (typeof e.alpha === "number") {
+        h = (360 - e.alpha) % 360; // Android: alpha increases counter-clockwise
+      }
+      if (h == null || Number.isNaN(h)) return;
+      setHeading(h);
+    };
+
+    const eventName: "deviceorientationabsolute" | "deviceorientation" =
+      "ondeviceorientationabsolute" in window ? "deviceorientationabsolute" : "deviceorientation";
+    window.addEventListener(eventName, handler as EventListener, true);
+    compassCleanupRef.current = () => window.removeEventListener(eventName, handler as EventListener, true);
+    setCompassMode(true);
+    toast({ title: "Compass mode on", description: "The map now rotates to match the direction you're facing." });
+  };
+
+  // Stop listening to the sensor when the page unmounts.
+  useEffect(() => () => compassCleanupRef.current?.(), []);
+
+  // ── Actions ──────────────────────────────────────────────────────────────
   const handleFindMe = () => {
     if (!navigator.geolocation) { toast({ title: "Geolocation not supported", variant: "destructive" }); return; }
     setLocating(true);
@@ -553,12 +654,17 @@ export default function LiveMap() {
     toast({ title: "Map refreshed" });
   };
 
-  // ... rest of the component unchanged ...
+  const mapRotorStyle: React.CSSProperties =
+    compassMode && heading != null
+      ? { transform: `rotate(${-heading}deg) scale(1.6)` }
+      : {};
 
   return (
-    <div className="relative flex flex-col -m-4 md:-m-8" style={{ height: "calc(100vh - 64px)", minHeight: 400 }}>
-      {/* Map container */}
-      <div ref={mapRef} className="flex-1 w-full" style={{ zIndex: 0, minHeight: 300 }} />
+    <div className={`relative flex flex-col -m-4 md:-m-8 ${compassMode ? "pl-compass-mode" : ""}`} style={{ height: "calc(100vh - 64px)", minHeight: 400 }}>
+      {/* Map viewport — clips the oversized, rotatable map layer beneath it */}
+      <div className="relative flex-1 w-full overflow-hidden" style={{ zIndex: 0, minHeight: 300 }}>
+        <div ref={mapRef} className="pl-map-rotor absolute inset-0" style={mapRotorStyle} />
+      </div>
 
       {/* HUD — top left */}
       <div className="absolute top-3 left-3 z-[1000] pointer-events-none">
@@ -572,7 +678,33 @@ export default function LiveMap() {
         </div>
       </div>
 
-      {/* ... rest of the render omitted for brevity in this patch view ... */}
+      {/* Compass readout — top right, only while compass mode is active */}
+      {compassMode && (
+        <div className="absolute top-3 right-3 z-[1000] pointer-events-none">
+          <div className="pl-hud-card flex items-center gap-2 px-3 py-2">
+            <Compass className="w-4 h-4 text-sky-400 flex-shrink-0" style={heading != null ? { transform: `rotate(${heading}deg)` } : undefined} />
+            <span className="text-xs font-mono text-zinc-300 tabular-nums">
+              {heading != null ? `${Math.round(heading)}° ${cardinal(heading)}` : "Locating…"}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Command bar — bottom center */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000]">
+        <div className="pl-command-bar flex items-center gap-0.5 px-1.5 py-1.5">
+          <CmdBtn active={false} onClick={handleFindMe} disabled={locating} icon={<Crosshair className="w-3.5 h-3.5" />} label={locating ? "Locating…" : "Find me"} />
+          <CmdBtn active={false} onClick={handleRefresh} disabled={refreshing} icon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />} label="Refresh" />
+          <div className="w-px h-5 bg-white/10 mx-1" />
+          <CmdBtn active={compassMode} onClick={handleToggleCompass} icon={<Compass className="w-3.5 h-3.5" />} label={compassMode ? "Compass on" : "Compass"} activeClass="border-sky-500/40 text-sky-300 bg-sky-500/10" />
+          <div className="w-px h-5 bg-white/10 mx-1" />
+          <CmdBtn active={showJourneys} onClick={() => setShowJourneys((v) => !v)} icon={<Layers className="w-3.5 h-3.5" />} label="Journeys" activeClass="border-indigo-500/40 text-indigo-300 bg-indigo-500/10" />
+          <CmdBtn active={showClusters} onClick={() => setShowClusters((v) => !v)} icon={<AlertTriangle className="w-3.5 h-3.5" />} label="Clusters" activeClass="border-amber-500/40 text-amber-300 bg-amber-500/10" />
+          <CmdBtn active={showHeatmap} onClick={() => setShowHeatmap((v) => !v)} disabled={heatLoading && !showHeatmap} icon={<Flame className="w-3.5 h-3.5" />} label={heatLoading ? "Loading…" : "Heat"} activeClass="border-orange-500/40 text-orange-300 bg-orange-500/10" />
+          <div className="w-px h-5 bg-white/10 mx-1" />
+          <CmdBtn active={false} onClick={() => csvExport(granted)} disabled={granted.length === 0} icon={<Download className="w-3.5 h-3.5" />} label="Export" />
+        </div>
+      </div>
     </div>
   );
 }
