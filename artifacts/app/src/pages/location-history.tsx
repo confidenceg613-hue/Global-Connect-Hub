@@ -257,14 +257,14 @@ export default function LocationHistory() {
 
   useEffect(() => { fetchLiveStatus(); }, [fetchLiveStatus]);
 
-  // Poll live status every 5 s as a fallback for SSE gaps
+  // Poll live status every 8 s as a fallback for SSE gaps
   useEffect(() => {
     if (!selectedToken) return;
-    const id = setInterval(fetchLiveStatus, 5_000);
+    const id = setInterval(fetchLiveStatus, 8_000);
     return () => clearInterval(id);
   }, [selectedToken, fetchLiveStatus]);
 
-  // When contact is live: hard-poll history every 5 s so new points always appear
+  // When contact is live: hard-poll history every 8 s so new points always appear
   // even if the SSE connection drops temporarily. `liveStatus` drives this instead
   // of `isLive` (which is computed below) so the hook doesn't break hoisting rules.
   const liveStatusIsActive =
@@ -273,7 +273,7 @@ export default function LocationHistory() {
 
   useEffect(() => {
     if (!selectedToken || !liveStatusIsActive) return;
-    const id = setInterval(fetchHistory, 5_000);
+    const id = setInterval(fetchHistory, 8_000);
     return () => clearInterval(id);
   }, [selectedToken, liveStatusIsActive, fetchHistory]);
 
@@ -517,7 +517,7 @@ export default function LocationHistory() {
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-center justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-sm font-semibold text-emerald-400">Live — auto-refreshes every 5s</span>
+                <span className="text-sm font-semibold text-emerald-400">Live — auto-refreshes every 8s</span>
               </div>
               <div className="flex items-center gap-6">
                 <div className="text-center">
