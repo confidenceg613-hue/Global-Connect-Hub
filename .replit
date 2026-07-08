@@ -9,43 +9,6 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "API Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "PhoneLink"
-
-[[workflows.workflow]]
-name = "API Server"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd artifacts/api-server && PORT=8080 node --enable-source-maps ./dist/index.mjs"
-
-[[workflows.workflow]]
-name = "PhoneLink"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/app run build && fuser -k 5000/tcp 2>/dev/null; node scripts/serve-app.mjs"
-waitForPort = 5000
 
 [agent]
 stack = "BEST_EFFORT_FALLBACK"
