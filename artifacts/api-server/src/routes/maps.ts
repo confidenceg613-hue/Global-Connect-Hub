@@ -275,34 +275,15 @@ router.get("/maps/street-view", rateLimiter, async (req: Request, res: Response)
       return;
     }
 
-    // Progressively widen the search box so sparse-coverage areas still find
-    // the nearest available imagery instead of giving up after one narrow try.
-    // Mapillary's Graph API rejects bboxes beyond roughly a few km wide.
-    const deltas = [0.001, 0.003, 0.008, 0.02, 0.05];
-    let img: { id: string; thumb_1024_url?: string } | undefined;
+    type MapillaryImage = {
+      id: string;
+      thumb_1024_url?: string;
+      computed_geometry?: { coordinates?: [number, number] };
+    };
 
-    for (const delta of deltas) {
-      const url = new URL("https://graph.mapillary.com/images");
-      url.searchParams.set("access_token", MAPILLARY_TOKEN);
-      url.searchParams.set("fields", "id,thumb_1024_url,computed_geometry");
-      url.searchParams.set("bbox", `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`);
-      url.searchParams.set("limit", "20");
-
-      const resp = await fetch(url.toString());
-      if (!resp.ok) {
-        console.warn(`[maps/street-view] Mapillary HTTP ${resp.status} at delta=${delta}`);
-        continue;
-      }
-
-      const json = (await resp.json()) as {
-        data?: Array<{ id: string; thumb_1024_url?: string; computed_geometry?: { coordinates?: [number, number] } }>;
-      };
-      const candidates = json.data ?? [];
-      if (candidates.length === 0) continue;
-
-      // Pick the candidate closest to the requested point rather than
-      // whatever Mapillary happened to return first.
-      img = candidates.reduce((closest, c) => {
+    function pickClosest(candidates: MapillaryImage[]): MapillaryImage | undefined {
+      if (candidates.length === 0) return undefined;
+      return candidates.reduce((closest, c) => {
         const coords = c.computed_geometry?.coordinates;
         if (!coords) return closest;
         const d = (coords[0] - lng) ** 2 + (coords[1] - lat) ** 2;
@@ -310,7 +291,58 @@ router.get("/maps/street-view", rateLimiter, async (req: Request, res: Response)
         const closestD = closestCoords ? (closestCoords[0] - lng) ** 2 + (closestCoords[1] - lat) ** 2 : Infinity;
         return d < closestD ? c : closest;
       }, candidates[0]);
-      break;
+    }
+
+    let img: MapillaryImage | undefined;
+
+    // 1) Try Mapillary's Image Radius Search first (lat/lng + radius, meters).
+    // Mapillary caps `radius` at 50m, so this only catches imagery that's
+    // very close to the exact point — but it's the most precise match when
+    // it hits, so it takes priority over the wider bbox fallback below.
+    try {
+      const radiusUrl = new URL("https://graph.mapillary.com/images");
+      radiusUrl.searchParams.set("access_token", MAPILLARY_TOKEN);
+      radiusUrl.searchParams.set("fields", "id,thumb_1024_url,computed_geometry");
+      radiusUrl.searchParams.set("lat", String(lat));
+      radiusUrl.searchParams.set("lng", String(lng));
+      radiusUrl.searchParams.set("radius", "50");
+      radiusUrl.searchParams.set("limit", "20");
+
+      const radiusResp = await fetch(radiusUrl.toString());
+      if (radiusResp.ok) {
+        const radiusJson = (await radiusResp.json()) as { data?: MapillaryImage[] };
+        img = pickClosest(radiusJson.data ?? []);
+      } else {
+        console.warn(`[maps/street-view] Mapillary radius search HTTP ${radiusResp.status}`);
+      }
+    } catch (err) {
+      console.warn("[maps/street-view] Mapillary radius search failed:", err);
+    }
+
+    // 2) Fall back to a progressively widening bbox search so sparse-coverage
+    // areas still find the nearest available imagery beyond the 50m radius cap.
+    if (!img) {
+      const deltas = [0.001, 0.003, 0.008, 0.02, 0.05];
+      for (const delta of deltas) {
+        const url = new URL("https://graph.mapillary.com/images");
+        url.searchParams.set("access_token", MAPILLARY_TOKEN);
+        url.searchParams.set("fields", "id,thumb_1024_url,computed_geometry");
+        url.searchParams.set("bbox", `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`);
+        url.searchParams.set("limit", "20");
+
+        const resp = await fetch(url.toString());
+        if (!resp.ok) {
+          console.warn(`[maps/street-view] Mapillary HTTP ${resp.status} at delta=${delta}`);
+          continue;
+        }
+
+        const json = (await resp.json()) as { data?: MapillaryImage[] };
+        const candidates = json.data ?? [];
+        if (candidates.length === 0) continue;
+
+        img = pickClosest(candidates);
+        break;
+      }
     }
 
     if (!img) {
