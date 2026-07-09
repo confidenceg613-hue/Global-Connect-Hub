@@ -241,7 +241,7 @@ router.get("/maps/street-view", rateLimiter, async (req: Request, res: Response)
 
   const { data: lat } = latParsed;
   const { data: lng } = lngParsed;
-  const delta = 0.003; // ~300m box
+  const delta = 0.001; // ~0.2km wide box — Mapillary's Graph API rejects larger bboxes with "reduce data"
 
   try {
     const url = new URL("https://graph.mapillary.com/images");
