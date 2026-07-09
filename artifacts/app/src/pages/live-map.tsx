@@ -48,9 +48,12 @@ function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number):
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
-const SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-const LABELS_URL    = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
-const ROAD_URL      = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+// Google's own map tiles, loaded directly (no API key/billing needed — the
+// same public tile endpoint the Google Maps website itself uses for guests).
+// lyrs=s: satellite only · lyrs=y: hybrid (satellite + roads/labels) · lyrs=m: roadmap
+const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}";
+const LABELS_URL    = "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
+const ROAD_URL      = "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
 
 type MapMode = "satellite" | "hybrid" | "road";
 const MAP_MODES: MapMode[] = ["satellite", "hybrid", "road"];
@@ -316,19 +319,26 @@ export default function LiveMap() {
     try {
       if (mapMode === "road") {
         tileBaseRef.current = L.tileLayer(ROAD_URL, {
-          maxZoom: 22,
-          subdomains: "abcd",
-          attribution: '© <a href="https://carto.com/">CARTO</a> © <a href="https://openstreetmap.org">OSM</a>',
+          maxZoom: 20,
+          subdomains: "0123",
+          attribution: '© Google Maps',
+        }).addTo(map);
+        tileLabelRef.current = null;
+      } else if (mapMode === "hybrid") {
+        // Hybrid is already satellite + roads/labels in a single Google tile layer.
+        tileBaseRef.current = L.tileLayer(LABELS_URL, {
+          maxZoom: 20,
+          subdomains: "0123",
+          attribution: '© Google Maps',
         }).addTo(map);
         tileLabelRef.current = null;
       } else {
         tileBaseRef.current = L.tileLayer(SATELLITE_URL, {
-          maxZoom: 19, maxNativeZoom: 19,
-          attribution: 'Tiles &copy; Esri',
+          maxZoom: 20,
+          subdomains: "0123",
+          attribution: '© Google Maps',
         }).addTo(map);
-        tileLabelRef.current = mapMode === "hybrid"
-          ? L.tileLayer(LABELS_URL, { maxZoom: 19, maxNativeZoom: 19, opacity: 0.9 }).addTo(map)
-          : null;
+        tileLabelRef.current = null;
       }
     } catch (err) {
       console.error("Tile layer error:", err);
