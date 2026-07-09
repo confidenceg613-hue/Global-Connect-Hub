@@ -61,7 +61,7 @@ function computeStats(updates: LocationUpdate[]) {
   return { totalKm, durationMin, avgSpeedKmh, updateCount: updates.length };
 }
 
-// ── Trail map — Leaflet + Google Maps satellite tiles + full trail polyline ───
+// ── Trail map — Leaflet + Google Maps hybrid tiles + full trail polyline ──────
 function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[]; contactName: string; isLive: boolean }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInst = useRef<L.Map | null>(null);
@@ -73,12 +73,9 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
   useEffect(() => {
     if (!mapRef.current || mapInst.current) return;
     const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: true, attributionControl: false });
-    // Esri World Imagery satellite tiles + boundary/place labels overlay (free, no key)
-    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-      maxZoom: 19, maxNativeZoom: 19, attribution: "Tiles &copy; Esri",
-    }).addTo(map);
-    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", {
-      maxZoom: 19, maxNativeZoom: 19, opacity: 0.9,
+    // Google's own hybrid tiles (satellite imagery + roads/labels) — free, no API key/billing.
+    L.tileLayer("https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
+      maxZoom: 20, subdomains: "0123", attribution: "© Google Maps",
     }).addTo(map);
     mapInst.current = map;
     return () => { map.remove(); mapInst.current = null; };

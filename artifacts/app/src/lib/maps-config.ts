@@ -36,6 +36,23 @@ export function satelliteImageUrl(lat: number, lng: number, spanDeg = 0.006): st
 }
 
 /**
+ * A single Google Maps "hybrid" tile (satellite imagery + roads/labels)
+ * centered on the given coordinate — used as a lightweight thumbnail image
+ * wherever a full interactive map isn't needed. Uses Google's public tile
+ * endpoint directly, same as the live map, so no API key/billing is needed.
+ */
+export function googleTileImageUrl(lat: number, lng: number, zoom = 16): string {
+  const n = Math.pow(2, zoom);
+  const xtile = Math.floor(((lng + 180) / 360) * n);
+  const latRad = (lat * Math.PI) / 180;
+  const ytile = Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n,
+  );
+  const s = (xtile + ytile) % 4;
+  return `https://mt${s}.google.com/vt/lyrs=y&x=${xtile}&y=${ytile}&z=${zoom}`;
+}
+
+/**
  * External map link (opens in browser or the Google Maps app) — uses the
  * documented Google Maps URLs API (https://developers.google.com/maps/documentation/urls/get-started)
  * with an explicit `basemap=satellite` param, which is the officially

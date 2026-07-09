@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
-import { fetchStreetView, satelliteImageUrl, streetViewUrl, type StreetViewResult } from "@/lib/maps-config";
+import { fetchStreetView, googleTileImageUrl, streetViewUrl, type StreetViewResult } from "@/lib/maps-config";
 
 /** Convert decimal degrees to DMS string, e.g. 8°56′59.8″N */
 function toDMS(dd: number, isLat: boolean): string {
@@ -131,7 +131,7 @@ function CoordinateCard({
   const [svResult, setSvResult] = useState<StreetViewResult | null>(null);
   const [svLoading, setSvLoading] = useState(false);
 
-  const satSrc = satelliteImageUrl(lat, lng);
+  const satSrc = googleTileImageUrl(lat, lng);
 
   // Resolve nearest street-level photo lazily (only once the toggle is opened)
   useEffect(() => {
@@ -172,7 +172,7 @@ function CoordinateCard({
         ) : (
           <img
             key="sat"
-            alt={`Satellite view of location shared by ${invite.toName ?? invite.toPhone}`}
+            alt={`Google map view of location shared by ${invite.toName ?? invite.toPhone}`}
             src={satSrc}
             className="w-full h-full object-cover"
             loading="lazy"
