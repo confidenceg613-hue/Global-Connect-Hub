@@ -1,5 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
+import { db, streetViewPhotosTable } from "@workspace/db";
+import { and, gte, lte } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -244,6 +246,33 @@ router.get("/maps/street-view", rateLimiter, async (req: Request, res: Response)
   const delta = 0.001; // ~0.2km wide box — Mapillary's Graph API rejects larger bboxes with "reduce data"
 
   try {
+    // Check the permanent cache first — once a location's street view has
+    // been resolved, it's saved forever and reused on subsequent visits.
+    const cached = await db
+      .select()
+      .from(streetViewPhotosTable)
+      .where(
+        and(
+          gte(streetViewPhotosTable.latitude, lat - delta),
+          lte(streetViewPhotosTable.latitude, lat + delta),
+          gte(streetViewPhotosTable.longitude, lng - delta),
+          lte(streetViewPhotosTable.longitude, lng + delta),
+        ),
+      )
+      .limit(1);
+
+    if (cached[0]) {
+      const c = cached[0];
+      res.json({
+        available: true,
+        imageId: c.mapillaryImageId,
+        imageUrl: c.imageUrl,
+        embedUrl: c.embedUrl,
+        cached: true,
+      });
+      return;
+    }
+
     const url = new URL("https://graph.mapillary.com/images");
     url.searchParams.set("access_token", MAPILLARY_TOKEN);
     url.searchParams.set("fields", "id,thumb_1024_url");
@@ -261,11 +290,27 @@ router.get("/maps/street-view", rateLimiter, async (req: Request, res: Response)
       return;
     }
 
+    const embedUrl = `https://www.mapillary.com/embed?image_key=${img.id}&style=photo`;
+
+    // Save permanently so this location never needs to hit Mapillary again.
+    // onConflictDoNothing guards against duplicate rows under concurrent cache misses.
+    await db
+      .insert(streetViewPhotosTable)
+      .values({
+        latitude: lat,
+        longitude: lng,
+        mapillaryImageId: img.id,
+        imageUrl: img.thumb_1024_url ?? null,
+        embedUrl,
+      })
+      .onConflictDoNothing({ target: streetViewPhotosTable.mapillaryImageId });
+
     res.json({
       available: true,
       imageId: img.id,
       imageUrl: img.thumb_1024_url ?? null,
-      embedUrl: `https://www.mapillary.com/embed?image_key=${img.id}&style=photo`,
+      embedUrl,
+      cached: false,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -64,7 +64,11 @@ Schema is managed with Drizzle ORM. To push schema changes to the dev database:
 cd lib/db && pnpm run push
 ```
 
-Tables: `users`, `assistant-messages`, `geo-videos`, `geo-photos`, `geofences`, `location-updates`, `invites`, `consents`, `push-subscriptions`
+Tables: `users`, `assistant-messages`, `geo-videos`, `geo-photos`, `geofences`, `location-updates`, `invites`, `consents`, `push-subscriptions`, `street_view_photos`
+
+## Street View
+
+The live map's Street View button resolves nearby crowdsourced imagery via Mapillary's free Graph API (`MAPILLARY_ACCESS_TOKEN` secret required). Every resolved location is saved permanently in the `street_view_photos` table (`artifacts/api-server/src/routes/maps.ts` → `GET /api/maps/street-view`), so repeat lookups near the same spot are served from the DB cache instead of calling Mapillary again.
 
 ## User preferences
 

@@ -10,3 +10,4 @@ export * from "./geo-photos";
 export * from "./geo-videos";
 export * from "./location-type-reports";
 export * from "./assistant-messages";
+export * from "./street-view-photos";
