@@ -27,12 +27,15 @@ scripts/
 
 ## Running the app
 
-The workflow **Start application** runs `bash scripts/start-dev.sh`, which:
-1. Builds the API server (`artifacts/api-server`)
-2. Starts the API server on **port 8080** (`PORT=8080`)
-3. Starts the Vite dev server on **port 5000** (proxies `/api` → `localhost:8080`)
+The project is split into per-artifact workflows that match the platform's path-based router:
+- **`artifacts/app: web`** — Vite dev server for the frontend, served at `/`
+- **`artifacts/api-server: API Server`** — Express API, served at `/api`
+- **`artifacts/mobile: expo`** — Expo dev server, served at `/mobile/` (start on demand)
+- **`artifacts/mockup-sandbox: Component Preview Server`** — Canvas component previews at `/__mockup` (start on demand)
 
-The preview pane connects to port 5000.
+Each workflow sets its own `PORT`/`BASE_PATH` via its `artifact.toml`. Start both `artifacts/app: web` and `artifacts/api-server: API Server` to run the full app; the other two are optional and only needed for mobile or canvas work.
+
+Note: the previous single combined `Start application` / `scripts/start-dev.sh` workflow was replaced because the platform's dev-domain router now proxies by path to each artifact's own port — running the old combined workflow left the router pointing at ports nothing was listening on, causing HTTP 502 on the public dev URL even though `localhost:5000` worked fine.
 
 ## Environment variables
 
