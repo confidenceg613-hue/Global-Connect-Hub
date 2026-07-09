@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -53,14 +53,30 @@ function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number):
 // lyrs=y: hybrid (satellite + roads/labels) · lyrs=m: roadmap
 const LABELS_URL    = "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
 const ROAD_URL      = "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
+const TERRAIN_URL   = "https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}";
+// Detail overlays — same public Google tile endpoint, transparent layers.
+const TRANSIT_URL   = "https://mt{s}.google.com/vt/lyrs=m@221097413,transit&x={x}&y={y}&z={z}";
+const TRAFFIC_URL   = "https://mt{s}.google.com/vt/lyrs=m@221097413,traffic&x={x}&y={y}&z={z}";
+const BICYCLE_URL   = "https://mt{s}.google.com/vt/lyrs=m@221097413,bike&x={x}&y={y}&z={z}";
 
-type MapMode = "satellite" | "hybrid" | "road";
-const MAP_MODES: MapMode[] = ["satellite", "hybrid", "road"];
+type MapMode = "road" | "hybrid" | "terrain";
+const MAP_MODES: MapMode[] = ["road", "hybrid", "terrain"];
 const MAP_MODE_LABELS: Record<MapMode, string> = {
-  satellite: "Satellite",
-  hybrid: "Hybrid",
-  road: "Road",
+  road: "Default",
+  hybrid: "Satellite",
+  terrain: "Terrain",
 };
+
+type MapDetail = "transit" | "traffic" | "bicycling" | "buildings" | "streetview" | "wildfires" | "airquality";
+const MAP_DETAILS: { id: MapDetail; label: string; icon: React.ReactNode; live: boolean }[] = [
+  { id: "transit",    label: "Public transit",  icon: <TrainFront className="w-5 h-5" />,  live: true },
+  { id: "traffic",    label: "Traffic",         icon: <TrafficCone className="w-5 h-5" />, live: true },
+  { id: "bicycling",  label: "Bicycling",       icon: <Bike className="w-5 h-5" />,        live: true },
+  { id: "buildings",  label: "Raised buildings",icon: <Building2 className="w-5 h-5" />,   live: false },
+  { id: "streetview", label: "Street View",     icon: <Eye className="w-5 h-5" />,         live: true },
+  { id: "wildfires",  label: "Wildfires",       icon: <Flame className="w-5 h-5" />,       live: false },
+  { id: "airquality", label: "Air Quality",     icon: <Wind className="w-5 h-5" />,        live: false },
+];
 
 /** Convert decimal degrees to DMS string, e.g. 8°56′59.8″N */
 function toDMS(dd: number, isLat: boolean): string {
@@ -180,10 +196,13 @@ export default function LiveMap() {
   const [heatLoading,  setHeatLoading ] = useState(false);
   const [compassMode,  setCompassMode ] = useState(false);
   const [heading,      setHeading     ] = useState<number | null>(null);
-  const [mapMode,         setMapMode        ] = useState<MapMode>("satellite");
+  const [mapMode,         setMapMode        ] = useState<MapMode>("hybrid");
   const [streetView,      setStreetView     ] = useState<StreetViewPos | null>(null);
   const [svResult,        setSvResult       ] = useState<StreetViewResult | null>(null);
   const [svLoading,       setSvLoading      ] = useState(false);
+  const [showTypePanel,   setShowTypePanel  ] = useState(false);
+  const [activeDetails,   setActiveDetails  ] = useState<globalThis.Set<MapDetail>>(new globalThis.Set());
+  const detailLayerRefs = useRef<Partial<Record<MapDetail, L.TileLayer>>>({});
 
   // Resolve the nearest street-level photo (async, via Mapillary proxy)
   useEffect(() => {
@@ -316,36 +335,81 @@ export default function LiveMap() {
     } catch { /* ignore */ }
 
     try {
-      if (mapMode === "road") {
-        tileBaseRef.current = L.tileLayer(ROAD_URL, {
-          maxZoom: 20,
-          subdomains: "0123",
-          attribution: '© Google Maps',
-        }).addTo(map);
-        tileLabelRef.current = null;
-      } else if (mapMode === "hybrid") {
-        // Hybrid is already satellite + roads/labels in a single Google tile layer.
-        tileBaseRef.current = L.tileLayer(LABELS_URL, {
-          maxZoom: 20,
-          subdomains: "0123",
-          attribution: '© Google Maps',
-        }).addTo(map);
-        tileLabelRef.current = null;
-      } else {
-        // "satellite" mode: use the hybrid tile (imagery + roads/labels) so the
-        // default view always shows streets, matching how Google Maps itself
-        // displays satellite view (not the bare, label-free imagery layer).
-        tileBaseRef.current = L.tileLayer(LABELS_URL, {
-          maxZoom: 20,
-          subdomains: "0123",
-          attribution: '© Google Maps',
-        }).addTo(map);
-        tileLabelRef.current = null;
-      }
+      const url = mapMode === "road" ? ROAD_URL : mapMode === "terrain" ? TERRAIN_URL : LABELS_URL;
+      tileBaseRef.current = L.tileLayer(url, {
+        maxZoom: 20,
+        subdomains: "0123",
+        attribution: '© Google Maps',
+      }).addTo(map);
+      tileLabelRef.current = null;
     } catch (err) {
       console.error("Tile layer error:", err);
     }
   }, [mapMode]);
+
+  // ── Map detail overlays (transit / traffic / bicycling) ──────────────────────
+  useEffect(() => {
+    const map = mapInst.current;
+    if (!map) return;
+
+    const overlayUrls: Partial<Record<MapDetail, string>> = {
+      transit: TRANSIT_URL,
+      traffic: TRAFFIC_URL,
+      bicycling: BICYCLE_URL,
+    };
+
+    (Object.keys(overlayUrls) as MapDetail[]).forEach((id) => {
+      const shouldShow = activeDetails.has(id);
+      const existing = detailLayerRefs.current[id];
+      if (shouldShow && !existing) {
+        try {
+          const layer = L.tileLayer(overlayUrls[id]!, {
+            maxZoom: 20,
+            subdomains: "0123",
+            opacity: id === "traffic" ? 0.85 : 0.9,
+            zIndex: 500,
+          }).addTo(map);
+          // If Google's overlay tile pattern breaks (rotated/removed), most
+          // tiles will 404/error — auto-disable the layer instead of leaving
+          // a silently broken overlay toggled "on".
+          let errorCount = 0;
+          layer.on("tileerror", () => {
+            errorCount += 1;
+            if (errorCount > 8) {
+              toast({ title: `${MAP_DETAILS.find((d) => d.id === id)?.label} overlay unavailable`, description: "Google's tile format may have changed.", variant: "destructive" });
+              setActiveDetails((prev) => { const next = new globalThis.Set(prev); next.delete(id); return next; });
+            }
+          });
+          detailLayerRefs.current[id] = layer;
+        } catch { /* ignore */ }
+      } else if (!shouldShow && existing) {
+        try { existing.remove(); } catch { /* ignore */ }
+        delete detailLayerRefs.current[id];
+      }
+    });
+  }, [activeDetails]);
+
+  function toggleDetail(id: MapDetail) {
+    const meta = MAP_DETAILS.find((d) => d.id === id);
+    if (!meta?.live) {
+      toast({ title: `${meta?.label ?? id} isn't available yet`, description: "This layer needs a paid Google Maps Platform API key we don't have configured.", variant: "destructive" });
+      return;
+    }
+    if (id === "streetview") {
+      const first = latest[0];
+      if (!first) { toast({ title: "No contacts to show Street View for", variant: "destructive" }); return; }
+      const rawLive = livePos.current.get(first.token);
+      const lat = rawLive ? rawLive.lat : first.grantedLatitude!;
+      const lng = rawLive ? rawLive.lng : first.grantedLongitude!;
+      setStreetView(streetView ? null : { lat, lng, name: first.toName ?? "Contact" });
+      return;
+    }
+    setActiveDetails((prev) => {
+      const next = new globalThis.Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   // ── Refs kept fresh every render so command-bus callbacks never go stale ──────
   const latestRef       = useRef(latest);
@@ -755,19 +819,14 @@ export default function LiveMap() {
     toast({ title: "Map refreshed" });
   };
 
-  const cycleMapMode = () => {
-    setMapMode((prev) => {
-      const idx = MAP_MODES.indexOf(prev);
-      const next = MAP_MODES[(idx + 1) % MAP_MODES.length];
-      toast({ title: `Map: ${MAP_MODE_LABELS[next]}` });
-      return next;
-    });
-  };
-
   const mapRotorStyle: React.CSSProperties =
     compassMode && heading != null ? { transform: `rotate(${-heading}deg) scale(1.6)` } : {};
 
-  const mapModeIcon = mapMode === "road" ? <MapIcon className="w-3.5 h-3.5" /> : <Satellite className="w-3.5 h-3.5" />;
+  const MAP_MODE_ICONS: Record<MapMode, React.ReactNode> = {
+    road: <MapIcon className="w-3.5 h-3.5" />,
+    hybrid: <Satellite className="w-3.5 h-3.5" />,
+    terrain: <Mountain className="w-3.5 h-3.5" />,
+  };
 
   return (
     <div className={`relative flex flex-col -m-4 md:-m-8 ${compassMode ? "pl-compass-mode" : ""}`} style={{ height: "calc(100vh - 64px)", minHeight: 400 }}>
@@ -842,21 +901,66 @@ export default function LiveMap() {
         </div>
       )}
 
+      {/* Map type panel */}
+      {showTypePanel && (
+        <div className="absolute inset-0 z-[1002] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowTypePanel(false)}>
+          <div
+            className="bg-[#111113] border border-white/10 rounded-2xl shadow-2xl w-full max-w-sm max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+              <h3 className="text-base font-bold text-zinc-100">Map type</h3>
+              <button onClick={() => setShowTypePanel(false)} className="text-zinc-500 hover:text-zinc-200 transition-colors p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 px-5 py-4">
+              {MAP_MODES.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMapMode(m)}
+                  className="flex flex-col items-center gap-2 group"
+                >
+                  <div className={`w-full aspect-square rounded-xl flex items-center justify-center transition-all ${
+                    mapMode === m ? "ring-2 ring-teal-400 bg-white/10" : "bg-white/5 group-hover:bg-white/10"
+                  }`}>
+                    {MAP_MODE_ICONS[m]}
+                  </div>
+                  <span className={`text-xs font-semibold ${mapMode === m ? "text-teal-400" : "text-zinc-300"}`}>{MAP_MODE_LABELS[m]}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="border-t border-white/10 px-5 py-4">
+              <h4 className="text-sm font-bold text-zinc-100 mb-3">Map details</h4>
+              <div className="grid grid-cols-4 gap-3">
+                {MAP_DETAILS.map((d) => {
+                  const isOn = d.id === "streetview" ? streetView != null : activeDetails.has(d.id);
+                  return (
+                    <button key={d.id} onClick={() => toggleDetail(d.id)} className="flex flex-col items-center gap-1.5">
+                      <div className={`w-full aspect-square rounded-xl flex items-center justify-center transition-all ${
+                        isOn ? "bg-teal-500/20 text-teal-300 ring-1 ring-teal-400/40" : "bg-white/5 text-zinc-300 hover:bg-white/10"
+                      } ${!d.live ? "opacity-50" : ""}`}>
+                        {d.icon}
+                      </div>
+                      <span className="text-[10px] text-center leading-tight text-zinc-400">{d.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Command bar — bottom center */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000]">
         <div className="pl-command-bar flex items-center gap-0.5 px-1.5 py-1.5">
           <CmdBtn active={false} onClick={handleFindMe} disabled={locating} icon={<Crosshair className="w-3.5 h-3.5" />} label={locating ? "Locating…" : "Find me"} />
           <CmdBtn active={false} onClick={handleRefresh} disabled={refreshing} icon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />} label="Refresh" />
           <div className="w-px h-5 bg-white/10 mx-1" />
-          <CmdBtn active={mapMode !== "satellite"} onClick={cycleMapMode} icon={mapModeIcon} label={MAP_MODE_LABELS[mapMode]} activeClass="border-violet-500/40 text-violet-300 bg-violet-500/10" />
-          <CmdBtn active={streetView != null} onClick={() => {
-            const first = latest[0];
-            if (!first) { toast({ title: "No contacts to show Street View for", variant: "destructive" }); return; }
-            const rawLive = livePos.current.get(first.token);
-            const lat = rawLive ? rawLive.lat : first.grantedLatitude!;
-            const lng = rawLive ? rawLive.lng : first.grantedLongitude!;
-            setStreetView(streetView ? null : { lat, lng, name: first.toName ?? "Contact" });
-          }} icon={<Eye className="w-3.5 h-3.5" />} label="Street View" activeClass="border-sky-500/40 text-sky-300 bg-sky-500/10" />
+          <CmdBtn active={showTypePanel || activeDetails.size > 0} onClick={() => setShowTypePanel(true)} icon={<Settings2 className="w-3.5 h-3.5" />} label={MAP_MODE_LABELS[mapMode]} activeClass="border-violet-500/40 text-violet-300 bg-violet-500/10" />
           <div className="w-px h-5 bg-white/10 mx-1" />
           <CmdBtn active={compassMode} onClick={handleToggleCompass} icon={<Compass className="w-3.5 h-3.5" />} label={compassMode ? "Compass on" : "Compass"} activeClass="border-sky-500/40 text-sky-300 bg-sky-500/10" />
           <div className="w-px h-5 bg-white/10 mx-1" />
