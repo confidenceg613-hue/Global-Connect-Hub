@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { streetViewSrc, satelliteSrc, streetViewUrl } from "@/lib/maps-config";
 
 /** Convert decimal degrees to DMS string, e.g. 8°56′59.8″N */
 function toDMS(dd: number, isLat: boolean): string {
@@ -127,11 +128,17 @@ function CoordinateCard({
   const lat = invite.grantedLatitude!;
   const lng = invite.grantedLongitude!;
   const [showStreetView, setShowStreetView] = useState(false);
+  const [satSrc, setSatSrc] = useState("");
+  const [svSrc, setSvSrc] = useState("");
 
-  const satelliteEmbedUrl = `https://maps.google.com/maps?q=${lat},${lng}&t=k&z=16&output=embed`;
-  const streetViewEmbedUrl = `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lng}&cbp=11,0,0,0,0&z=17&output=svembed`;
+  // Resolve embed URLs once on mount (async to pick up Maps API key)
+  useEffect(() => {
+    satelliteSrc(lat, lng).then(setSatSrc);
+    streetViewSrc(lat, lng).then(setSvSrc);
+  }, [lat, lng]);
+
   const googleMapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
-  const streetViewUrl = `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lng}&cbp=11,0,0,0,0&z=17`;
+  const svExtUrl = streetViewUrl(lat, lng);
   const dms = formatDMS(lat, lng);
 
   return (
@@ -141,7 +148,7 @@ function CoordinateCard({
         <iframe
           key={showStreetView ? "sv" : "sat"}
           title={`${showStreetView ? "Street View" : "Location"} from ${invite.toName ?? invite.toPhone}`}
-          src={showStreetView ? streetViewEmbedUrl : satelliteEmbedUrl}
+          src={showStreetView ? svSrc : satSrc}
           className="w-full h-full border-0"
           loading="lazy"
         />
@@ -216,7 +223,7 @@ function CoordinateCard({
               size="sm"
               variant="outline"
               className="h-7 px-2 text-xs text-sky-400 border-sky-500/40 hover:bg-sky-500/10"
-              onClick={() => window.open(streetViewUrl, "_blank")}
+              onClick={() => window.open(svExtUrl, "_blank")}
             >
               <Eye className="h-3 w-3 mr-1" />
               Street

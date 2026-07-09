@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
 import { analyzeLocation, findClusters, TYPE_CONFIG } from "@/lib/location-intelligence";
+import { streetViewSrc, streetViewUrl } from "@/lib/maps-config";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -177,8 +178,15 @@ export default function LiveMap() {
   const [heatLoading,  setHeatLoading ] = useState(false);
   const [compassMode,  setCompassMode ] = useState(false);
   const [heading,      setHeading     ] = useState<number | null>(null);
-  const [mapMode,      setMapMode     ] = useState<MapMode>("satellite");
-  const [streetView,   setStreetView  ] = useState<StreetViewPos | null>(null);
+  const [mapMode,         setMapMode        ] = useState<MapMode>("satellite");
+  const [streetView,      setStreetView     ] = useState<StreetViewPos | null>(null);
+  const [svIframeSrc,     setSvIframeSrc    ] = useState<string>("");
+
+  // Resolve the Street View iframe URL (async, uses Maps Embed API key if available)
+  useEffect(() => {
+    if (!streetView) { setSvIframeSrc(""); return; }
+    streetViewSrc(streetView.lat, streetView.lng).then(setSvIframeSrc);
+  }, [streetView]);
 
   const compassCleanupRef = useRef<(() => void) | null>(null);
   const myMarkerRef = useRef<L.Marker | null>(null);
@@ -556,7 +564,7 @@ export default function LiveMap() {
             ? `<div style="font-size:10px;color:#a1a1aa;margin-top:3px;">📐 ${formatDistance(haversineKm(myPos.lat, myPos.lng, lat, lng))} from you</div>`
             : "";
           const dmsStr = formatDMS(lat, lng);
-          const svUrl = `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lng}&cbp=11,0,0,0,0&z=17`;
+          const svUrl = streetViewUrl(lat, lng);
           const gmUrl = `https://www.google.com/maps?q=${lat},${lng}`;
 
           // All untrusted values are run through esc() before HTML insertion
@@ -791,7 +799,7 @@ export default function LiveMap() {
           </div>
           <iframe
             title="Street View"
-            src={`https://maps.google.com/maps?q=&layer=c&cbll=${streetView.lat},${streetView.lng}&cbp=11,0,0,0,0&z=17&output=svembed`}
+            src={svIframeSrc}
             className="w-full border-0"
             style={{ height: 238 }}
             loading="lazy"
