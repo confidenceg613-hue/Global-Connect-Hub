@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
 import { analyzeLocation, findClusters, TYPE_CONFIG } from "@/lib/location-intelligence";
-import { streetViewSrc, streetViewUrl } from "@/lib/maps-config";
+import { fetchStreetView, streetViewUrl, type StreetViewResult } from "@/lib/maps-config";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -48,8 +48,8 @@ function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number):
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
-const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}";
-const LABELS_URL    = "https://mt{s}.google.com/vt/lyrs=h&x={x}&y={y}&z={z}";
+const SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const LABELS_URL    = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
 const ROAD_URL      = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 
 type MapMode = "satellite" | "hybrid" | "road";
@@ -180,12 +180,16 @@ export default function LiveMap() {
   const [heading,      setHeading     ] = useState<number | null>(null);
   const [mapMode,         setMapMode        ] = useState<MapMode>("satellite");
   const [streetView,      setStreetView     ] = useState<StreetViewPos | null>(null);
-  const [svIframeSrc,     setSvIframeSrc    ] = useState<string>("");
+  const [svResult,        setSvResult       ] = useState<StreetViewResult | null>(null);
+  const [svLoading,       setSvLoading      ] = useState(false);
 
-  // Resolve the Street View iframe URL (async, uses Maps Embed API key if available)
+  // Resolve the nearest street-level photo (async, via Mapillary proxy)
   useEffect(() => {
-    if (!streetView) { setSvIframeSrc(""); return; }
-    streetViewSrc(streetView.lat, streetView.lng).then(setSvIframeSrc);
+    if (!streetView) { setSvResult(null); return; }
+    setSvLoading(true);
+    fetchStreetView(streetView.lat, streetView.lng)
+      .then(setSvResult)
+      .finally(() => setSvLoading(false));
   }, [streetView]);
 
   const compassCleanupRef = useRef<(() => void) | null>(null);
@@ -319,10 +323,11 @@ export default function LiveMap() {
         tileLabelRef.current = null;
       } else {
         tileBaseRef.current = L.tileLayer(SATELLITE_URL, {
-          maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"],
+          maxZoom: 19, maxNativeZoom: 19,
+          attribution: 'Tiles &copy; Esri',
         }).addTo(map);
         tileLabelRef.current = mapMode === "hybrid"
-          ? L.tileLayer(LABELS_URL, { maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"] }).addTo(map)
+          ? L.tileLayer(LABELS_URL, { maxZoom: 19, maxNativeZoom: 19, opacity: 0.9 }).addTo(map)
           : null;
       }
     } catch (err) {
@@ -564,7 +569,7 @@ export default function LiveMap() {
             ? `<div style="font-size:10px;color:#a1a1aa;margin-top:3px;">📐 ${formatDistance(haversineKm(myPos.lat, myPos.lng, lat, lng))} from you</div>`
             : "";
           const dmsStr = formatDMS(lat, lng);
-          const svUrl = streetViewUrl(lat, lng);
+          const svUrl = streetViewUrl(lat, lng); // opens OpenStreetMap in a new tab
           const gmUrl = `https://www.google.com/maps?q=${lat},${lng}`;
 
           // All untrusted values are run through esc() before HTML insertion
@@ -797,13 +802,31 @@ export default function LiveMap() {
               <X className="w-4 h-4" />
             </button>
           </div>
-          <iframe
-            title="Street View"
-            src={svIframeSrc}
-            className="w-full border-0"
-            style={{ height: 238 }}
-            loading="lazy"
-          />
+          {svLoading ? (
+            <div className="flex items-center justify-center text-xs text-zinc-500" style={{ height: 238 }}>
+              Looking for nearby street-level photos…
+            </div>
+          ) : svResult?.available && svResult.embedUrl ? (
+            <iframe
+              title="Street View"
+              src={svResult.embedUrl}
+              className="w-full border-0"
+              style={{ height: 238 }}
+              loading="lazy"
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-2 text-center px-6" style={{ height: 238 }}>
+              <span className="text-xs text-zinc-500">No street-level imagery available near this location.</span>
+              <a
+                href={streetViewUrl(streetView.lat, streetView.lng)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-sky-400 hover:text-sky-300 underline"
+              >
+                View on OpenStreetMap instead
+              </a>
+            </div>
+          )}
         </div>
       )}
 

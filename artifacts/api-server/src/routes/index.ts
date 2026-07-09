@@ -15,7 +15,6 @@ import locationReportsRouter from "./location-reports";
 import assistantRouter from "./assistant";
 import mapsRouter from "./maps";
 import imagesRouter from "./images";
-import configRouter from "./config";
 
 const router: IRouter = Router();
 
@@ -35,6 +34,5 @@ router.use(locationReportsRouter);
 router.use(assistantRouter);
 router.use(mapsRouter);
 router.use(imagesRouter);
-router.use(configRouter);
 
 export default router;

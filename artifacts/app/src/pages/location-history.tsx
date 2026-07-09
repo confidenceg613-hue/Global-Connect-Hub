@@ -73,12 +73,12 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
   useEffect(() => {
     if (!mapRef.current || mapInst.current) return;
     const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: true, attributionControl: false });
-    // Google Maps high-res hybrid tiles (s=satellite, h=roads+labels overlay)
-    L.tileLayer("https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
-      maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"],
+    // Esri World Imagery satellite tiles + boundary/place labels overlay (free, no key)
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19, maxNativeZoom: 19, attribution: "Tiles &copy; Esri",
     }).addTo(map);
-    L.tileLayer("https://mt{s}.google.com/vt/lyrs=h&x={x}&y={y}&z={z}", {
-      maxZoom: 22, maxNativeZoom: 21, subdomains: ["0", "1", "2", "3"], opacity: 1,
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19, maxNativeZoom: 19, opacity: 0.9,
     }).addTo(map);
     mapInst.current = map;
     return () => { map.remove(); mapInst.current = null; };

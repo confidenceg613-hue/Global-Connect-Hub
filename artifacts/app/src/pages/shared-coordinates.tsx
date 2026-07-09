@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
-import { streetViewSrc, satelliteSrc, streetViewUrl } from "@/lib/maps-config";
+import { fetchStreetView, satelliteImageUrl, streetViewUrl, type StreetViewResult } from "@/lib/maps-config";
 
 /** Convert decimal degrees to DMS string, e.g. 8°56′59.8″N */
 function toDMS(dd: number, isLat: boolean): string {
@@ -128,16 +128,19 @@ function CoordinateCard({
   const lat = invite.grantedLatitude!;
   const lng = invite.grantedLongitude!;
   const [showStreetView, setShowStreetView] = useState(false);
-  const [satSrc, setSatSrc] = useState("");
-  const [svSrc, setSvSrc] = useState("");
+  const [svResult, setSvResult] = useState<StreetViewResult | null>(null);
+  const [svLoading, setSvLoading] = useState(false);
 
-  // Resolve embed URLs once on mount (async to pick up Maps API key)
+  const satSrc = satelliteImageUrl(lat, lng);
+
+  // Resolve nearest street-level photo lazily (only once the toggle is opened)
   useEffect(() => {
-    satelliteSrc(lat, lng).then(setSatSrc);
-    streetViewSrc(lat, lng).then(setSvSrc);
-  }, [lat, lng]);
+    if (!showStreetView || svResult !== null) return;
+    setSvLoading(true);
+    fetchStreetView(lat, lng).then(setSvResult).finally(() => setSvLoading(false));
+  }, [showStreetView, lat, lng, svResult]);
 
-  const googleMapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+  const mapsUrl = streetViewUrl(lat, lng); // OpenStreetMap link
   const svExtUrl = streetViewUrl(lat, lng);
   const dms = formatDMS(lat, lng);
 
@@ -145,13 +148,36 @@ function CoordinateCard({
     <div className="rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-card">
       {/* Map/Street View toggle */}
       <div className="relative w-full" style={{ height: 220 }}>
-        <iframe
-          key={showStreetView ? "sv" : "sat"}
-          title={`${showStreetView ? "Street View" : "Location"} from ${invite.toName ?? invite.toPhone}`}
-          src={showStreetView ? svSrc : satSrc}
-          className="w-full h-full border-0"
-          loading="lazy"
-        />
+        {showStreetView ? (
+          svLoading ? (
+            <div className="w-full h-full flex items-center justify-center bg-muted/40 text-xs text-muted-foreground">
+              Looking for nearby street-level photos…
+            </div>
+          ) : svResult?.available && svResult.embedUrl ? (
+            <iframe
+              key="sv"
+              title={`Street View from ${invite.toName ?? invite.toPhone}`}
+              src={svResult.embedUrl}
+              className="w-full h-full border-0"
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-muted/40 text-center px-4">
+              <span className="text-xs text-muted-foreground">No street-level imagery available near this location.</span>
+              <a href={svExtUrl} target="_blank" rel="noreferrer" className="text-xs text-sky-500 hover:text-sky-400 underline">
+                View on OpenStreetMap instead
+              </a>
+            </div>
+          )
+        ) : (
+          <img
+            key="sat"
+            alt={`Satellite view of location shared by ${invite.toName ?? invite.toPhone}`}
+            src={satSrc}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        )}
         {/* Map type badge */}
         <div className="absolute top-2 left-2 flex items-center gap-1.5">
           <div className="bg-black/60 text-white text-xs font-mono px-2 py-0.5 rounded-full backdrop-blur-sm">
@@ -232,7 +258,7 @@ function CoordinateCard({
               size="sm"
               variant="outline"
               className="h-7 px-2 text-xs text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10"
-              onClick={() => window.open(googleMapsUrl, "_blank")}
+              onClick={() => window.open(mapsUrl, "_blank")}
             >
               <ExternalLink className="h-3 w-3 mr-1" />
               Maps

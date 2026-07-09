@@ -1,48 +1,41 @@
 /**
- * Fetches and caches the Google Maps API key from the backend.
- * The key is needed client-side for Maps Embed API iframe URLs.
+ * Free, no-card map services replacing the Google Maps-dependent features:
+ * - Satellite imagery: Esri World Imagery (no key required)
+ * - Street-level photos: Mapillary via backend proxy (needs MAPILLARY_ACCESS_TOKEN)
+ * - Address links: OpenStreetMap
  */
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-let _cached: string | null = null;
-let _fetched = false;
+export interface StreetViewResult {
+  available: boolean;
+  embedUrl?: string;
+  imageUrl?: string;
+}
 
-async function fetchMapsKey(): Promise<string | null> {
-  if (_fetched) return _cached;
+/** Look up the nearest Mapillary street-level photo near a coordinate. */
+export async function fetchStreetView(lat: number, lng: number): Promise<StreetViewResult> {
   try {
-    const r = await fetch(`${API_BASE}/api/config`);
-    if (r.ok) {
-      const json = await r.json();
-      _cached = typeof json.googleMapsApiKey === "string" ? json.googleMapsApiKey : null;
-    }
+    const r = await fetch(`${API_BASE}/api/maps/street-view?lat=${lat}&lng=${lng}`);
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) return { available: false };
+    return { available: !!json.available, embedUrl: json.embedUrl, imageUrl: json.imageUrl };
   } catch {
-    _cached = null;
+    return { available: false };
   }
-  _fetched = true;
-  return _cached;
 }
 
-/** Build a Maps Embed API Street View src URL, falling back to the old svembed URL if no key. */
-export async function streetViewSrc(lat: number, lng: number): Promise<string> {
-  const key = await fetchMapsKey();
-  if (key) {
-    return `https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(key)}&location=${lat},${lng}&heading=0&pitch=0&fov=90`;
-  }
-  // Fallback: old-style embed (no key required, but may be rate-limited by Google)
-  return `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lng}&cbp=11,0,0,0,0&z=17&output=svembed`;
+/** Esri World Imagery static export — free, no API key or billing required. */
+export function satelliteImageUrl(lat: number, lng: number, spanDeg = 0.006): string {
+  const minLon = lng - spanDeg;
+  const maxLon = lng + spanDeg;
+  const minLat = lat - spanDeg * 0.7;
+  const maxLat = lat + spanDeg * 0.7;
+  const bbox = `${minLon},${minLat},${maxLon},${maxLat}`;
+  return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${bbox}&bboxSR=4326&size=600,400&imageSR=3857&format=png&f=image`;
 }
 
-/** Build a Maps Embed API Satellite view src URL, falling back to the old embed URL if no key. */
-export async function satelliteSrc(lat: number, lng: number): Promise<string> {
-  const key = await fetchMapsKey();
-  if (key) {
-    return `https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(key)}&center=${lat},${lng}&zoom=17&maptype=satellite`;
-  }
-  return `https://maps.google.com/maps?q=${lat},${lng}&t=k&z=16&output=embed`;
-}
-
-/** Build a Street View external link (opens in browser, no key needed). */
+/** External map link (opens in browser) — OpenStreetMap, no key needed. */
 export function streetViewUrl(lat: number, lng: number): string {
-  return `https://www.google.com/maps?q=&layer=c&cbll=${lat},${lng}&cbp=11,0,0,0,0&z=17`;
+  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`;
 }

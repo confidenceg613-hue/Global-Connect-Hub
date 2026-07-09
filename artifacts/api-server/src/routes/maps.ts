@@ -3,19 +3,31 @@ import { z } from "zod";
 
 const router: IRouter = Router();
 
-const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_API_KEY;
-const GEOCODE_BASE = "https://maps.googleapis.com/maps/api/geocode/json";
+// ── Nominatim (OpenStreetMap) — free geocoding, no API key or billing required ──
+// Usage policy: https://operations.osmfoundation.org/policies/nominatim/
+// Max ~1 request/sec, must send an identifying User-Agent. We serialize calls below.
+const NOMINATIM_BASE = "https://nominatim.openstreetmap.org";
+const USER_AGENT = "PhoneLink/1.0 (location-sharing app; contact via app support)";
 
-if (!GOOGLE_MAPS_KEY) {
-  console.warn("[maps] GOOGLE_MAPS_API_KEY is not set — /api/maps/* will return 503");
+let nominatimQueue: Promise<void> = Promise.resolve();
+function throttledNominatim<T>(fn: () => Promise<T>): Promise<T> {
+  const run = nominatimQueue.then(fn, fn);
+  nominatimQueue = run.then(
+    () => new Promise((r) => setTimeout(r, 1000)),
+    () => new Promise((r) => setTimeout(r, 1000)),
+  );
+  return run;
+}
+
+// ── Mapillary — free street-level imagery, requires a free (no-card) access token ──
+const MAPILLARY_TOKEN = process.env.MAPILLARY_ACCESS_TOKEN;
+if (!MAPILLARY_TOKEN) {
+  console.warn("[maps] MAPILLARY_ACCESS_TOKEN is not set — street-level imagery will be unavailable");
 }
 
 // ── Simple in-memory rate limiter ─────────────────────────────────────────────
-// Caps each IP to MAX_REQUESTS per WINDOW_MS to protect the paid Google key.
-
-const WINDOW_MS = 60_000;       // 1 minute
-const MAX_REQUESTS = 30;        // 30 geocode calls per minute per IP
-
+const WINDOW_MS = 60_000;
+const MAX_REQUESTS = 20;
 const requestCounts = new Map<string, { count: number; reset: number }>();
 
 function rateLimiter(req: Request, res: Response, next: NextFunction): void {
@@ -40,72 +52,52 @@ function rateLimiter(req: Request, res: Response, next: NextFunction): void {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-const AddressComponentSchema = z.object({
-  long_name: z.string(),
-  short_name: z.string(),
-  types: z.array(z.string()),
+const NominatimAddressSchema = z
+  .object({
+    road: z.string().optional(),
+    neighbourhood: z.string().optional(),
+    suburb: z.string().optional(),
+    city: z.string().optional(),
+    town: z.string().optional(),
+    village: z.string().optional(),
+    county: z.string().optional(),
+    state: z.string().optional(),
+    country: z.string().optional(),
+    postcode: z.string().optional(),
+  })
+  .partial();
+
+const NominatimResultSchema = z.object({
+  place_id: z.number(),
+  lat: z.string(),
+  lon: z.string(),
+  display_name: z.string(),
+  type: z.string().optional(),
+  class: z.string().optional(),
+  address: NominatimAddressSchema.optional(),
+  boundingbox: z.array(z.string()).optional(),
 });
 
-const GeocodeResultSchema = z.object({
-  formatted_address: z.string(),
-  geometry: z.object({
-    location: z.object({ lat: z.number(), lng: z.number() }),
-    viewport: z.object({
-      northeast: z.object({ lat: z.number(), lng: z.number() }),
-      southwest: z.object({ lat: z.number(), lng: z.number() }),
-    }),
-  }),
-  types: z.array(z.string()),
-  address_components: z.array(AddressComponentSchema),
-  place_id: z.string(),
-});
-
-const GeocodeResponseSchema = z.object({
-  status: z.string(),
-  results: z.array(GeocodeResultSchema),
-  error_message: z.string().optional(),
-});
-
-type GeocodeResult = z.infer<typeof GeocodeResultSchema>;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function extractComponent(
-  components: GeocodeResult["address_components"],
-  type: string,
-): string | null {
-  return components.find((c) => c.types.includes(type))?.long_name ?? null;
+function humanisePlaceTypes(type?: string, cls?: string): string[] {
+  return [type, cls].filter((v): v is string => !!v).map((t) => t.replace(/_/g, " "));
 }
 
-function humanisePlaceTypes(types: string[]): string[] {
-  const skip = new Set([
-    "political", "establishment", "point_of_interest", "premise",
-    "subpremise", "geocode", "floor",
-  ]);
-  return types.filter((t) => !skip.has(t)).map((t) => t.replace(/_/g, " "));
-}
-
-async function callGeocodeApi(params: Record<string, string>) {
-  const url = new URL(GEOCODE_BASE);
+async function nominatimFetch(path: string, params: Record<string, string>): Promise<unknown> {
+  const url = new URL(`${NOMINATIM_BASE}${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  url.searchParams.set("key", GOOGLE_MAPS_KEY!);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("addressdetails", "1");
 
-  const resp = await fetch(url.toString());
-  if (!resp.ok) throw new Error(`Google Maps HTTP ${resp.status}`);
-
-  const raw: unknown = await resp.json();
-  return GeocodeResponseSchema.parse(raw);
+  return throttledNominatim(async () => {
+    const resp = await fetch(url.toString(), { headers: { "User-Agent": USER_AGENT } });
+    if (!resp.ok) throw new Error(`Nominatim HTTP ${resp.status}`);
+    return resp.json();
+  });
 }
 
 // ── GET /maps/geocode?place=... ───────────────────────────────────────────────
-// (mounted under /api in app.ts → full path is /api/maps/geocode)
 
 router.get("/maps/geocode", rateLimiter, async (req: Request, res: Response) => {
-  if (!GOOGLE_MAPS_KEY) {
-    res.status(503).json({ error: "Google Maps API key not configured" });
-    return;
-  }
-
   const place = z.string().min(1).max(500).safeParse(req.query.place);
   if (!place.success) {
     res.status(400).json({ error: "Missing or invalid `place` query param" });
@@ -113,34 +105,32 @@ router.get("/maps/geocode", rateLimiter, async (req: Request, res: Response) => 
   }
 
   try {
-    const data = await callGeocodeApi({ address: place.data });
-
-    if (data.status === "REQUEST_DENIED") {
-      console.error("[maps/geocode] Google API denied:", data.error_message);
-      res.status(502).json({ error: "Google Maps request denied — check API key permissions" });
+    const raw = await nominatimFetch("/search", { q: place.data, limit: "1" });
+    const parsed = z.array(NominatimResultSchema).safeParse(raw);
+    if (!parsed.success || !parsed.data[0]) {
+      res.status(404).json({ error: "Place not found" });
       return;
     }
 
-    if (data.status !== "OK" || !data.results[0]) {
-      res.status(404).json({ error: `Place not found (status: ${data.status})` });
-      return;
-    }
-
-    const result = data.results[0];
-    const { lat, lng } = result.geometry.location;
-    const c = result.address_components;
+    const r = parsed.data[0];
+    const a = r.address ?? {};
 
     res.json({
-      lat,
-      lng,
-      formattedAddress: result.formatted_address,
-      placeId: result.place_id,
-      placeTypes: humanisePlaceTypes(result.types),
-      viewport: result.geometry.viewport,
-      city:         extractComponent(c, "locality") ?? extractComponent(c, "postal_town"),
-      region:       extractComponent(c, "administrative_area_level_1"),
-      country:      extractComponent(c, "country"),
-      neighborhood: extractComponent(c, "neighborhood") ?? extractComponent(c, "sublocality_level_1"),
+      lat: Number(r.lat),
+      lng: Number(r.lon),
+      formattedAddress: r.display_name,
+      placeId: String(r.place_id),
+      placeTypes: humanisePlaceTypes(r.type, r.class),
+      viewport: r.boundingbox
+        ? {
+            southwest: { lat: Number(r.boundingbox[0]), lng: Number(r.boundingbox[2]) },
+            northeast: { lat: Number(r.boundingbox[1]), lng: Number(r.boundingbox[3]) },
+          }
+        : null,
+      city: a.city ?? a.town ?? a.village ?? null,
+      region: a.state ?? null,
+      country: a.country ?? null,
+      neighborhood: a.neighbourhood ?? a.suburb ?? null,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -150,14 +140,8 @@ router.get("/maps/geocode", rateLimiter, async (req: Request, res: Response) => 
 });
 
 // ── GET /maps/reverse-geocode?lat=...&lng=... ─────────────────────────────────
-// (mounted under /api in app.ts → full path is /api/maps/reverse-geocode)
 
 router.get("/maps/reverse-geocode", rateLimiter, async (req: Request, res: Response) => {
-  if (!GOOGLE_MAPS_KEY) {
-    res.status(503).json({ error: "Google Maps API key not configured" });
-    return;
-  }
-
   const latParsed = z.coerce.number().min(-90).max(90).safeParse(req.query.lat);
   const lngParsed = z.coerce.number().min(-180).max(180).safeParse(req.query.lng);
 
@@ -170,45 +154,30 @@ router.get("/maps/reverse-geocode", rateLimiter, async (req: Request, res: Respo
   const { data: lng } = lngParsed;
 
   try {
-    const data = await callGeocodeApi({ latlng: `${lat},${lng}` });
-
-    if (data.status === "REQUEST_DENIED") {
-      console.error("[maps/reverse-geocode] Google API denied:", data.error_message);
-      res.status(502).json({ error: "Google Maps request denied — check API key permissions" });
+    const raw = await nominatimFetch("/reverse", { lat: String(lat), lon: String(lng) });
+    const parsed = NominatimResultSchema.safeParse(raw);
+    if (!parsed.success) {
+      res.status(404).json({ error: "No address found" });
       return;
     }
 
-    if (data.status !== "OK" || !data.results[0]) {
-      res.status(404).json({ error: `No address found (status: ${data.status})` });
-      return;
-    }
-
-    const best = data.results[0];
-    const localityResult = data.results.find((r) =>
-      r.types.includes("locality") || r.types.includes("postal_town"),
-    ) ?? best;
-
-    const c = best.address_components;
-    const placeTypes = humanisePlaceTypes(best.types);
-
-    const city = extractComponent(localityResult.address_components, "locality")
-      ?? extractComponent(c, "postal_town");
-    const region  = extractComponent(c, "administrative_area_level_1");
-    const country = extractComponent(c, "country");
-    const neighborhood = extractComponent(c, "neighborhood")
-      ?? extractComponent(c, "sublocality_level_1");
+    const r = parsed.data;
+    const a = r.address ?? {};
+    const city = a.city ?? a.town ?? a.village ?? null;
+    const region = a.state ?? null;
+    const country = a.country ?? null;
+    const neighborhood = a.neighbourhood ?? a.suburb ?? null;
 
     res.json({
       lat,
       lng,
-      formattedAddress: best.formatted_address,
-      placeId: best.place_id,
-      placeTypes,
+      formattedAddress: r.display_name,
+      placeId: String(r.place_id),
+      placeTypes: humanisePlaceTypes(r.type, r.class),
       city,
       region,
       country,
       neighborhood,
-      // One-line context string ready to paste into an AI prompt
       summary: [neighborhood, city, region, country].filter(Boolean).join(", "),
     });
   } catch (err) {
@@ -219,28 +188,10 @@ router.get("/maps/reverse-geocode", rateLimiter, async (req: Request, res: Respo
 });
 
 // ── GET /maps/place-info?place=... ────────────────────────────────────────────
-// Uses Google Places API (New) Text Search to fetch an editorial summary,
-// rating, and place category — replaces Wikipedia for in-chat place cards.
-
-const PlaceResultSchema = z.object({
-  id: z.string().optional(),
-  displayName: z.object({ text: z.string() }).optional(),
-  editorialSummary: z.object({ text: z.string() }).optional(),
-  types: z.array(z.string()).optional(),
-  rating: z.number().optional(),
-  userRatingCount: z.number().optional(),
-});
-
-const PlacesSearchResponseSchema = z.object({
-  places: z.array(PlaceResultSchema).optional(),
-});
+// Best-effort place lookup via Nominatim (no editorial summary/rating available,
+// unlike Google Places, since this is a free open-data source).
 
 router.get("/maps/place-info", rateLimiter, async (req: Request, res: Response) => {
-  if (!GOOGLE_MAPS_KEY) {
-    res.status(503).json({ error: "Google Maps API key not configured" });
-    return;
-  }
-
   const place = z.string().min(1).max(500).safeParse(req.query.place);
   if (!place.success) {
     res.status(400).json({ error: "Missing or invalid `place` query param" });
@@ -248,45 +199,78 @@ router.get("/maps/place-info", rateLimiter, async (req: Request, res: Response) 
   }
 
   try {
-    const resp = await fetch("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": GOOGLE_MAPS_KEY,
-        "X-Goog-FieldMask":
-          "places.id,places.displayName,places.editorialSummary,places.types,places.rating,places.userRatingCount",
-      },
-      body: JSON.stringify({ textQuery: place.data }),
-    });
-
-    if (!resp.ok) {
-      const errBody: unknown = await resp.json().catch(() => ({}));
-      console.error("[maps/place-info] Google Places error:", errBody);
-      res.status(502).json({ error: "Google Places request failed" });
-      return;
-    }
-
-    const raw: unknown = await resp.json();
-    const parsed = PlacesSearchResponseSchema.safeParse(raw);
-    if (!parsed.success || !parsed.data.places?.length) {
+    const raw = await nominatimFetch("/search", { q: place.data, limit: "1" });
+    const parsed = z.array(NominatimResultSchema).safeParse(raw);
+    if (!parsed.success || !parsed.data[0]) {
       res.status(404).json({ error: "No place info found" });
       return;
     }
 
-    const top = parsed.data.places[0];
-    const placeTypes = humanisePlaceTypes(top.types ?? []);
-
+    const r = parsed.data[0];
     res.json({
-      name: top.displayName?.text ?? null,
-      summary: top.editorialSummary?.text ?? null,
-      placeTypes,
-      rating: top.rating ?? null,
-      userRatingCount: top.userRatingCount ?? null,
+      name: r.display_name.split(",")[0] ?? r.display_name,
+      summary: null,
+      placeTypes: humanisePlaceTypes(r.type, r.class),
+      rating: null,
+      userRatingCount: null,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[maps/place-info] Error:", msg);
     res.status(500).json({ error: "Failed to fetch place info" });
+  }
+});
+
+// ── GET /maps/street-view?lat=...&lng=... ─────────────────────────────────────
+// Uses Mapillary's free Graph API to find the nearest crowdsourced street-level
+// photo near a coordinate. Requires a free MAPILLARY_ACCESS_TOKEN (no card needed).
+
+router.get("/maps/street-view", rateLimiter, async (req: Request, res: Response) => {
+  const latParsed = z.coerce.number().min(-90).max(90).safeParse(req.query.lat);
+  const lngParsed = z.coerce.number().min(-180).max(180).safeParse(req.query.lng);
+
+  if (!latParsed.success || !lngParsed.success) {
+    res.status(400).json({ error: "Missing or invalid `lat`/`lng` query params" });
+    return;
+  }
+
+  if (!MAPILLARY_TOKEN) {
+    res.status(503).json({ error: "Street-level imagery not configured", available: false });
+    return;
+  }
+
+  const { data: lat } = latParsed;
+  const { data: lng } = lngParsed;
+  const delta = 0.003; // ~300m box
+
+  try {
+    const url = new URL("https://graph.mapillary.com/images");
+    url.searchParams.set("access_token", MAPILLARY_TOKEN);
+    url.searchParams.set("fields", "id,thumb_1024_url");
+    url.searchParams.set("bbox", `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`);
+    url.searchParams.set("limit", "1");
+
+    const resp = await fetch(url.toString());
+    if (!resp.ok) throw new Error(`Mapillary HTTP ${resp.status}`);
+
+    const json = (await resp.json()) as { data?: Array<{ id: string; thumb_1024_url?: string }> };
+    const img = json.data?.[0];
+
+    if (!img) {
+      res.status(404).json({ error: "No street-level imagery near this location", available: false });
+      return;
+    }
+
+    res.json({
+      available: true,
+      imageId: img.id,
+      imageUrl: img.thumb_1024_url ?? null,
+      embedUrl: `https://www.mapillary.com/embed?image_key=${img.id}&style=photo`,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[maps/street-view] Error:", msg);
+    res.status(500).json({ error: "Failed to fetch street-level imagery", available: false });
   }
 });
 
