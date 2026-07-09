@@ -569,7 +569,7 @@ export default function LiveMap() {
             ? `<div style="font-size:10px;color:#a1a1aa;margin-top:3px;">📐 ${formatDistance(haversineKm(myPos.lat, myPos.lng, lat, lng))} from you</div>`
             : "";
           const dmsStr = formatDMS(lat, lng);
-          const svUrl = streetViewUrl(lat, lng); // opens OpenStreetMap in a new tab
+          const svUrl = streetViewUrl(lat, lng); // opens Google Maps satellite view in a new tab
           const gmUrl = `https://www.google.com/maps?q=${lat},${lng}`;
 
           // All untrusted values are run through esc() before HTML insertion
@@ -823,7 +823,7 @@ export default function LiveMap() {
                 rel="noreferrer"
                 className="text-xs text-sky-400 hover:text-sky-300 underline"
               >
-                View on OpenStreetMap instead
+                View satellite map instead
               </a>
             </div>
           )}

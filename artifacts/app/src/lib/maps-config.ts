@@ -2,7 +2,7 @@
  * Free, no-card map services replacing the Google Maps-dependent features:
  * - Satellite imagery: Esri World Imagery (no key required)
  * - Street-level photos: Mapillary via backend proxy (needs MAPILLARY_ACCESS_TOKEN)
- * - Address links: OpenStreetMap
+ * - External "open in Maps" links: Google Maps satellite view (documented URLs API)
  */
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -35,7 +35,14 @@ export function satelliteImageUrl(lat: number, lng: number, spanDeg = 0.006): st
   return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${bbox}&bboxSR=4326&size=600,400&imageSR=3857&format=png&f=image`;
 }
 
-/** External map link (opens in browser) — OpenStreetMap, no key needed. */
+/**
+ * External map link (opens in browser or the Google Maps app) — uses the
+ * documented Google Maps URLs API (https://developers.google.com/maps/documentation/urls/get-started)
+ * with an explicit `basemap=satellite` param, which is the officially
+ * supported way to force satellite imagery. Satellite is used here (instead
+ * of the plain OpenStreetMap vector map) so the link always shows real
+ * imagery with visible streets, not a bare schematic.
+ */
 export function streetViewUrl(lat: number, lng: number): string {
-  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`;
+  return `https://www.google.com/maps/@?api=1&map_action=map&center=${lat},${lng}&zoom=18&basemap=satellite`;
 }

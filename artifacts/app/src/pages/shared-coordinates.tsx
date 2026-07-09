@@ -140,7 +140,7 @@ function CoordinateCard({
     fetchStreetView(lat, lng).then(setSvResult).finally(() => setSvLoading(false));
   }, [showStreetView, lat, lng, svResult]);
 
-  const mapsUrl = streetViewUrl(lat, lng); // OpenStreetMap link
+  const mapsUrl = streetViewUrl(lat, lng); // Google Maps satellite link
   const svExtUrl = streetViewUrl(lat, lng);
   const dms = formatDMS(lat, lng);
 
@@ -165,7 +165,7 @@ function CoordinateCard({
             <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-muted/40 text-center px-4">
               <span className="text-xs text-muted-foreground">No street-level imagery available near this location.</span>
               <a href={svExtUrl} target="_blank" rel="noreferrer" className="text-xs text-sky-500 hover:text-sky-400 underline">
-                View on OpenStreetMap instead
+                View satellite map instead
               </a>
             </div>
           )
