@@ -15,6 +15,7 @@ import locationReportsRouter from "./location-reports";
 import assistantRouter from "./assistant";
 import mapsRouter from "./maps";
 import imagesRouter from "./images";
+import sessionsRouter from "./sessions";
 
 const router: IRouter = Router();
 
@@ -34,5 +35,6 @@ router.use(locationReportsRouter);
 router.use(assistantRouter);
 router.use(mapsRouter);
 router.use(imagesRouter);
+router.use(sessionsRouter);
 
 export default router;

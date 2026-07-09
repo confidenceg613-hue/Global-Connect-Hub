@@ -12,6 +12,7 @@ import Dashboard from "@/pages/dashboard";
 import Activity from "@/pages/activity";
 import Permissions from "@/pages/permissions";
 import Invites from "@/pages/invites";
+import Sessions from "@/pages/sessions";
 import Profile from "@/pages/profile";
 import ConsentPage from "@/pages/consent";
 import SharedCoordinates from "@/pages/shared-coordinates";
@@ -158,6 +159,7 @@ function Router() {
       <Route path="/activity"><ProtectedRoute component={Activity} /></Route>
       <Route path="/permissions"><ProtectedRoute component={Permissions} /></Route>
       <Route path="/invites"><ProtectedRoute component={Invites} /></Route>
+      <Route path="/sessions"><ProtectedRoute component={Sessions} /></Route>
       <Route path="/shared-coordinates"><ProtectedRoute component={SharedCoordinates} /></Route>
       <Route path="/location-history"><ProtectedRoute component={LocationHistory} /></Route>
       <Route path="/live-map"><ProtectedRoute component={LiveMap} /></Route>

@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   ShieldCheck, LayoutDashboard, Users, UserCircle, LogOut, Menu,
   Navigation, Clock, Map, Bell, BellOff, BellRing, Camera, Settings,
-  Activity as ActivityIcon, Flag, ChevronRight,
+  Activity as ActivityIcon, Flag, ChevronRight, Radio,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -121,6 +121,7 @@ const NAV_SECTIONS = [
     items: [
       { href: "/permissions",       label: "Permissions",       icon: ShieldCheck },
       { href: "/invites",           label: "Invites",           icon: Users },
+      { href: "/sessions",          label: "Active Sessions",   icon: Radio },
       { href: "/shared-coordinates",label: "Shared Coordinates",icon: Navigation },
       { href: "/location-history",  label: "Location History",  icon: Clock },
       { href: "/location-reports",  label: "Location Reports",  icon: Flag },
