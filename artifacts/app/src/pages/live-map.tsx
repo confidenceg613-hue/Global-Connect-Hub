@@ -50,8 +50,7 @@ function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number):
 
 // Google's own map tiles, loaded directly (no API key/billing needed — the
 // same public tile endpoint the Google Maps website itself uses for guests).
-// lyrs=s: satellite only · lyrs=y: hybrid (satellite + roads/labels) · lyrs=m: roadmap
-const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}";
+// lyrs=y: hybrid (satellite + roads/labels) · lyrs=m: roadmap
 const LABELS_URL    = "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
 const ROAD_URL      = "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
 
@@ -333,7 +332,10 @@ export default function LiveMap() {
         }).addTo(map);
         tileLabelRef.current = null;
       } else {
-        tileBaseRef.current = L.tileLayer(SATELLITE_URL, {
+        // "satellite" mode: use the hybrid tile (imagery + roads/labels) so the
+        // default view always shows streets, matching how Google Maps itself
+        // displays satellite view (not the bare, label-free imagery layer).
+        tileBaseRef.current = L.tileLayer(LABELS_URL, {
           maxZoom: 20,
           subdomains: "0123",
           attribution: '© Google Maps',
