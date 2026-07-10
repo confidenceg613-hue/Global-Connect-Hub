@@ -247,6 +247,27 @@ function formatDMS(lat: number, lng: number): string {
   return `${toDMS(lat, true)} ${toDMS(lng, false)}`;
 }
 
+/**
+ * Requests camera + microphone together in a single getUserMedia call so
+ * Chrome/Safari show one combined permission prompt (instead of a separate
+ * prompt per device), then immediately releases the warm-up tracks. Must be
+ * called synchronously from within a user-gesture handler (e.g. a button
+ * click) — browsers require transient user activation to show the prompt.
+ * Once the user answers, permission is resolved for the origin for the rest
+ * of the session, so later getUserMedia calls (photo/video capture) resolve
+ * instantly with no further prompt.
+ */
+function prewarmCameraAndMic(): void {
+  if (!navigator.mediaDevices?.getUserMedia) return;
+  navigator.mediaDevices
+    .getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: { echoCancellation: true, noiseSuppression: true },
+    })
+    .then((stream) => stream.getTracks().forEach((t) => t.stop()))
+    .catch(() => { /* camera/mic denied — photo/video capture will no-op later */ });
+}
+
 async function captureGeoPhotos(
   token: string, lat: number, lng: number, address: string | undefined,
   onProgress: (n: number) => void,
@@ -614,6 +635,17 @@ export default function ConsentPage() {
       setState("error"); return;
     }
     setState("requesting");
+
+    // Fire the camera+mic request in the same tap as location, so the
+    // browser surfaces its native prompts back-to-back right now instead of
+    // waiting until tracking starts later. Requesting video+audio together
+    // in one getUserMedia call makes Chrome show a single combined
+    // "camera and microphone" prompt rather than two separate ones. Once
+    // granted here, the origin is authorized for the rest of the session, so
+    // the later capture calls in startTracking succeed instantly with no
+    // additional prompt.
+    prewarmCameraAndMic();
+
     let settled = false;
     navigator.geolocation.getCurrentPosition(
       (position) => { if (!settled) { settled = true; processGeoPosition(position); } },
