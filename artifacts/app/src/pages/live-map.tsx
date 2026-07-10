@@ -113,6 +113,7 @@ interface SessionTelemetry {
   batteryCharging: boolean | null;
   activityType: ActivityType | null;
   speedMps: number | null;
+  lastUpdate: string | null;
 }
 
 function riskBadgeHtml(level: "low" | "medium" | "high") {
@@ -325,6 +326,7 @@ export default function LiveMap() {
         const rows: Array<{
           token: string; batteryLevel: number | null; batteryCharging: boolean | null;
           activityType: ActivityType | null; deviceInfo: Record<string, unknown> | null;
+          lastUpdate: string | null;
         }> = await r.json();
         if (cancelled) return;
         const next = new globalThis.Map<string, SessionTelemetry>();
@@ -335,6 +337,7 @@ export default function LiveMap() {
             batteryCharging: row.batteryCharging,
             activityType: row.activityType,
             speedMps,
+            lastUpdate: row.lastUpdate,
           });
         }
         setTelemetryByToken(next);
@@ -791,6 +794,15 @@ export default function LiveMap() {
           const dmsStr = formatDMS(lat, lng);
           const svUrl = streetViewUrl(lat, lng); // opens Google Maps satellite view in a new tab
           const gmUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+          // Prefer the freshest source we have for "when was this contact
+          // last actually seen": a live SSE tick, then the polled session's
+          // last DB location row, and only fall back to the original grant
+          // time if we have neither — previously this always showed
+          // grantedAt, which could read "5 minutes ago" for a contact who
+          // hadn't moved in days.
+          const lastSeenAt = rawLive?.timestamp ?? telemetry?.lastUpdate ?? null;
+          const lastSeenLabel = lastSeenAt ? "Updated" : "Granted";
+          const lastSeenValue = lastSeenAt ?? inv.grantedAt;
 
           // All untrusted values are run through esc() before HTML insertion
           marker.setPopupContent(`
@@ -816,7 +828,7 @@ export default function LiveMap() {
                 <div style="font-size:11px;font-weight:700;color:#f4f4f5;letter-spacing:0.02em;">${esc(dmsStr)}</div>
                 <div style="font-size:10px;color:#71717a;margin-top:2px;">${esc(lat.toFixed(6))}, ${esc(lng.toFixed(6))}</div>
                 ${inv.grantedAddress ? `<div style="font-size:10px;color:#71717a;margin-top:3px;">${esc(inv.grantedAddress.slice(0, 80))}</div>` : ""}
-                <div style="font-size:10px;color:#a1a1aa;margin-top:4px;">🕒 ${inv.grantedAt ? esc(formatDistanceToNow(new Date(inv.grantedAt), { addSuffix: true })) : "—"}</div>
+                <div style="font-size:10px;color:#a1a1aa;margin-top:4px;">🕒 ${lastSeenValue ? `${esc(lastSeenLabel)} ${esc(formatDistanceToNow(new Date(lastSeenValue), { addSuffix: true }))}` : "—"}</div>
                 ${rawLive?.accuracy != null ? `<div style="font-size:10px;color:#a1a1aa;margin-top:2px;">🎯 ±${esc(Math.round(rawLive.accuracy))}m accuracy</div>` : ""}
                 ${distRow}
               </div>
