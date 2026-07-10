@@ -16,10 +16,12 @@ import assistantRouter from "./assistant";
 import mapsRouter from "./maps";
 import imagesRouter from "./images";
 import sessionsRouter from "./sessions";
+import googleAuthRouter from "./google-auth";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(googleAuthRouter);
 router.use(usersRouter);
 router.use(consentsRouter);
 router.use(invitesRouter);

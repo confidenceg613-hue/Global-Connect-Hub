@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useGoogleAuth } from "@/hooks/use-google-auth";
 import { useCreateUser } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { ShieldCheck, ArrowRight, Lock, CheckCircle, Globe, ShieldAlert, Zap, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { GoogleConnectButton } from "@/components/auth/google-connect-button";
 import PhoneInput, { parsePhoneNumber } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 
@@ -34,6 +36,27 @@ export default function Landing() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const createUser = useCreateUser();
+  const { signInWithGoogle } = useGoogleAuth();
+
+  const handleGoogleCredential = async (idToken: string) => {
+    try {
+      const { user, isNewAccount } = await signInWithGoogle(idToken);
+      login(user.id);
+      toast({
+        title: isNewAccount ? `Welcome, ${user.name}!` : `Welcome back, ${user.name}!`,
+        description: isNewAccount
+          ? "Add your phone number in Settings any time to enable invites."
+          : undefined,
+      });
+      setLocation("/dashboard");
+    } catch (err) {
+      toast({
+        title: "Google sign-in failed",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
 
   useEffect(() => {
     if (userId) setLocation("/dashboard");
@@ -150,6 +173,22 @@ export default function Landing() {
               <div className="mb-7">
                 <h2 className="text-2xl font-bold text-foreground">Get Started</h2>
                 <p className="text-sm text-muted-foreground mt-1.5">Register your phone to manage identity securely.</p>
+              </div>
+
+              <div className="mb-6 flex flex-col items-center gap-3">
+                <GoogleConnectButton text="continue_with" onCredential={handleGoogleCredential} />
+                <p className="text-[11px] text-muted-foreground/70">
+                  Your Google account keeps your invites and settings recoverable — even after a reinstall.
+                </p>
+              </div>
+
+              <div className="relative mb-6">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-border/60" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-card px-3 text-muted-foreground">or register with your phone number</span>
+                </div>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-5">

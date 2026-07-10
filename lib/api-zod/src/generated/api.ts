@@ -44,10 +44,14 @@ export const GetUserParams = zod.object({
 export const GetUserResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "phoneNumber": zod.string(),
-  "countryCode": zod.string(),
+  "phoneNumber": zod.string().nullish(),
+  "countryCode": zod.string().nullish(),
   "countryIso": zod.string().nullish(),
-  "fullPhone": zod.string().optional(),
+  "fullPhone": zod.string().nullish(),
+  "googleId": zod.string().nullish(),
+  "googleEmail": zod.string().nullish(),
+  "googleName": zod.string().nullish(),
+  "googlePicture": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date().optional()
 })
@@ -74,10 +78,14 @@ export const UpdateUserBody = zod.object({
 export const UpdateUserResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "phoneNumber": zod.string(),
-  "countryCode": zod.string(),
+  "phoneNumber": zod.string().nullish(),
+  "countryCode": zod.string().nullish(),
   "countryIso": zod.string().nullish(),
-  "fullPhone": zod.string().optional(),
+  "fullPhone": zod.string().nullish(),
+  "googleId": zod.string().nullish(),
+  "googleEmail": zod.string().nullish(),
+  "googleName": zod.string().nullish(),
+  "googlePicture": zod.string().nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date().optional()
 })

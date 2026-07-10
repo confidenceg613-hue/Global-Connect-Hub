@@ -1,5 +1,7 @@
 import { useAuth } from "@/hooks/use-auth";
 import { useSettings } from "@/hooks/use-settings";
+import { useGoogleAuth } from "@/hooks/use-google-auth";
+import { GoogleConnectButton } from "@/components/auth/google-connect-button";
 import { useState, useEffect } from "react";
 import {
   useGetUser,
@@ -229,6 +231,8 @@ function AccountSection() {
         </CardContent>
       </Card>
 
+      <ConnectedAccountsSection />
+
       <Card className="border-destructive/30">
         <CardContent className="pt-4">
           <SettingRow
@@ -240,6 +244,96 @@ function AccountSection() {
               Sign Out
             </Button>
           </SettingRow>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Connected Accounts ──────────────────────────────────────────────────────
+function ConnectedAccountsSection() {
+  const { userId } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { signInWithGoogle, disconnectGoogle, isPending } = useGoogleAuth();
+
+  const { data: user } = useGetUser(userId!, {
+    query: { enabled: !!userId, queryKey: getGetUserQueryKey(userId!) },
+  });
+
+  const refetchUser = () => {
+    if (userId) queryClient.invalidateQueries({ queryKey: getGetUserQueryKey(userId) });
+  };
+
+  const handleConnect = async (idToken: string) => {
+    if (!userId) return;
+    try {
+      await signInWithGoogle(idToken, userId);
+      refetchUser();
+      toast({ title: "Google account connected" });
+    } catch (err) {
+      toast({
+        title: "Couldn't connect Google account",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!userId) return;
+    try {
+      await disconnectGoogle(userId);
+      refetchUser();
+      toast({ title: "Google account disconnected" });
+    } catch (err) {
+      toast({
+        title: "Couldn't disconnect Google account",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const isConnected = !!user?.googleEmail;
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-3">Connected Accounts</h2>
+      <Card>
+        <CardContent className="pt-4">
+          {isConnected ? (
+            <SettingRow
+              label={`Connected as ${user!.googleEmail}`}
+              description="Your invites, notifications, and settings are recoverable from any device with this account."
+            >
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isPending}
+                onClick={handleDisconnect}
+              >
+                Disconnect
+              </Button>
+            </SettingRow>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-foreground">Google Account</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Connect Google so your data survives reinstalls and device switches.
+                </div>
+              </div>
+              <div className="shrink-0">
+                <GoogleConnectButton
+                  text="signin_with"
+                  shape="rectangular"
+                  width={220}
+                  onCredential={handleConnect}
+                />
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
