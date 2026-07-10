@@ -4,3 +4,4 @@
 - [Screen Vision Feature](screen-vision.md) — getDisplayMedia → canvas frame → vision model; mutex ref, finally cleanup, 2.8MB backend cap, flexible JSON/prose parser.
 - [Path-router vs combined workflow](path-router-workflows.md) — artifact.toml (hidden dir) declares per-service ports, but `.replit [[ports]]` is the real source of truth for what's externally reachable; check it before choosing single vs per-artifact workflows.
 - [Google Sign-In as account recovery](google-signin-recovery.md) — closes the "rediscover userId after reinstall" gap; link/merge rules and the null-guard/transaction bugs a review caught.
+- [Telemetry privacy boundary](telemetry-privacy-boundary.md) — battery/speed/deviceInfo must never be broadcast over the token-based location SSE stream; only exposed via owner-scoped /api/sessions.

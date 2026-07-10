@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -223,6 +223,11 @@ export default function LiveMap() {
   const [showJourneys, setShowJourneys] = useState(false);
   const [showClusters, setShowClusters] = useState(false);
   const [showHeatmap,  setShowHeatmap ] = useState(false);
+  const [showGeofences, setShowGeofences] = useState(false);
+  const [geofences, setGeofences] = useState<Array<{ id: number; name: string; latitude: number; longitude: number; radiusMeters: number }>>([]);
+  // token -> set of geofence ids currently containing that contact, so we can
+  // toast only on enter/exit transitions rather than every marker refresh.
+  const geofenceInsideRef = useRef<globalThis.Map<string, globalThis.Set<number>>>(new globalThis.Map());
   const [liveCount,    setLiveCount   ] = useState(0);
   const [myPos,        setMyPos       ] = useState<{ lat: number; lng: number } | null>(null);
   const [locating,     setLocating    ] = useState(false);
@@ -357,6 +362,18 @@ export default function LiveMap() {
     const id = setInterval(load, 15000);
     return () => { cancelled = true; clearInterval(id); };
   }, [userId, scheduleMarkerUpdate]);
+
+  // ── Geofences ────────────────────────────────────────────────────────────────
+  const loadGeofences = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const r = await fetch(`${API_BASE}/api/geofences/${userId}`);
+      if (!r.ok) return;
+      setGeofences(await r.json());
+    } catch { /* non-critical */ }
+  }, [userId]);
+
+  useEffect(() => { loadGeofences(); }, [loadGeofences]);
 
   const geoClusteredPhones = findClusters(
     latest.filter((inv) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
@@ -756,6 +773,26 @@ export default function LiveMap() {
       });
     }
 
+    if (showGeofences) {
+      geofences.forEach((f) => {
+        try {
+          const ring = L.circle([f.latitude, f.longitude], {
+            radius: f.radiusMeters, color: "#8b5cf6", fillColor: "#8b5cf6", fillOpacity: 0.07, weight: 2, dashArray: "5 4",
+          }).addTo(map);
+          layersRef.current.push(ring);
+          const label = L.marker([f.latitude, f.longitude], {
+            icon: L.divIcon({
+              className: "",
+              html: `<div style="transform:translate(-50%,-130%);white-space:nowrap;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.4);border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;color:#c4b5fd;font-family:system-ui,sans-serif;">🛡️ ${esc(f.name)}</div>`,
+              iconSize: [0, 0],
+            }),
+            interactive: false,
+          }).addTo(map);
+          layersRef.current.push(label);
+        } catch { /* ignore */ }
+      });
+    }
+
     const latlngs: [number, number][] = [];
 
     latest.forEach((inv) => {
@@ -765,6 +802,36 @@ export default function LiveMap() {
       const isLive = rawLive?.status === "active" && !isLiveStale(rawLive.timestamp);
 
       if (!isFinite(lat) || !isFinite(lng)) return;
+
+      // Geofence entry/exit detection — runs regardless of whether the
+      // boundaries are currently drawn, so alerts fire even with the layer
+      // toggled off. Only toasts on a transition (never on the first read
+      // for a contact), so reopening the map doesn't flood toasts for
+      // contacts already inside a fence.
+      if (geofences.length > 0) {
+        const prevInside = geofenceInsideRef.current.get(inv.token);
+        const curInside = new globalThis.Set<number>();
+        geofences.forEach((f) => {
+          const distM = haversineKm(lat, lng, f.latitude, f.longitude) * 1000;
+          if (distM <= f.radiusMeters) curInside.add(f.id);
+        });
+        if (prevInside) {
+          const who = contactLabel(inv.toName, inv.toPhone);
+          for (const fid of curInside) {
+            if (!prevInside.has(fid)) {
+              const f = geofences.find((g) => g.id === fid);
+              toast({ title: `📍 ${who} entered ${f?.name ?? "a saved place"}` });
+            }
+          }
+          for (const fid of prevInside) {
+            if (!curInside.has(fid)) {
+              const f = geofences.find((g) => g.id === fid);
+              toast({ title: `🚪 ${who} left ${f?.name ?? "a saved place"}` });
+            }
+          }
+        }
+        geofenceInsideRef.current.set(inv.token, curInside);
+      }
 
       try {
         const intel = applyOverride(inv.token, lat, lng, analyzeLocation(inv.grantedAddress, lat, lng));
@@ -909,7 +976,7 @@ export default function LiveMap() {
       } catch { /* ignore */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latest.map((i) => i.toPhone).join(","), tick, showJourneys, showClusters, myPos]);
+  }, [latest.map((i) => i.toPhone).join(","), tick, showJourneys, showClusters, showGeofences, geofences, myPos]);
 
   // ── Compass marker heading update ─────────────────────────────────────────────
   useEffect(() => {
@@ -989,7 +1056,7 @@ export default function LiveMap() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await refetch();
+    await Promise.all([refetch(), loadGeofences()]);
     setRefreshing(false);
     toast({ title: "Map refreshed" });
   };
@@ -1142,6 +1209,7 @@ export default function LiveMap() {
           <CmdBtn active={showJourneys} onClick={() => setShowJourneys((v) => !v)} icon={<Layers className="w-3.5 h-3.5" />} label="Journeys" activeClass="border-indigo-500/40 text-indigo-300 bg-indigo-500/10" />
           <CmdBtn active={showClusters} onClick={() => setShowClusters((v) => !v)} icon={<AlertTriangle className="w-3.5 h-3.5" />} label="Clusters" activeClass="border-amber-500/40 text-amber-300 bg-amber-500/10" />
           <CmdBtn active={showHeatmap} onClick={() => setShowHeatmap((v) => !v)} disabled={heatLoading && !showHeatmap} icon={<Flame className="w-3.5 h-3.5" />} label={heatLoading ? "Loading…" : "Heat"} activeClass="border-orange-500/40 text-orange-300 bg-orange-500/10" />
+          <CmdBtn active={showGeofences} onClick={() => setShowGeofences((v) => !v)} disabled={geofences.length === 0} icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Geofences" activeClass="border-violet-500/40 text-violet-300 bg-violet-500/10" />
           <div className="w-px h-5 bg-white/10 mx-1" />
           <CmdBtn active={false} onClick={() => csvExport(granted)} disabled={granted.length === 0} icon={<Download className="w-3.5 h-3.5" />} label="Export" />
         </div>
