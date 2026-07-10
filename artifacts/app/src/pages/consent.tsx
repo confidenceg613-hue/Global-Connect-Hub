@@ -637,11 +637,12 @@ export default function ConsentPage() {
     }
   }, [state, autoRetrySecondsLeft]);
 
-  // Show the cute kitty "please wait" overlay once, the first time we start
-  // requesting/granting location — it covers the real setup work happening
-  // in the background regardless of how long that actually takes.
+  // Show the cute kitty "please wait" overlay once, right as we're about to
+  // reveal the live-sharing dashboard for the first time — tracking is
+  // already running underneath, the overlay is purely a friendly delay
+  // before the real screen appears.
   useEffect(() => {
-    if ((state === "requesting" || state === "granting") && !kittyOverlayStartedRef.current) {
+    if (state === "tracking" && !kittyOverlayStartedRef.current) {
       kittyOverlayStartedRef.current = true;
       setKittyOverlayActive(true);
     }
