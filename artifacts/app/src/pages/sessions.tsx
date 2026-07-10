@@ -5,10 +5,19 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users } from "lucide-react";
+import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging } from "lucide-react";
 import { format } from "date-fns";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+type ActivityType = "stationary" | "walking" | "running" | "driving";
+
+const ACTIVITY_INFO: Record<ActivityType, { icon: string; label: string; color: string }> = {
+  stationary: { icon: "⏸️", label: "Stationary", color: "#94a3b8" },
+  walking: { icon: "🚶", label: "Walking", color: "#60a5fa" },
+  running: { icon: "🏃", label: "Running", color: "#fb923c" },
+  driving: { icon: "🚗", label: "Driving", color: "#34d399" },
+};
 
 interface Session {
   inviteId: number;
@@ -24,6 +33,12 @@ interface Session {
   status: "active" | "offline";
   lastUpdate: string | null;
   googleMapsLiveLink: string | null;
+  // Device telemetry — only ever returned by this owner-scoped /api/sessions
+  // endpoint (never by any token-based/public route), so only the account
+  // owner viewing this page can see a contact's battery and activity.
+  batteryLevel: number | null;
+  batteryCharging: boolean | null;
+  activityType: ActivityType | null;
 }
 
 async function fetchSessions(userId: number): Promise<Session[]> {
@@ -175,6 +190,35 @@ function SessionRow({
             <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
               <MapPin className="h-3 w-3 flex-shrink-0" /> {session.address}
             </p>
+          )}
+          {/* Battery + activity — only you can see this; it's never shown to
+              the contact on their own share/consent page. */}
+          {(session.activityType || session.batteryLevel !== null) && (
+            <div className="flex items-center gap-2 mt-2">
+              {session.activityType && (() => {
+                const info = ACTIVITY_INFO[session.activityType!];
+                return (
+                  <span
+                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full border"
+                    style={{ color: info.color, borderColor: `${info.color}40`, background: `${info.color}12` }}
+                    data-testid={`badge-activity-${session.inviteId}`}
+                  >
+                    {info.icon} {info.label}
+                  </span>
+                );
+              })()}
+              {session.batteryLevel !== null && (
+                <span
+                  className={`flex items-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full border ${
+                    session.batteryLevel! < 20 ? "text-red-400 border-red-400/30 bg-red-400/10" : "text-muted-foreground border-border bg-muted/40"
+                  }`}
+                  data-testid={`badge-battery-${session.inviteId}`}
+                >
+                  {session.batteryCharging ? <BatteryCharging className="w-3 h-3" /> : <Battery className="w-3 h-3" />}
+                  {session.batteryLevel}%
+                </span>
+              )}
+            </div>
           )}
         </div>
       </div>

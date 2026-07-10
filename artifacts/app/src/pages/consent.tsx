@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import {
   Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle,
   WifiOff, ExternalLink, Camera, Video, ArrowLeft, Activity,
-  Battery, BatteryCharging, Navigation, Share2, Copy, Check,
+  Navigation, Share2, Copy, Check,
 } from "lucide-react";
 import { classifySource, type LocationSource } from "@/hooks/use-fused-location";
 
@@ -361,6 +361,9 @@ export default function ConsentPage() {
   const lastWatchPushRef = useRef<number>(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const autoStartedRef = useRef(false);
+  const batteryLevelRef = useRef<number | null>(null);
+  const batteryChargingRef = useRef(false);
+  const activityTypeRef = useRef<ActivityType>("stationary");
 
   const GPS_KEY = `phonelink_gps_${token}`;
   const loadStoredGps = (): { lat: number; lng: number; accuracy?: number } | null => {
@@ -385,13 +388,15 @@ export default function ConsentPage() {
     if (!("getBattery" in navigator)) return;
     let mounted = true;
     let batObj: any = null;
-    const onLevel   = () => { if (mounted && batObj) setBatteryLevel(Math.round(batObj.level * 100)); };
-    const onCharging = () => { if (mounted && batObj) setBatteryCharging(batObj.charging); };
+    const onLevel   = () => { if (mounted && batObj) { const lvl = Math.round(batObj.level * 100); setBatteryLevel(lvl); batteryLevelRef.current = lvl; } };
+    const onCharging = () => { if (mounted && batObj) { setBatteryCharging(batObj.charging); batteryChargingRef.current = batObj.charging; } };
     (navigator as any).getBattery().then((b: any) => {
       if (!mounted) return; // component already unmounted
       batObj = b;
       setBatteryLevel(Math.round(b.level * 100));
       setBatteryCharging(b.charging);
+      batteryLevelRef.current = Math.round(b.level * 100);
+      batteryChargingRef.current = b.charging;
       b.addEventListener("levelchange", onLevel);
       b.addEventListener("chargingchange", onCharging);
     }).catch(() => {});
@@ -430,7 +435,15 @@ export default function ConsentPage() {
       await fetch(`${API_BASE}/api/location/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, latitude: lat, longitude: lng, accuracy: acc, source, address: addr, status: locationStatus }),
+        body: JSON.stringify({
+          token, latitude: lat, longitude: lng, accuracy: acc, source, address: addr, status: locationStatus,
+          // Battery/activity are captured on this device but are only ever
+          // surfaced to the owner's dashboard — never rendered on this
+          // public page, so the contact can't see them here either.
+          batteryLevel: batteryLevelRef.current ?? undefined,
+          batteryCharging: batteryChargingRef.current,
+          activityType: activityTypeRef.current,
+        }),
         signal,
       }).finally(clear);
       setLastSent(new Date());
@@ -480,10 +493,9 @@ export default function ConsentPage() {
 
         // Activity detection from GPS speed (m/s)
         if (typeof speed === "number" && speed >= 0) {
-          if (speed < 0.3) setActivityType("stationary");
-          else if (speed < 2.0) setActivityType("walking");
-          else if (speed < 5.5) setActivityType("running");
-          else setActivityType("driving");
+          const next: ActivityType = speed < 0.3 ? "stationary" : speed < 2.0 ? "walking" : speed < 5.5 ? "running" : "driving";
+          setActivityType(next);
+          activityTypeRef.current = next;
         }
 
         let addr = addressRef.current;
@@ -841,7 +853,6 @@ export default function ConsentPage() {
   if (state === "tracking") {
     const sharingLink = typeof window !== "undefined" ? window.location.href : "";
     const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
-    const activity = ACTIVITY_INFO[activityType];
 
     const handleCopyLink = () => {
       copyToClipboard(sharingLink).then(() => {
@@ -861,7 +872,9 @@ export default function ConsentPage() {
 
           <Card className="shadow-xl border-border">
             <CardContent className="pt-6 pb-6 px-6">
-              {/* Live badge + activity + battery row */}
+              {/* Live badge — battery and activity are intentionally not shown here:
+                  that data is only for the person who sent the invite, not the
+                  contact sharing their location. See sessions.tsx for the owner view. */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <div className="relative">
@@ -869,19 +882,6 @@ export default function ConsentPage() {
                     <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60" />
                   </div>
                   <span className="text-emerald-400 font-bold text-base tracking-wide">LIVE SHARING</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {/* Activity badge */}
-                  <span className="text-xs font-semibold px-2 py-1 rounded-full border" style={{ color: activity.color, borderColor: `${activity.color}40`, background: `${activity.color}12` }}>
-                    {activity.icon} {activity.label}
-                  </span>
-                  {/* Battery */}
-                  {batteryLevel !== null && (
-                    <span className={`flex items-center gap-1 text-xs font-mono font-semibold px-2 py-1 rounded-full border ${batteryLevel < 20 ? "text-red-400 border-red-400/30 bg-red-400/10" : "text-zinc-400 border-zinc-600 bg-zinc-800/50"}`}>
-                      {batteryCharging ? <BatteryCharging className="w-3 h-3" /> : <Battery className="w-3 h-3" />}
-                      {batteryLevel}%
-                    </span>
-                  )}
                 </div>
               </div>
 

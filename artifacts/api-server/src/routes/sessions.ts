@@ -48,6 +48,13 @@ router.get("/sessions", async (req, res): Promise<void> => {
         address: latest?.address ?? invite.grantedAddress ?? null,
         status: latest?.status ?? "active",
         lastUpdate: latest?.createdAt ?? invite.grantedAt,
+        // Device telemetry — only ever returned here, on this owner-scoped
+        // (userId-filtered) route. Never expose these on any token-based
+        // public route, since the contact/anyone with the share link must
+        // not learn what only the owner should see.
+        batteryLevel: latest?.batteryLevel ?? null,
+        batteryCharging: latest?.batteryCharging ?? null,
+        activityType: latest?.activityType ?? null,
         // A Google Maps-compatible live location link — opens directly on
         // the coordinate and works identically on mobile (app deep-link) and
         // desktop (web) Google Maps.

@@ -66,6 +66,13 @@ const PushLocationBody = z.object({
   source: z.enum(["gps", "network", "fused"]).optional(),
   address: z.string().optional(),
   status: z.enum(["active", "offline"]).default("active"),
+  // Device telemetry — stored but only ever exposed via the owner-scoped
+  // /api/sessions route (see routes/sessions.ts). Never echoed back on the
+  // token-authenticated push response or broadcast to SSE listeners, since
+  // those are reachable by whoever holds the share link.
+  batteryLevel: z.number().min(0).max(100).optional(),
+  batteryCharging: z.boolean().optional(),
+  activityType: z.enum(["stationary", "walking", "running", "driving"]).optional(),
 });
 
 // POST /api/location/push  — contact posts their live GPS
@@ -76,7 +83,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
     return;
   }
 
-  const { token, latitude, longitude, accuracy, source, address, status } = parsed.data;
+  const { token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType } = parsed.data;
 
   const [prev] = await db
     .select()
@@ -87,7 +94,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
 
   const [update] = await db
     .insert(locationUpdatesTable)
-    .values({ token, latitude, longitude, accuracy, source, address, status })
+    .values({ token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType })
     .returning();
 
   const [invite] = await db
