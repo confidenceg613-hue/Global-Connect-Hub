@@ -4,13 +4,13 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
-const rawPort = process.env.PORT;
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
+// Falls back to this artifact's declared dev port (see artifact.toml) when PORT
+// isn't set in the environment — e.g. when the platform's own per-artifact
+// workflow spawns this process directly, without the combined start-dev.sh
+// wrapper that otherwise pins PORT/BASE_PATH explicitly for the port-5000
+// webview. This lets the path router's proxy to this artifact's localPort
+// find a real listener instead of 502ing.
+const rawPort = process.env.PORT ?? "23863";
 
 const port = Number(rawPort);
 
@@ -18,13 +18,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-const basePath = process.env.BASE_PATH;
-
-if (!basePath) {
-  throw new Error(
-    "BASE_PATH environment variable is required but was not provided.",
-  );
-}
+const basePath = process.env.BASE_PATH ?? "/";
 
 export default defineConfig({
   base: basePath,

@@ -46,7 +46,11 @@ for i in $(seq 1 15); do
   sleep 1
 done
 
-# Start the Vite dev server in the foreground (port 5000)
+# Start the Vite dev server in the foreground (port 5000). Set PORT/BASE_PATH
+# explicitly here rather than relying on global env, since those are no
+# longer set project-wide (the app's own artifact-managed dev workflow needs
+# to default to its artifact.toml-declared port of 23863 instead, so the
+# platform's path router has something to proxy "/" to).
 echo "[start-dev] Starting Vite dev server on port 5000..."
 cd "$ROOT/artifacts/app"
-exec pnpm run dev
+exec env PORT=5000 BASE_PATH=/ pnpm run dev
