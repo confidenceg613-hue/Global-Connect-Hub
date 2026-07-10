@@ -66,3 +66,4 @@ The live map's Street View button resolves nearby crowdsourced imagery via Mapil
 ## User preferences
 
 - Keep the existing monorepo structure and stack; do not restructure or migrate.
+- After completing a fix, list remaining suggestions/gaps and ask (via a question) whether to work on them next — don't just leave it as a passive offer.
