@@ -92,9 +92,18 @@ function formatDMS(lat: number, lng: number): string {
   return `${toDMS(lat, true)} ${toDMS(lng, false)}`;
 }
 
-function initials(name: string | null | undefined) {
-  if (!name) return "?";
-  return name.split(" ").map((w) => w[0] ?? "").join("").toUpperCase().slice(0, 2);
+function initials(name: string | null | undefined, phone?: string | null) {
+  if (name) return name.split(" ").map((w) => w[0] ?? "").join("").toUpperCase().slice(0, 2);
+  // No name on file — fall back to the last 2 digits of the phone number
+  // instead of a meaningless "?", so pins for unnamed contacts stay
+  // distinguishable from each other on the map.
+  const digits = (phone ?? "").replace(/\D/g, "");
+  return digits ? digits.slice(-2) : "?";
+}
+
+/** Short label for a contact: their saved name, or a formatted phone number. */
+function contactLabel(name: string | null | undefined, phone: string): string {
+  return name || phone;
 }
 
 type ActivityType = "stationary" | "walking" | "running" | "driving";
@@ -783,7 +792,7 @@ export default function LiveMap() {
 
         const telemetry = telemetryByToken.get(inv.token);
         const lowBattery = isLive && telemetry?.batteryLevel != null && telemetry.batteryLevel <= 15 && !telemetry.batteryCharging;
-        const marker = L.marker([lat, lng], { icon: makePin(pinColor, initials(inv.toName), false, isLive ? rawLive?.bearing : undefined, lowBattery) }).addTo(map);
+        const marker = L.marker([lat, lng], { icon: makePin(pinColor, initials(inv.toName, inv.toPhone), false, isLive ? rawLive?.bearing : undefined, lowBattery) }).addTo(map);
         layersRef.current.push(marker);
 
         marker.bindPopup("", { className: "pl-popup", maxWidth: 320, minWidth: 280 });
@@ -808,10 +817,10 @@ export default function LiveMap() {
           marker.setPopupContent(`
             <div style="width:270px;font-family:system-ui,sans-serif;color:#f4f4f5;">
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-                <div style="width:40px;height:40px;border-radius:10px;flex-shrink:0;background:${esc(intel.pinColor)}22;border:1.5px solid ${esc(intel.pinColor)}55;display:flex;align-items:center;justify-content:center;font-weight:700;color:${esc(intel.pinColor)}">${esc(initials(inv.toName))}</div>
+                <div style="width:40px;height:40px;border-radius:10px;flex-shrink:0;background:${esc(intel.pinColor)}22;border:1.5px solid ${esc(intel.pinColor)}55;display:flex;align-items:center;justify-content:center;font-weight:700;color:${esc(intel.pinColor)}">${esc(initials(inv.toName, inv.toPhone))}</div>
                 <div>
-                  <p style="margin:0;font-weight:700;font-size:14px;">${esc(inv.toName ?? "Unknown")}</p>
-                  <p style="margin:0;font-size:10px;color:#71717a;font-family:ui-monospace,monospace;">${esc(inv.toPhone)}</p>
+                  <p style="margin:0;font-weight:700;font-size:14px;">${esc(contactLabel(inv.toName, inv.toPhone))}</p>
+                  ${inv.toName ? `<p style="margin:0;font-size:10px;color:#71717a;font-family:ui-monospace,monospace;">${esc(inv.toPhone)}</p>` : ""}
                 </div>
               </div>
               <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:9px 11px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
