@@ -39,6 +39,7 @@ interface GeoVideo {
   latitude: number | null;
   longitude: number | null;
   address: string | null;
+  cameraFacing?: "environment" | "user";
   takenAt: string;
   inviteToken: string;
   toName: string | null;
@@ -415,7 +416,9 @@ function ContactPhotoGroup({ group }: { group: ContactGroup }) {
                       <Clock className="h-3 w-3" />
                       {formatTime(video.takenAt)}
                     </div>
-                    <span className="text-rose-400/70">Clip {idx + 1}</span>
+                    <span className="text-rose-400/70">
+                      {video.cameraFacing === "user" ? "Selfie" : "Environment"} · Clip {idx + 1}
+                    </span>
                   </div>
                   {video.latitude && video.longitude && (
                     <a

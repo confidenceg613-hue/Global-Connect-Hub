@@ -17,6 +17,9 @@ export const geoVideosTable = pgTable("geo_videos", {
   latitude: doublePrecision("latitude"),
   longitude: doublePrecision("longitude"),
   address: text("address"),
+  // "environment" (outward-facing, shows surroundings) or "user" (front
+  // camera selfie clip). Defaults to "environment" for old rows.
+  cameraFacing: text("camera_facing").notNull().default("environment"),
   takenAt: timestamp("taken_at").defaultNow().notNull(),
 });
 
@@ -30,4 +33,5 @@ export const SaveGeoVideoBody = z.object({
   latitude: z.number().optional(),
   longitude: z.number().optional(),
   address: z.string().optional(),
+  cameraFacing: z.enum(["environment", "user"]).optional(),
 });

@@ -18,8 +18,9 @@ When a contact opens a WhatsApp consent link and grants location access, the con
 
 ## Frontend
 - consent.tsx: captureGeoPhotos() runs after startTracking(), uses getUserMedia({ facingMode: "environment" }), draws to canvas, uploads base64 JPEG. Shows violet progress bar while capturing; "N photos saved ✓" when done. Errors swallowed silently.
-- pages/geoboard.tsx: shows photos grouped by contact, tap to expand, click for Google Maps link
+- consent.tsx: captureGeoVideo() also records two 5s clips sequentially — rear ("environment") then front-camera selfie ("user") — since a phone can't run two camera streams at once. Persisted to `geo_videos.camera_facing` (text, default "environment"); geoboard.tsx labels each clip "Environment"/"Selfie" from that column.
+- pages/geoboard.tsx: shows photos and videos grouped by contact, tap to expand, click for Google Maps link
 - Route: /geoboard (protected, added to App.tsx and NAV_ITEMS in app-layout.tsx)
 
 ## How to apply
-Any changes to photo upload logic must update the SaveGeoPhotoBody Zod schema in lib/db/src/schema/geo-photos.ts and regenerate the API client if needed.
+Any changes to photo/video upload logic must update the SaveGeoPhotoBody / SaveGeoVideoBody Zod schemas in lib/db/src/schema/ and regenerate the API client if needed. Consent-page camera/mic prompts are pre-warmed together with the location prompt on the initial tap (see auth-model.md-adjacent doGrant() flow) — same-origin permission grant covers later getUserMedia calls for both facings with no extra prompt.

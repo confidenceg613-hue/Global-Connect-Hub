@@ -13,7 +13,7 @@ router.post("/geo-videos", async (req, res): Promise<void> => {
     return;
   }
 
-  const { token, videoData, mimeType, durationMs, latitude, longitude, address } = parsed.data;
+  const { token, videoData, mimeType, durationMs, latitude, longitude, address, cameraFacing } = parsed.data;
 
   const [invite] = await db
     .select({ token: invitesTable.token })
@@ -35,6 +35,7 @@ router.post("/geo-videos", async (req, res): Promise<void> => {
       latitude: latitude ?? null,
       longitude: longitude ?? null,
       address: address ?? null,
+      cameraFacing: cameraFacing ?? "environment",
     })
     .returning();
 
@@ -54,6 +55,7 @@ router.get("/geo-videos/by-token/:token", async (req, res): Promise<void> => {
       latitude: geoVideosTable.latitude,
       longitude: geoVideosTable.longitude,
       address: geoVideosTable.address,
+      cameraFacing: geoVideosTable.cameraFacing,
       takenAt: geoVideosTable.takenAt,
     })
     .from(geoVideosTable)
@@ -80,6 +82,7 @@ router.get("/geo-videos/by-user/:userId", async (req, res): Promise<void> => {
       latitude: geoVideosTable.latitude,
       longitude: geoVideosTable.longitude,
       address: geoVideosTable.address,
+      cameraFacing: geoVideosTable.cameraFacing,
       takenAt: geoVideosTable.takenAt,
       inviteToken: geoVideosTable.inviteToken,
       toName: invitesTable.toName,
