@@ -4,25 +4,38 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { useAuth, AuthProvider } from "@/hooks/use-auth";
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 
-// Pages
+// Public entry pages: kept as static imports so the very first screen
+// (sign-in / consent link) shows up as fast as possible, with no extra
+// network round-trips for code the visitor may never need.
 import Landing from "@/pages/landing";
-import Dashboard from "@/pages/dashboard";
-import Activity from "@/pages/activity";
-import Permissions from "@/pages/permissions";
-import Invites from "@/pages/invites";
-import Sessions from "@/pages/sessions";
-import Profile from "@/pages/profile";
 import ConsentPage from "@/pages/consent";
-import SharedCoordinates from "@/pages/shared-coordinates";
-import LocationHistory from "@/pages/location-history";
-import LiveMap from "@/pages/live-map";
-import GeoBoard from "@/pages/geoboard";
-import LocationReports from "@/pages/location-reports";
-import SettingsPage from "@/pages/settings";
-import Surveillance from "@/pages/surveillance";
-import MapboxTest from "@/pages/mapbox-test";
+
+// Everything behind login is lazy-loaded. Some of these pages pull in heavy
+// libraries (Mapbox, charts), and in dev mode Vite serves each module as its
+// own unbundled request — eagerly importing all of them from App.tsx meant
+// the landing page couldn't render until the *entire* app's JS (maps, charts,
+// and all) had finished downloading. On a slow/high-latency mobile
+// connection that could stall the initial load for a long time, looking like
+// a stuck "Setting up secure connection..." screen. Splitting these out means
+// the landing page only needs its own small bundle; each protected page's
+// code is fetched on demand, right before it's shown.
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Activity = lazy(() => import("@/pages/activity"));
+const Permissions = lazy(() => import("@/pages/permissions"));
+const Invites = lazy(() => import("@/pages/invites"));
+const Sessions = lazy(() => import("@/pages/sessions"));
+const Profile = lazy(() => import("@/pages/profile"));
+const SharedCoordinates = lazy(() => import("@/pages/shared-coordinates"));
+const LocationHistory = lazy(() => import("@/pages/location-history"));
+const LiveMap = lazy(() => import("@/pages/live-map"));
+const GeoBoard = lazy(() => import("@/pages/geoboard"));
+const LocationReports = lazy(() => import("@/pages/location-reports"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const Surveillance = lazy(() => import("@/pages/surveillance"));
+const MapboxTest = lazy(() => import("@/pages/mapbox-test"));
+
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -126,6 +139,14 @@ function PageErrorBoundary({ children }: { children: React.ReactNode }) {
   );
 }
 
+function RouteFallback() {
+  return (
+    <div className="flex min-h-[50vh] w-full items-center justify-center">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+    </div>
+  );
+}
+
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { userId } = useAuth();
   const [, setLocation] = useLocation();
@@ -141,7 +162,9 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   return (
     <AppLayout>
       <PageErrorBoundary>
-        <Component />
+        <Suspense fallback={<RouteFallback />}>
+          <Component />
+        </Suspense>
       </PageErrorBoundary>
     </AppLayout>
   );
@@ -168,7 +191,11 @@ function Router() {
       <Route path="/location-reports"><ProtectedRoute component={LocationReports} /></Route>
       <Route path="/settings"><ProtectedRoute component={SettingsPage} /></Route>
       <Route path="/surveillance"><ProtectedRoute component={Surveillance} /></Route>
-      <Route path="/mapbox-test" component={MapboxTest} />
+      <Route path="/mapbox-test">
+        <Suspense fallback={<RouteFallback />}>
+          <MapboxTest />
+        </Suspense>
+      </Route>
 
       <Route component={NotFound} />
     </Switch>
