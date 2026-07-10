@@ -698,7 +698,11 @@ export default function LiveMap() {
         const grantCount = allByPhone[inv.toPhone]?.length ?? 1;
 
         if (isLive) {
-          const ring = L.circle([lat, lng], { radius: 60, color: "#10b981", fillColor: "#10b981", fillOpacity: 0.12, weight: 2 }).addTo(map);
+          // Use the device's actual reported GPS accuracy for the ring radius
+          // (clamped so a bad/missing fix doesn't render an invisible dot or
+          // a ring that swallows the whole map) instead of a fixed guess.
+          const radius = Math.min(Math.max(rawLive?.accuracy ?? 60, 15), 500);
+          const ring = L.circle([lat, lng], { radius, color: "#10b981", fillColor: "#10b981", fillOpacity: 0.12, weight: 2 }).addTo(map);
           layersRef.current.push(ring);
         }
 
@@ -749,6 +753,7 @@ export default function LiveMap() {
                 <div style="font-size:10px;color:#71717a;margin-top:2px;">${esc(lat.toFixed(6))}, ${esc(lng.toFixed(6))}</div>
                 ${inv.grantedAddress ? `<div style="font-size:10px;color:#71717a;margin-top:3px;">${esc(inv.grantedAddress.slice(0, 80))}</div>` : ""}
                 <div style="font-size:10px;color:#a1a1aa;margin-top:4px;">🕒 ${inv.grantedAt ? esc(formatDistanceToNow(new Date(inv.grantedAt), { addSuffix: true })) : "—"}</div>
+                ${rawLive?.accuracy != null ? `<div style="font-size:10px;color:#a1a1aa;margin-top:2px;">🎯 ±${esc(Math.round(rawLive.accuracy))}m accuracy</div>` : ""}
                 ${distRow}
               </div>
               <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:10px;">
