@@ -12,11 +12,22 @@ export interface HealthStatus {
 export interface User {
   id: number;
   name: string;
-  phoneNumber: string;
-  countryCode: string;
+  /** @nullable */
+  phoneNumber?: string | null;
+  /** @nullable */
+  countryCode?: string | null;
   /** @nullable */
   countryIso?: string | null;
-  fullPhone?: string;
+  /** @nullable */
+  fullPhone?: string | null;
+  /** @nullable */
+  googleId?: string | null;
+  /** @nullable */
+  googleEmail?: string | null;
+  /** @nullable */
+  googleName?: string | null;
+  /** @nullable */
+  googlePicture?: string | null;
   createdAt: string;
   updatedAt?: string;
 }

@@ -391,20 +391,28 @@ components:
 
     User:
       type: object
-      required: [id, name, phoneNumber, countryCode, createdAt]
+      required: [id, name, createdAt]
       properties:
         id:
           type: integer
         name:
           type: string
         phoneNumber:
-          type: string
+          type: ["string", "null"]
         countryCode:
-          type: string
+          type: ["string", "null"]
         countryIso:
           type: ["string", "null"]
         fullPhone:
-          type: string
+          type: ["string", "null"]
+        googleId:
+          type: ["string", "null"]
+        googleEmail:
+          type: ["string", "null"]
+        googleName:
+          type: ["string", "null"]
+        googlePicture:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time

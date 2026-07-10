@@ -62,30 +62,35 @@ router.post("/auth/google", async (req, res): Promise<void> => {
       return;
     }
 
-    if (linkedUser && linkedUser.id !== currentUser.id) {
+    if (linkedUser && linkedUser.id !== currentUser.id && linkedUser.phoneNumber) {
       // The Google account is already tied to a different, real account —
-      // never silently merge real user data. Only fold in empty "shell"
-      // accounts (created by a bare Google sign-in that never added a phone).
-      if (linkedUser.phoneNumber) {
-        res.status(409).json({
-          error: "This Google account is already connected to a different PhoneLink account.",
-        });
-        return;
-      }
-      await db.delete(usersTable).where(eq(usersTable.id, linkedUser.id));
+      // never silently merge real user data.
+      res.status(409).json({
+        error: "This Google account is already connected to a different PhoneLink account.",
+      });
+      return;
     }
 
-    const [updated] = await db
-      .update(usersTable)
-      .set({
-        googleId: profile.googleId,
-        googleEmail: profile.email,
-        googleName: profile.name,
-        googlePicture: profile.picture,
-        updatedAt: new Date(),
-      })
-      .where(eq(usersTable.id, currentUser.id))
-      .returning();
+    // Delete the empty "shell" account (if any) and attach Google to the
+    // current account atomically, so a failure partway through can't drop
+    // the shell without the link succeeding (or vice versa).
+    const updated = await db.transaction(async (tx) => {
+      if (linkedUser && linkedUser.id !== currentUser.id) {
+        await tx.delete(usersTable).where(eq(usersTable.id, linkedUser.id));
+      }
+      const [row] = await tx
+        .update(usersTable)
+        .set({
+          googleId: profile.googleId,
+          googleEmail: profile.email,
+          googleName: profile.name,
+          googlePicture: profile.picture,
+          updatedAt: new Date(),
+        })
+        .where(eq(usersTable.id, currentUser.id))
+        .returning();
+      return row;
+    });
 
     res.json({ user: updated, isNewAccount: false });
     return;

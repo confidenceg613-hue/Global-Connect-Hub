@@ -83,7 +83,12 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     if (existing) {
       const code = parsed.data.countryCode ?? existing.countryCode;
       const phone = parsed.data.phoneNumber ?? existing.phoneNumber;
-      updates.fullPhone = `${code}${phone}`.replace(/\s+/g, "");
+      // Only derive fullPhone once both parts are actually present — for a
+      // Google-only account these may still be null, and `${null}${null}`
+      // would silently write the literal string "nullnull" into fullPhone.
+      if (code && phone) {
+        updates.fullPhone = `${code}${phone}`.replace(/\s+/g, "");
+      }
     }
   }
   updates.updatedAt = new Date();
