@@ -2,6 +2,8 @@
 
 export type MapLayer = "heatmap" | "journeys" | "clusters" | "surveillance";
 
+export type PanDirection = "north" | "south" | "east" | "west";
+
 export type MapCommand =
   | { type: "flyTo"; lat: number; lng: number; zoom?: number }
   | { type: "geocode"; place: string }
@@ -9,9 +11,12 @@ export type MapCommand =
   | { type: "fitAll" }
   | { type: "zoomIn" }
   | { type: "zoomOut" }
+  | { type: "setZoom"; zoom: number }
+  | { type: "pan"; direction: PanDirection; amount?: number }
   | { type: "findContact"; name: string }
   | { type: "goBack" }
   | { type: "showImages"; place: string }
+  | { type: "showStreetView"; lat: number; lng: number; name?: string }
   | { type: "navigate"; path: string }
   | { type: "openInviteForm"; phone?: string; name?: string };
 

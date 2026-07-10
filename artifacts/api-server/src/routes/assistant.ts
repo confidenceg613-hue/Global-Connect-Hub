@@ -88,6 +88,7 @@ async function withFallback<T>(fn: (client: OpenAI, model: string, label: string
 
 // ── Command schema ────────────────────────────────────────────────────────────
 const MapLayerEnum = z.enum(["heatmap", "journeys", "clusters", "surveillance"]);
+const PanDirectionEnum = z.enum(["north", "south", "east", "west"]);
 const MapCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("flyTo"), lat: z.number(), lng: z.number(), zoom: z.number().optional() }),
   z.object({ type: z.literal("geocode"), place: z.string().min(1) }),
@@ -95,9 +96,12 @@ const MapCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("fitAll") }),
   z.object({ type: z.literal("zoomIn") }),
   z.object({ type: z.literal("zoomOut") }),
+  z.object({ type: z.literal("setZoom"), zoom: z.number().min(0).max(22) }),
+  z.object({ type: z.literal("pan"), direction: PanDirectionEnum, amount: z.number().min(0.1).max(1).optional() }),
   z.object({ type: z.literal("findContact"), name: z.string().min(1) }),
   z.object({ type: z.literal("goBack") }),
   z.object({ type: z.literal("showImages"), place: z.string().min(1) }),
+  z.object({ type: z.literal("showStreetView"), lat: z.number(), lng: z.number(), name: z.string().optional() }),
   z.object({ type: z.literal("navigate"), path: z.string().min(1) }),
   z.object({ type: z.literal("openInviteForm"), phone: z.string().optional(), name: z.string().optional() }),
 ]);
@@ -166,15 +170,24 @@ ${mapStatus}
 2. geocode: {"reply":"Going to Lagos!","command":{"type":"geocode","place":"Lagos, Nigeria"}}
 3. layer: {"reply":"Heatmap on.","command":{"type":"setLayer","layer":"heatmap","enabled":true}} — layers: heatmap|journeys|clusters|surveillance
 4. fitAll: {"reply":"Showing all.","command":{"type":"fitAll"}}
-5. zoom: {"type":"zoomIn"} or {"type":"zoomOut"}
-6. findContact: {"reply":"Finding Sarah.","command":{"type":"findContact","name":"Sarah"}}
-7. goBack: {"reply":"Back.","command":{"type":"goBack"}}
-8. showImages: {"reply":"Here are photos!","command":{"type":"showImages","place":"Abuja, Nigeria"}} — use when user says "show image/photo/picture" or "what does X look like"
-9. navigate: {"reply":"Opening invites page.","command":{"type":"navigate","path":"/invites"}} — paths: /dashboard /invites /live-map /activity /permissions /geoboard /settings /profile /location-history /location-reports /surveillance
-10. openInviteForm: {"reply":"Pre-filling invite form for John.","command":{"type":"openInviteForm","phone":"+2348012345678","name":"John"}} — use when user says "send invite to [name] [phone]" or "invite [name]"
-11. No command: {"reply":"..."}
+5. zoom: {"type":"zoomIn"} or {"type":"zoomOut"} — one step; use for "zoom in/out"
+6. setZoom: {"reply":"Zoomed to max detail.","command":{"type":"setZoom","zoom":20}} — use for an explicit zoom level, e.g. "zoom to level 18" or "zoom all the way in" (use 22, the highest supported)
+7. pan: {"reply":"Heading north.","command":{"type":"pan","direction":"north"}} — directions: north|south|east|west, for "navigate/go/pan/move north/south/east/west". This only pans, never changes zoom.
+8. findContact: {"reply":"Finding Sarah.","command":{"type":"findContact","name":"Sarah"}}
+9. goBack: {"reply":"Back.","command":{"type":"goBack"}} — undo the last AI-driven map move
+10. showImages: {"reply":"Here are photos!","command":{"type":"showImages","place":"Abuja, Nigeria"}} — use when user says "show image/photo/picture" or "what does X look like" for a place with no exact coordinates
+11. showStreetView: {"reply":"Here's street level view.","command":{"type":"showStreetView","lat":6.5244,"lng":3.3792,"name":"Lagos"}} — use for "show street view at my location / at X / here" when you have coordinates (use the user's position or a contact's position from context)
+12. navigate: {"reply":"Opening invites page.","command":{"type":"navigate","path":"/invites"}} — paths: /dashboard /invites /live-map /activity /permissions /geoboard /settings /profile /location-history /location-reports /surveillance
+13. openInviteForm: {"reply":"Pre-filling invite form for John.","command":{"type":"openInviteForm","phone":"+2348012345678","name":"John"}} — use when user says "send invite to [name] [phone]" or "invite [name]"
+14. No command: {"reply":"..."}
 
 When navigating to a place, give a 2-3 sentence vivid briefing about it.
+
+## MAP NAVIGATION RULES (critical)
+- NEVER emit flyTo/fitAll/setZoom/zoomIn/zoomOut unless the user explicitly asked to move, zoom, or go somewhere. Answering an informational question ("what buildings are here", "how far is X") must NOT change the view — reply with no command.
+- "Zoom in/out" → zoomIn/zoomOut (one step). "Zoom all the way in/out" or "max zoom" → setZoom with 22 or 3. Never guess an arbitrary zoom for a simple "zoom in".
+- "Navigate/go/move/pan [direction]" with no destination named → pan command, not flyTo. flyTo is only for named places, contacts, or explicit coordinates.
+- If nearby buildings/points of interest are listed below in the map status, answer directly from that list — don't say you can't see the map.
 
 ## PHONELINK FEATURES
 GPS tracking via WhatsApp links (no app needed) • Live Map (satellite, zoom 22) • Geofences • SOS broadcast • GeoBoard (auto-captures 5 selfie frames on consent) • Consent tokens (8-char, revocable)
@@ -215,6 +228,45 @@ function extractPartialReply(accumulated: string): string {
   }
   return result;
 }
+
+// ── Nearby buildings/POI lookup (free, no key — OpenStreetMap Overpass API) ────
+// Used to answer "what buildings/places are here" without ever moving the map.
+const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+
+async function fetchNearbyPOIs(lat: number, lng: number, radiusM = 250): Promise<string[]> {
+  const query = `[out:json][timeout:8];(
+    node["building"](around:${radiusM},${lat},${lng});
+    way["building"](around:${radiusM},${lat},${lng});
+    node["amenity"](around:${radiusM},${lat},${lng});
+    node["shop"](around:${radiusM},${lat},${lng});
+  );out center 25;`;
+
+  try {
+    const resp = await fetch(OVERPASS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: query,
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!resp.ok) return [];
+    const json = (await resp.json()) as { elements?: Array<{ tags?: Record<string, string> }> };
+    const names = new Set<string>();
+    for (const el of json.elements ?? []) {
+      const tags = el.tags ?? {};
+      const name = tags.name;
+      const kind = tags.amenity ?? tags.shop ?? (tags.building && tags.building !== "yes" ? tags.building : "building");
+      if (name) names.add(`${name} (${kind})`);
+      else if (tags.amenity || tags.shop) names.add(kind);
+      if (names.size >= 15) break;
+    }
+    return Array.from(names);
+  } catch (err) {
+    console.warn("[assistant] Overpass POI lookup failed:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+const POI_KEYWORDS = ["building", "poi", "point of interest", "what's here", "whats here", "around here", "nearby", "what is here", "what's around", "what places"];
 
 // ── Distance helper ───────────────────────────────────────────────────────────
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -289,6 +341,31 @@ router.post("/assistant", async (req, res) => {
     }
   }
 
+  // Enrich with real nearby buildings/POIs (OSM Overpass) for "what's here"-style
+  // questions — this must never move the map, just inform the reply. isPoiQuery
+  // also drives a hard server-side guardrail below: informational intent never
+  // ships a map-moving command, regardless of what the model returns.
+  const isPoiQuery = POI_KEYWORDS.some((kw) => message.toLowerCase().includes(kw));
+  if (isPoiQuery) {
+    const anchorLat = mapContext?.myLat ?? mapContext?.contacts?.[0]?.lat;
+    const anchorLng = mapContext?.myLng ?? mapContext?.contacts?.[0]?.lng;
+    if (anchorLat != null && anchorLng != null) {
+      const pois = await fetchNearbyPOIs(anchorLat, anchorLng);
+      enrichedMessage += pois.length
+        ? `\n\n[Nearby buildings/POIs within ~250m: ${pois.join(", ")}]`
+        : `\n\n[No named buildings/POIs found within ~250m in OpenStreetMap data.]`;
+    }
+  }
+
+  const MOVE_COMMAND_TYPES = new Set(["flyTo", "geocode", "fitAll", "zoomIn", "zoomOut", "setZoom", "pan", "findContact", "goBack", "showStreetView"]);
+  /** Hard guardrail: informational (POI) queries never ship a map-moving command, even if the model tries. */
+  function stripMoveCommandIfInformational<T extends { command?: { type: string } | null }>(obj: T): T {
+    if (isPoiQuery && obj.command && MOVE_COMMAND_TYPES.has(obj.command.type)) {
+      return { ...obj, command: null };
+    }
+    return obj;
+  }
+
   const useVision = Boolean(image);
 
   const userContent: OpenAI.ChatCompletionUserMessageParam["content"] = image
@@ -356,8 +433,9 @@ router.post("/assistant", async (req, res) => {
         const obj = JSON.parse(accumulated);
         const validated = AiResponseSchema.safeParse(obj);
         if (validated.success) {
-          fullReply = validated.data.reply;
-          command = validated.data.command ?? null;
+          const guarded = stripMoveCommandIfInformational(validated.data);
+          fullReply = guarded.reply;
+          command = guarded.command ?? null;
         } else {
           fullReply = extractPartialReply(accumulated) || "Got it!";
         }
@@ -409,7 +487,8 @@ router.post("/assistant", async (req, res) => {
       return;
     }
 
-    const { reply, command } = validated.data;
+    const guarded = stripMoveCommandIfInformational(validated.data);
+    const { reply, command } = guarded;
     if (userId) await saveMessages(userId, message, reply);
     res.json({ reply, command: command ?? null });
   } catch (err: unknown) {

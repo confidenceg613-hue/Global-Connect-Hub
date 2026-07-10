@@ -219,6 +219,7 @@ export default function LiveMap() {
   const heatPoints    = useRef<L.HeatLatLngTuple[]>([]);
   const prevPos       = useRef<globalThis.Map<string, { lat: number; lng: number }>>(new globalThis.Map());
   const aiViewLocked  = useRef(false);
+  const viewHistory   = useRef<{ center: L.LatLng; zoom: number }[]>([]);
 
   const { data: invites, refetch } = useListInvites(
     { userId: userId! },
@@ -294,7 +295,7 @@ export default function LiveMap() {
   useEffect(() => {
     if (!mapRef.current || mapInst.current) return;
     try {
-      const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: false });
+      const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: false, maxZoom: 22 });
       L.control.zoom({ position: "bottomright" }).addTo(map);
       mapInst.current = map;
 
@@ -337,7 +338,8 @@ export default function LiveMap() {
     try {
       const url = mapMode === "road" ? ROAD_URL : mapMode === "terrain" ? TERRAIN_URL : LABELS_URL;
       tileBaseRef.current = L.tileLayer(url, {
-        maxZoom: 20,
+        maxZoom: 22,
+        maxNativeZoom: 20,
         subdomains: "0123",
         attribution: '© Google Maps',
       }).addTo(map);
@@ -364,7 +366,8 @@ export default function LiveMap() {
       if (shouldShow && !existing) {
         try {
           const layer = L.tileLayer(overlayUrls[id]!, {
-            maxZoom: 20,
+            maxZoom: 22,
+            maxNativeZoom: 20,
             subdomains: "0123",
             opacity: id === "traffic" ? 0.85 : 0.9,
             zIndex: 500,
@@ -453,13 +456,86 @@ export default function LiveMap() {
     const cleanup = onMapCommand((cmd) => {
       const map = mapInst.current;
       if (!map) return;
-      aiViewLocked.current = true;
-      if (cmd.type === "flyTo") map.flyTo([cmd.lat, cmd.lng], cmd.zoom ?? 14, { duration: 1.2 });
-      else if (cmd.type === "fitAll") {
+
+      // Track the view before non-navigational commands so "go back" can undo it.
+      const pushHistory = () => {
+        viewHistory.current.push({ center: map.getCenter(), zoom: map.getZoom() });
+        if (viewHistory.current.length > 20) viewHistory.current.shift();
+      };
+
+      if (cmd.type === "flyTo") {
+        pushHistory();
+        aiViewLocked.current = true;
+        map.flyTo([cmd.lat, cmd.lng], cmd.zoom ?? 14, { duration: 1.2 });
+      } else if (cmd.type === "fitAll") {
+        pushHistory();
+        aiViewLocked.current = true;
         const pts = latestRef.current.map(
           (i) => [i.grantedLatitude!, i.grantedLongitude!] as [number, number],
         );
         if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.08), { maxZoom: 19 });
+      } else if (cmd.type === "zoomIn") {
+        pushHistory();
+        aiViewLocked.current = true;
+        map.zoomIn(1, { animate: true });
+      } else if (cmd.type === "zoomOut") {
+        pushHistory();
+        aiViewLocked.current = true;
+        map.zoomOut(1, { animate: true });
+      } else if (cmd.type === "setZoom") {
+        pushHistory();
+        aiViewLocked.current = true;
+        map.setZoom(Math.max(map.getMinZoom(), Math.min(22, cmd.zoom)), { animate: true });
+      } else if (cmd.type === "pan") {
+        // Pan by a fraction of the current viewport in the requested compass
+        // direction — smooth and proportional to zoom, never re-zooms.
+        pushHistory();
+        aiViewLocked.current = true;
+        const size = map.getSize();
+        const fraction = cmd.amount ?? 0.5;
+        const dx = cmd.direction === "east" ? size.x * fraction : cmd.direction === "west" ? -size.x * fraction : 0;
+        const dy = cmd.direction === "south" ? size.y * fraction : cmd.direction === "north" ? -size.y * fraction : 0;
+        map.panBy([dx, dy], { animate: true, duration: 0.8 });
+      } else if (cmd.type === "findContact") {
+        const match = latestRef.current.find(
+          (i) => i.toName?.toLowerCase().includes(cmd.name.toLowerCase()),
+        );
+        if (!match) { toast({ title: `No contact matching "${cmd.name}"`, variant: "destructive" }); return; }
+        const live = livePos.current.get(match.token);
+        const lat = live ? live.lat : match.grantedLatitude!;
+        const lng = live ? live.lng : match.grantedLongitude!;
+        pushHistory();
+        aiViewLocked.current = true;
+        map.flyTo([lat, lng], 15, { duration: 1.2 });
+      } else if (cmd.type === "goBack") {
+        const prev = viewHistory.current.pop();
+        if (prev) {
+          aiViewLocked.current = true;
+          map.flyTo(prev.center, prev.zoom, { duration: 1 });
+        } else {
+          aiViewLocked.current = false; // resume auto-fit to live contacts
+          toast({ title: "Already at the earliest view" });
+        }
+      } else if (cmd.type === "setLayer") {
+        if (cmd.layer === "heatmap") setShowHeatmap(cmd.enabled);
+        else if (cmd.layer === "journeys") setShowJourneys(cmd.enabled);
+        else if (cmd.layer === "clusters") setShowClusters(cmd.enabled);
+      } else if (cmd.type === "showStreetView") {
+        if (cmd.lat == null || cmd.lng == null) {
+          toast({ title: "Missing coordinates for Street View", variant: "destructive" });
+          return;
+        }
+        pushHistory();
+        aiViewLocked.current = true;
+        map.flyTo([cmd.lat, cmd.lng], 17, { duration: 1.2 });
+        setStreetView({ lat: cmd.lat, lng: cmd.lng, name: cmd.name ?? "Location" });
+      } else if (cmd.type === "showImages") {
+        const first = latestRef.current[0];
+        if (!first) { toast({ title: "No contacts to show imagery for", variant: "destructive" }); return; }
+        const live = livePos.current.get(first.token);
+        const lat = live ? live.lat : first.grantedLatitude!;
+        const lng = live ? live.lng : first.grantedLongitude!;
+        setStreetView({ lat, lng, name: first.toName ?? "Contact" });
       }
     });
     return () => { unregister(); cleanup(); };
