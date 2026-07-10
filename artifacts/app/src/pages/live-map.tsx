@@ -97,6 +97,24 @@ function initials(name: string | null | undefined) {
   return name.split(" ").map((w) => w[0] ?? "").join("").toUpperCase().slice(0, 2);
 }
 
+type ActivityType = "stationary" | "walking" | "running" | "driving";
+const ACTIVITY_INFO: Record<ActivityType, { icon: string; label: string; color: string }> = {
+  stationary: { icon: "⏸️", label: "Stationary", color: "#94a3b8" },
+  walking:    { icon: "🚶", label: "Walking",    color: "#60a5fa" },
+  running:    { icon: "🏃", label: "Running",    color: "#fb923c" },
+  driving:    { icon: "🚗", label: "Driving",    color: "#34d399" },
+};
+
+// Device telemetry merged in from the owner-scoped /api/sessions endpoint —
+// never fetched from any token/public route, so a contact (or anyone with
+// just the share link) can never see their own battery/speed here.
+interface SessionTelemetry {
+  batteryLevel: number | null;
+  batteryCharging: boolean | null;
+  activityType: ActivityType | null;
+  speedMps: number | null;
+}
+
 function riskBadgeHtml(level: "low" | "medium" | "high") {
   const m = {
     low:    { bg: "rgba(16,185,129,.15)",  border: "rgba(16,185,129,.4)",  text: "#6ee7b7", label: "LOW RISK"  },
@@ -106,7 +124,7 @@ function riskBadgeHtml(level: "low" | "medium" | "high") {
   return `<span style="display:inline-flex;align-items:center;gap:3px;background:${m.bg};border:1px solid ${m.border};border-radius:4px;padding:2px 6px;font-size:9px;font-weight:700;letter-spacing:0.06em;color:${m.text}">${m.label}</span>`;
 }
 
-function makePin(color: string, label: string, isMine = false, bearing?: number) {
+function makePin(color: string, label: string, isMine = false, bearing?: number, lowBattery = false) {
   const size = isMine ? 46 : 38;
   const bg = isMine ? "#fff" : color;
   const fg = isMine ? color : "#fff";
@@ -117,6 +135,12 @@ function makePin(color: string, label: string, isMine = false, bearing?: number)
          </svg>
        </div>`
     : "";
+  // Low-battery warning badge — only shown for live contacts under 15% and
+  // not charging, so an owner can spot a contact about to drop off tracking
+  // without opening every popup.
+  const batteryBadge = lowBattery
+    ? `<div style="position:absolute;bottom:-3px;right:-3px;width:16px;height:16px;border-radius:50%;background:#ef4444;border:2px solid #0a0a0a;display:flex;align-items:center;justify-content:center;font-size:9px;line-height:1;">🪫</div>`
+    : "";
   return L.divIcon({
     className: "",
     html: `<div style="position:relative;width:${size}px;height:${size + 12}px;filter:drop-shadow(0 4px 12px ${color}66);">
@@ -126,6 +150,7 @@ function makePin(color: string, label: string, isMine = false, bearing?: number)
         <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:4px;height:10px;background:${bg};clip-path:polygon(50% 100%,0% 0%,100% 0%);"></div>
       </div>
       ${arrow}
+      ${batteryBadge}
     </div>`,
     iconSize: [size, size + 12],
     iconAnchor: [size / 2, size + 12],
@@ -283,6 +308,43 @@ export default function LiveMap() {
       acc[inv.toPhone].push(inv);
       return acc;
     }, {});
+
+  // ── Device telemetry (battery/activity/speed) ───────────────────────────────
+  // Polled separately from the owner-scoped /api/sessions endpoint since it's
+  // never broadcast over the token-authenticated SSE stream (that channel is
+  // reachable by whoever holds a contact's share link).
+  const [telemetryByToken, setTelemetryByToken] = useState<globalThis.Map<string, SessionTelemetry>>(new globalThis.Map());
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/sessions?userId=${userId}`);
+        if (!r.ok || cancelled) return;
+        const rows: Array<{
+          token: string; batteryLevel: number | null; batteryCharging: boolean | null;
+          activityType: ActivityType | null; deviceInfo: Record<string, unknown> | null;
+        }> = await r.json();
+        if (cancelled) return;
+        const next = new globalThis.Map<string, SessionTelemetry>();
+        for (const row of rows) {
+          const speedMps = row.deviceInfo && typeof row.deviceInfo.speedMps === "number" ? row.deviceInfo.speedMps : null;
+          next.set(row.token, {
+            batteryLevel: row.batteryLevel,
+            batteryCharging: row.batteryCharging,
+            activityType: row.activityType,
+            speedMps,
+          });
+        }
+        setTelemetryByToken(next);
+        scheduleMarkerUpdate();
+      } catch { /* non-critical */ }
+    };
+    load();
+    const id = setInterval(load, 15000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [userId, scheduleMarkerUpdate]);
 
   const geoClusteredPhones = findClusters(
     latest.filter((inv) => isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!))
@@ -716,7 +778,9 @@ export default function LiveMap() {
           layersRef.current.push(ring);
         }
 
-        const marker = L.marker([lat, lng], { icon: makePin(pinColor, initials(inv.toName), false, isLive ? rawLive?.bearing : undefined) }).addTo(map);
+        const telemetry = telemetryByToken.get(inv.token);
+        const lowBattery = isLive && telemetry?.batteryLevel != null && telemetry.batteryLevel <= 15 && !telemetry.batteryCharging;
+        const marker = L.marker([lat, lng], { icon: makePin(pinColor, initials(inv.toName), false, isLive ? rawLive?.bearing : undefined, lowBattery) }).addTo(map);
         layersRef.current.push(marker);
 
         marker.bindPopup("", { className: "pl-popup", maxWidth: 320, minWidth: 280 });
@@ -756,6 +820,15 @@ export default function LiveMap() {
                 ${rawLive?.accuracy != null ? `<div style="font-size:10px;color:#a1a1aa;margin-top:2px;">🎯 ±${esc(Math.round(rawLive.accuracy))}m accuracy</div>` : ""}
                 ${distRow}
               </div>
+              ${telemetry && (telemetry.activityType || telemetry.batteryLevel != null) ? `
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+                ${telemetry.activityType ? (() => {
+                  const info = ACTIVITY_INFO[telemetry.activityType!];
+                  const speedKmh = telemetry.speedMps != null && telemetry.speedMps > 0.2 ? ` · ${(telemetry.speedMps * 3.6).toFixed(1)} km/h` : "";
+                  return `<span style="font-size:10px;font-weight:700;padding:3px 7px;border-radius:999px;border:1px solid ${esc(info.color)}40;background:${esc(info.color)}15;color:${esc(info.color)};">${esc(info.icon)} ${esc(info.label)}${esc(speedKmh)}</span>`;
+                })() : ""}
+                ${telemetry.batteryLevel != null ? `<span style="font-size:10px;font-weight:700;font-family:ui-monospace,monospace;padding:3px 7px;border-radius:999px;border:1px solid ${telemetry.batteryLevel <= 15 && !telemetry.batteryCharging ? "rgba(239,68,68,.4)" : "rgba(255,255,255,.12)"};background:${telemetry.batteryLevel <= 15 && !telemetry.batteryCharging ? "rgba(239,68,68,.12)" : "rgba(255,255,255,.05)"};color:${telemetry.batteryLevel <= 15 && !telemetry.batteryCharging ? "#fca5a5" : "#d4d4d8"};">${telemetry.batteryCharging ? "⚡" : "🔋"} ${esc(telemetry.batteryLevel)}%</span>` : ""}
+              </div>` : ""}
               <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:10px;">
                 <span style="font-size:10px;color:#71717a;font-family:ui-monospace,monospace;">🔁 ${esc(grantCount)} grant${grantCount !== 1 ? "s" : ""}</span>
                 <div style="display:flex;gap:6px;">
