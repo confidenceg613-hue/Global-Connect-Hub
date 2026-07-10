@@ -1,10 +1,12 @@
 ---
 name: Path-router vs combined workflow
-description: Why the public dev domain can 502 while localhost works fine, when artifact.toml files are present.
+description: How to decide between per-artifact workflows and a single combined workflow when artifact.toml files are present.
 ---
 
-When a project has `artifacts/*/.replit-artifact/artifact.toml` files (multi-artifact / imported full-stack project), the platform's public dev-domain proxy routes requests **by path** to each artifact's own declared `localPort` (from its `artifact.toml` `[[services]]` entry), not to whatever port a single combined dev-startup script happens to bind.
+`artifact.toml` files live under `artifacts/*/.replit-artifact/` (a hidden directory) — a plain `find . -iname artifact.toml` can miss them if it excludes dotfiles/dirs; check that exact path before concluding they're absent.
 
-**Why:** A monorepo can have its own custom single-workflow dev script (e.g. `scripts/start-dev.sh`) that builds/starts an API server and a Vite frontend together on ports it picks itself (e.g. 5000 + 8080). If artifact.toml files also exist for those same services with *different* declared ports (e.g. app on 23863), the router uses the artifact.toml ports for external traffic. The combined workflow still answers fine on `localhost:<its own port>`, but the public `*.replit.dev` domain 502s because nothing is listening on the ports the router expects.
+Their presence does not by itself mean the public dev domain routes by path to each artifact's declared port. Treat `.replit`'s `[[ports]]` section as the runtime source of truth for what's externally reachable, and treat the artifact.toml ports as advisory only.
 
-**How to apply:** If the public dev domain 502s while `curl localhost:<port>` succeeds, check for `artifact.toml` files under `artifacts/*/.replit-artifact/`. If present, remove the old combined workflow and instead start the per-artifact workflows (they read `[services.env]` / `[services.development].run` from artifact.toml and bind the exact ports the router expects). Only start the artifacts actually needed (e.g. skip mobile/mockup-sandbox if unused).
+**Why:** a monorepo can have its own combined dev script (e.g. `scripts/start-dev.sh`) binding ports it picks itself, while artifact.toml files declare different per-service ports for a path-based router. Whether that router is actually active depends on the project's `.replit` port mappings and the workflow tooling's supported ports (webview mode only supports port 5000) — in practice this varies per project/session.
+
+**How to apply:** if the public dev domain 502s while `curl localhost:<port>` succeeds, check `.replit`'s `[[ports]]` first. If only port 5000 is mapped externally (or the artifact's declared port isn't in the workflow tool's supported list), keep/use a single combined workflow serving on port 5000 — per-artifact workflows on unmapped or unsupported ports won't be reachable regardless of what artifact.toml declares. Only switch to per-artifact workflows when `.replit` actually maps each artifact's declared port externally.

@@ -27,15 +27,7 @@ scripts/
 
 ## Running the app
 
-The project is split into per-artifact workflows that match the platform's path-based router:
-- **`artifacts/app: web`** — Vite dev server for the frontend, served at `/`
-- **`artifacts/api-server: API Server`** — Express API, served at `/api`
-- **`artifacts/mobile: expo`** — Expo dev server, served at `/mobile/` (start on demand)
-- **`artifacts/mockup-sandbox: Component Preview Server`** — Canvas component previews at `/__mockup` (start on demand)
-
-Each workflow sets its own `PORT`/`BASE_PATH` via its `artifact.toml`. Start both `artifacts/app: web` and `artifacts/api-server: API Server` to run the full app; the other two are optional and only needed for mobile or canvas work.
-
-Note: the previous single combined `Start application` / `scripts/start-dev.sh` workflow was replaced because the platform's dev-domain router now proxies by path to each artifact's own port — running the old combined workflow left the router pointing at ports nothing was listening on, causing HTTP 502 on the public dev URL even though `localhost:5000` worked fine.
+A single `Start application` workflow runs `scripts/start-dev.sh`, which builds and starts the API server on port 8080, waits for it to be ready, then starts the Vite dev server on port 5000. `.replit` only maps port 5000 to the external/public domain (`[[ports]] localPort = 5000`), so port 5000 (proxied to `/api` on 8080 by Vite) is what's actually reachable — `artifact.toml` files exist under `artifacts/*/.replit-artifact/` declaring other ports (e.g. app on 23863), but since `.replit` doesn't expose those ports externally and this environment's workflow tooling doesn't support arbitrary ports, the combined single-workflow setup on port 5000 is the correct and verified one to use here.
 
 ## Environment variables
 
@@ -46,14 +38,15 @@ Set in `.replit` shared env:
 - `VAPID_SUBJECT` — Web push contact email
 
 Required secrets (add in Replit Secrets):
-- `VAPID_PRIVATE_KEY` — Web push private key (push notifications)
 - `SESSION_SECRET` — Session signing secret
 
 Optional secrets (features degrade gracefully without them):
-- `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_VISION_MODEL` — AI assistant + screen vision
+- `VAPID_PRIVATE_KEY` — Web push private key; without it, push notifications are skipped (still logged to `notifications_log`) but nothing else breaks
+- `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_VISION_MODEL` — AI assistant + screen vision (assistant returns 503 without it)
 - `MISTRAL_API_KEY` — Mistral AI model
 - `GROQ_API_KEY_1` / `GROQ_API_KEY_2` — Groq inference
 - `GOOGLE_MAPS_API_KEY` — Maps integration
+- `MAPILLARY_ACCESS_TOKEN` — Street View imagery (unavailable without it)
 
 Database (`DATABASE_URL`) is managed automatically by Replit.
 
@@ -64,7 +57,7 @@ Schema is managed with Drizzle ORM. To push schema changes to the dev database:
 cd lib/db && pnpm run push
 ```
 
-Tables: `users`, `assistant-messages`, `geo-videos`, `geo-photos`, `geofences`, `location-updates`, `invites`, `consents`, `push-subscriptions`, `street_view_photos`
+Tables: `users`, `assistant_messages`, `geo_videos`, `geo_photos`, `geofences`, `location_updates`, `location_type_overrides`, `location_type_reports`, `invites`, `consents`, `push_subscriptions`, `notifications_log`, `street_view_photos`
 
 ## Street View
 

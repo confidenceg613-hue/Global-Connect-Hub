@@ -2,4 +2,4 @@
 - [GeoBoard feature](geoboard.md) — auto-captures 5 camera frames when a contact grants location consent; stored in geo_photos table as base64 JPEG; viewed at /geoboard in app.
 - [Auth is localStorage-only](auth-model.md) — no OTP/session verification exists; useAuth just stores userId in localStorage, so any resolve/dismiss-style endpoint MUST verify ownership server-side.
 - [Screen Vision Feature](screen-vision.md) — getDisplayMedia → canvas frame → vision model; mutex ref, finally cleanup, 2.8MB backend cap, flexible JSON/prose parser.
-- [Path-router vs combined workflow](path-router-workflows.md) — when artifact.toml files exist (app/api-server/etc), public dev domain routes by path to each artifact's own port; a single combined workflow serving everything on one port causes external 502s even though localhost works.
+- [Path-router vs combined workflow](path-router-workflows.md) — artifact.toml (hidden dir) declares per-service ports, but `.replit [[ports]]` is the real source of truth for what's externally reachable; check it before choosing single vs per-artifact workflows.
