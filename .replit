@@ -52,5 +52,5 @@ channel = "stable-25_05"
 [userenv.shared]
 VAPID_PUBLIC_KEY = "BGsFFaTA-uRJu2LqW7spIXSkgaUGCfgy3eckDbxffUJ7N80C5NO0V1jhETymchIu4RWw8MHqgmBYEIogR84yhX0"
 VAPID_SUBJECT = "mailto:admin@phonelink.app"
-VITE_GOOGLE_CLIENT_ID = "173322068449-3l1ar5dteanbouvc7bsp13trgbiokgds.apps.googleusercontent.com"
-GOOGLE_CLIENT_ID = "173322068449-3l1ar5dteanbouvc7bsp13trgbiokgds.apps.googleusercontent.com"
+VITE_GOOGLE_CLIENT_ID = "173322068449-fpgudmuc4u96vksoaqceapn26ubast7c.apps.googleusercontent.com"
+GOOGLE_CLIENT_ID = "173322068449-fpgudmuc4u96vksoaqceapn26ubast7c.apps.googleusercontent.com"
