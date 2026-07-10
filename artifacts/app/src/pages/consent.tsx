@@ -42,7 +42,7 @@ function fallbackCopy(text: string): Promise<void> {
 }
 
 const fullHeight: React.CSSProperties = { minHeight: "100svh" };
-const AUTO_RETRY_SECONDS = 30;
+const AUTO_RETRY_SECONDS = 5;
 
 /** Cute pleading-cat animation shown while we auto-retry location access. */
 function StayWithMeKitten({ secondsLeft }: { secondsLeft: number }) {
