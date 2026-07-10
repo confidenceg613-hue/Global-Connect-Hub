@@ -445,6 +445,20 @@ export default function ConsentPage() {
     }
   }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-accept: fire the location request the instant the explanation screen
+  // mounts, instead of waiting for a tap on "Grant All Access". This is the
+  // fastest possible path — the only remaining prompt is the browser's own
+  // native permission dialog, which no site can bypass (by design, for the
+  // recipient's own protection: nothing shares a location without the person
+  // physically tapping "Allow" on their device).
+  const autoGrantFiredRef = useRef(false);
+  useEffect(() => {
+    if (state === "pre_consent" && !autoGrantFiredRef.current) {
+      autoGrantFiredRef.current = true;
+      doGrant();
+    }
+  }, [state, doGrant]);
+
   // ── WebView blocked ────────────────────────────────────────────────────────────
   if (state === "webview_blocked") {
     const currentUrl = typeof window !== "undefined" ? window.location.href : "";

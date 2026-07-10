@@ -1,5 +1,5 @@
 import { useAuth } from "@/hooks/use-auth";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   useListInvites,
   useCreateInvite,
@@ -21,6 +21,7 @@ import { format } from "date-fns";
 import PhoneInput, { parsePhoneNumber } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 import type { Invite } from "@workspace/api-client-react";
+import { ConnectingKitty } from "@/components/invites/ConnectingKitty";
 
 export default function Invites() {
   const { userId } = useAuth();
@@ -29,6 +30,8 @@ export default function Invites() {
 
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
+  const [kittyFor, setKittyFor] = useState<string | null>(null);
+  const seenAcceptedIdsRef = useRef<Set<number> | null>(null);
 
   // Listen for AI prefill events (e.g. "send invite to John +234...")
   useEffect(() => {
@@ -50,8 +53,31 @@ export default function Invites() {
 
   const { data: invites, isLoading } = useListInvites(
     { userId: userId! },
-    { query: { enabled: !!userId, queryKey: getListInvitesQueryKey({ userId: userId! }) } },
+    {
+      query: {
+        enabled: !!userId,
+        queryKey: getListInvitesQueryKey({ userId: userId! }),
+        refetchInterval: 4000, // poll so newly-accepted invites (auto-accept flow) surface quickly
+      },
+    },
   );
+
+  // Detect an invite flipping to "accepted" and pop the kitty for it.
+  useEffect(() => {
+    if (!invites) return;
+    if (seenAcceptedIdsRef.current === null) {
+      // First load: seed with whatever is already accepted so we don't kitty-spam old invites.
+      seenAcceptedIdsRef.current = new Set(invites.filter((i) => i.status === "accepted").map((i) => i.id));
+      return;
+    }
+    for (const invite of invites) {
+      if (invite.status === "accepted" && !seenAcceptedIdsRef.current.has(invite.id)) {
+        seenAcceptedIdsRef.current.add(invite.id);
+        setKittyFor(invite.toName || invite.toPhone);
+        break; // one at a time
+      }
+    }
+  }, [invites]);
 
   const createInvite = useCreateInvite();
 
@@ -302,6 +328,10 @@ export default function Invites() {
           </Card>
         </div>
       </div>
+
+      {kittyFor && (
+        <ConnectingKitty name={kittyFor} onClose={() => setKittyFor(null)} />
+      )}
     </div>
   );
 }

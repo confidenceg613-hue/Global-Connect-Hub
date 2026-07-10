@@ -189,6 +189,11 @@ When navigating to a place, give a 2-3 sentence vivid briefing about it.
 - "Navigate/go/move/pan [direction]" with no destination named → pan command, not flyTo. flyTo is only for named places, contacts, or explicit coordinates.
 - If nearby buildings/points of interest are listed below in the map status, answer directly from that list — don't say you can't see the map.
 
+## CRIME & SAFETY QUESTIONS
+- If real crime/safety data is provided below in brackets, answer directly from it — cite whether it's official police records or a heuristic, never invent numbers.
+- If it says no official feed covers the area, say so plainly, then share whatever heuristic context is given. Never claim a specific crime rate or statistic that wasn't provided to you.
+- These questions are informational only — never move the map for them.
+
 ## PHONELINK FEATURES
 GPS tracking via WhatsApp links (no app needed) • Live Map (satellite, zoom 22) • Geofences • SOS broadcast • GeoBoard (auto-captures 5 selfie frames on consent) • Consent tokens (8-char, revocable)
 
@@ -268,6 +273,102 @@ async function fetchNearbyPOIs(lat: number, lng: number, radiusM = 250): Promise
 
 const POI_KEYWORDS = ["building", "poi", "point of interest", "what's here", "whats here", "around here", "nearby", "what is here", "what's around", "what places"];
 
+// ── Crime & safety lookup ───────────────────────────────────────────────────────
+// Real records via UK Police's free, keyless open-data API (data.police.uk) where
+// coverage exists. Outside that coverage there is no free/keyless global crime
+// feed, so we're honest about the gap and fall back to a heuristic built from real
+// OSM POI data (police/government/military presence nearby) — never fabricated stats.
+const SAFETY_KEYWORDS = [
+  "crime", "crime rate", "safe", "safety", "is it safe", "dangerous", "danger",
+  "risky", "risk level", "police report", "burglary", "theft", "mugging", "violence",
+  "how safe",
+];
+
+interface CrimeRecord { category: string; }
+
+/** Rough UK bounding box — data.police.uk returns HTTP 200 with an empty array for
+ * out-of-coverage coordinates instead of an error, so we must gate by location
+ * ourselves or we'd misreport "0 incidents" for places never actually checked. */
+function isRoughlyInUk(lat: number, lng: number): boolean {
+  return lat >= 49.8 && lat <= 60.9 && lng >= -8.7 && lng <= 1.8;
+}
+
+async function fetchUkCrimeData(lat: number, lng: number): Promise<{ total: number; topCategories: string[] } | null> {
+  if (!isRoughlyInUk(lat, lng)) return null;
+  try {
+    const resp = await fetch(
+      `https://data.police.uk/api/crimes-street/all-crime?lat=${lat}&lng=${lng}`,
+      { signal: AbortSignal.timeout(9000) },
+    );
+    if (!resp.ok) return null; // e.g. 503 outside UK coverage or bad request
+    const records = (await resp.json()) as CrimeRecord[];
+    if (!Array.isArray(records)) return null;
+    const counts = new Map<string, number>();
+    for (const r of records) {
+      const label = r.category.replace(/-/g, " ");
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    const topCategories = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([label, n]) => `${label} (${n})`);
+    return { total: records.length, topCategories };
+  } catch (err) {
+    console.warn("[assistant] UK crime data lookup failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/** Heuristic safety context from real OSM tags when no official crime feed covers the area. */
+async function fetchHeuristicSafetyContext(lat: number, lng: number, radiusM = 400): Promise<string[]> {
+  const query = `[out:json][timeout:8];(
+    node["amenity"="police"](around:${radiusM},${lat},${lng});
+    node["amenity"="hospital"](around:${radiusM},${lat},${lng});
+    node["office"="government"](around:${radiusM},${lat},${lng});
+    node["military"](around:${radiusM},${lat},${lng});
+    way["landuse"="military"](around:${radiusM},${lat},${lng});
+    node["amenity"="prison"](around:${radiusM},${lat},${lng});
+  );out center 15;`;
+  try {
+    const resp = await fetch(OVERPASS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: query,
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!resp.ok) return [];
+    const json = (await resp.json()) as { elements?: Array<{ tags?: Record<string, string> }> };
+    const notes: string[] = [];
+    for (const el of json.elements ?? []) {
+      const tags = el.tags ?? {};
+      if (tags.amenity === "police") notes.push(`police station${tags.name ? ` (${tags.name})` : ""} nearby`);
+      else if (tags.amenity === "hospital") notes.push(`hospital${tags.name ? ` (${tags.name})` : ""} nearby`);
+      else if (tags.amenity === "prison") notes.push("prison/detention facility nearby");
+      else if (tags.office === "government") notes.push(`government building${tags.name ? ` (${tags.name})` : ""} nearby`);
+      else if (tags.military || tags.landuse === "military") notes.push("military site nearby");
+      if (notes.length >= 8) break;
+    }
+    return notes;
+  } catch (err) {
+    console.warn("[assistant] Heuristic safety lookup failed:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+async function buildSafetyContext(lat: number, lng: number): Promise<string> {
+  const ukData = await fetchUkCrimeData(lat, lng);
+  if (ukData) {
+    return ukData.total > 0
+      ? `\n\n[Official UK Police crime records within ~1 mile, last reporting month: ${ukData.total} incidents. Top categories: ${ukData.topCategories.join(", ")}. Source: data.police.uk]`
+      : `\n\n[Official UK Police crime records within ~1 mile, last reporting month: 0 incidents reported. Source: data.police.uk]`;
+  }
+  // No official feed covers this area — be explicit about that, then offer the heuristic signal.
+  const notes = await fetchHeuristicSafetyContext(lat, lng);
+  return notes.length
+    ? `\n\n[No official crime-record API covers this location, so exact statistics aren't available. Heuristic context from OpenStreetMap: ${notes.join(", ")}.]`
+    : `\n\n[No official crime-record API covers this location, and no notable safety-related landmarks (police/hospital/government/military) were found within ~400m in OpenStreetMap data.]`;
+}
+
 // ── Distance helper ───────────────────────────────────────────────────────────
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
@@ -314,7 +415,11 @@ router.post("/assistant", async (req, res) => {
   }
 
   const parsed = SendMessageBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  if (!parsed.success) {
+    console.warn("[assistant] invalid request body:", parsed.error.message);
+    res.status(400).json({ reply: "That message couldn't be sent — please try rephrasing it.", command: null });
+    return;
+  }
 
   const { message, userId, image, mapContext } = parsed.data;
   const wantsStream = req.headers.accept?.includes("text/event-stream");
@@ -357,10 +462,26 @@ router.post("/assistant", async (req, res) => {
     }
   }
 
+  // Enrich with real crime/safety data for "is this safe" / "crime rate" style
+  // questions. Uses official UK Police records where available; elsewhere, is
+  // upfront that no official feed covers the area and offers a heuristic signal
+  // instead of fabricating statistics. Never moves the map (informational only).
+  const isSafetyQuery = SAFETY_KEYWORDS.some((kw) => message.toLowerCase().includes(kw));
+  if (isSafetyQuery) {
+    const anchorLat = mapContext?.myLat ?? mapContext?.contacts?.[0]?.lat;
+    const anchorLng = mapContext?.myLng ?? mapContext?.contacts?.[0]?.lng;
+    if (anchorLat != null && anchorLng != null) {
+      enrichedMessage += await buildSafetyContext(anchorLat, anchorLng);
+    } else {
+      enrichedMessage += "\n\n[No location available to check safety/crime data for — ask the user which place, or open the Live Map first.]";
+    }
+  }
+
   const MOVE_COMMAND_TYPES = new Set(["flyTo", "geocode", "fitAll", "zoomIn", "zoomOut", "setZoom", "pan", "findContact", "goBack", "showStreetView"]);
-  /** Hard guardrail: informational (POI) queries never ship a map-moving command, even if the model tries. */
+  const isInformationalQuery = isPoiQuery || isSafetyQuery;
+  /** Hard guardrail: informational (POI/safety) queries never ship a map-moving command, even if the model tries. */
   function stripMoveCommandIfInformational<T extends { command?: { type: string } | null }>(obj: T): T {
-    if (isPoiQuery && obj.command && MOVE_COMMAND_TYPES.has(obj.command.type)) {
+    if (isInformationalQuery && obj.command && MOVE_COMMAND_TYPES.has(obj.command.type)) {
       return { ...obj, command: null };
     }
     return obj;
@@ -448,7 +569,8 @@ router.post("/assistant", async (req, res) => {
       res.end();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      send({ type: "error", message: msg });
+      console.error("[assistant] stream failed:", msg);
+      send({ type: "error", message: "I ran into a hiccup on my end — please try that again in a moment." });
       res.end();
     }
     return;
@@ -493,7 +615,8 @@ router.post("/assistant", async (req, res) => {
     res.json({ reply, command: command ?? null });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ reply: "I ran into an error. Please try again.", error: msg, command: null });
+    console.error("[assistant] request failed:", msg);
+    res.status(500).json({ reply: "I ran into a hiccup on my end — please try that again in a moment.", command: null });
   }
 });
 
