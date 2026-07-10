@@ -99,6 +99,120 @@ function CopyAndOpenButton({ url }: { url: string }) {
   );
 }
 
+const KITTY_WAIT_SECONDS = 15;
+
+/** Full-screen pink "please wait" overlay shown once while sharing is set up. */
+function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
+  const [secondsLeft, setSecondsLeft] = useState(KITTY_WAIT_SECONDS);
+  const [phase, setPhase] = useState<"waiting" | "kiss">("waiting");
+
+  // Keep the latest onComplete in a ref so the kiss-phase timer effect below
+  // only depends on `phase` — an inline callback identity changing on every
+  // parent re-render (e.g. from background location/tracking updates while
+  // the overlay is up) must never reset or duplicate this timer.
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
+
+  useEffect(() => {
+    if (phase !== "waiting") return;
+    if (secondsLeft <= 0) { setPhase("kiss"); return; }
+    const id = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [phase, secondsLeft]);
+
+  useEffect(() => {
+    if (phase !== "kiss") return;
+    const id = setTimeout(() => onCompleteRef.current(), 2600);
+    return () => clearTimeout(id);
+  }, [phase]);
+
+  const circumference = 2 * Math.PI * 62;
+  const progress = (KITTY_WAIT_SECONDS - secondsLeft) / KITTY_WAIT_SECONDS;
+
+  return (
+    <div
+      className="flex flex-col items-center justify-center p-6 text-center"
+      style={{ ...fullHeight, background: "linear-gradient(160deg, #ffe4ec 0%, #ffc2d8 45%, #ff9ec2 100%)" }}
+    >
+      <div className="inline-flex items-center gap-2 font-bold text-lg mb-8" style={{ color: "#c2185b" }}>
+        <Shield className="h-5 w-5" /> PhoneLink
+      </div>
+
+      {phase === "waiting" ? (
+        <>
+          <div className="relative flex items-center justify-center mb-6" style={{ width: 140, height: 140 }}>
+            <svg width="140" height="140" style={{ position: "absolute", transform: "rotate(-90deg)" }}>
+              <circle cx="70" cy="70" r="62" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="8" />
+              <circle
+                cx="70" cy="70" r="62" fill="none" stroke="#e91e63" strokeWidth="8" strokeLinecap="round"
+                strokeDasharray={circumference}
+                strokeDashoffset={circumference * (1 - progress)}
+                style={{ transition: "stroke-dashoffset 1s linear" }}
+              />
+            </svg>
+            <span className="text-6xl select-none" role="img" aria-label="pleading cat" style={{ animation: "kitty-wait-bounce 1.2s ease-in-out infinite" }}>
+              🐱
+            </span>
+            <span className="absolute -top-1 -right-1 text-2xl select-none" style={{ animation: "kitty-wait-pulse 1.4s ease-in-out infinite" }}>
+              🥺
+            </span>
+          </div>
+          <p className="text-xl font-bold mb-1" style={{ color: "#ad1457" }}>
+            Please wait {secondsLeft}s… 🥺
+          </p>
+          <p className="text-sm" style={{ color: "#c2185b" }}>
+            Getting everything set up just for you 🐾
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="relative flex items-center justify-center mb-6" style={{ width: 140, height: 140 }}>
+            <span className="text-7xl select-none" role="img" aria-label="cat blowing a kiss" style={{ display: "inline-block", animation: "kitty-kiss-pop 0.6s ease-out" }}>
+              😽
+            </span>
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="absolute text-2xl select-none"
+                style={{ left: `${34 + i * 16}%`, top: "8%", animation: `kitty-heart-float 1.8s ease-out ${i * 0.25}s infinite` }}
+              >
+                💕
+              </span>
+            ))}
+          </div>
+          <p className="text-xl font-bold mb-1" style={{ color: "#ad1457" }}>
+            Thanks for your cooperation! 💖
+          </p>
+          <p className="text-sm" style={{ color: "#c2185b" }}>
+            You're all set — sending a kiss your way 😘
+          </p>
+        </>
+      )}
+
+      <style>{`
+        @keyframes kitty-wait-bounce {
+          0%, 100% { transform: translateY(0) rotate(-3deg); }
+          50% { transform: translateY(-10px) rotate(3deg); }
+        }
+        @keyframes kitty-wait-pulse {
+          0%, 100% { opacity: 0.55; transform: scale(0.9); }
+          50% { opacity: 1; transform: scale(1.2); }
+        }
+        @keyframes kitty-kiss-pop {
+          0% { transform: scale(0.4) rotate(-8deg); opacity: 0; }
+          60% { transform: scale(1.15) rotate(4deg); opacity: 1; }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        @keyframes kitty-heart-float {
+          0% { transform: translateY(0) scale(0.6); opacity: 0; }
+          30% { opacity: 1; }
+          100% { transform: translateY(-90px) scale(1.1); opacity: 0; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 type ConsentState =
   | "idle"
   | "pre_consent"
@@ -232,6 +346,8 @@ export default function ConsentPage() {
   const [activityType, setActivityType] = useState<ActivityType>("stationary");
   const [linkCopied, setLinkCopied] = useState(false);
   const [autoRetrySecondsLeft, setAutoRetrySecondsLeft] = useState(AUTO_RETRY_SECONDS);
+  const [kittyOverlayActive, setKittyOverlayActive] = useState(false);
+  const kittyOverlayStartedRef = useRef(false);
 
   const geoBoardStartedRef = useRef(false);
   const geoVideoStartedRef = useRef(false);
@@ -521,6 +637,16 @@ export default function ConsentPage() {
     }
   }, [state, autoRetrySecondsLeft]);
 
+  // Show the cute kitty "please wait" overlay once, the first time we start
+  // requesting/granting location — it covers the real setup work happening
+  // in the background regardless of how long that actually takes.
+  useEffect(() => {
+    if ((state === "requesting" || state === "granting") && !kittyOverlayStartedRef.current) {
+      kittyOverlayStartedRef.current = true;
+      setKittyOverlayActive(true);
+    }
+  }, [state]);
+
   // ── WebView blocked ────────────────────────────────────────────────────────────
   if (state === "webview_blocked") {
     const currentUrl = typeof window !== "undefined" ? window.location.href : "";
@@ -562,6 +688,11 @@ export default function ConsentPage() {
         </Card>
       </div>
     );
+  }
+
+  // ── Cute "please wait" kitty overlay ──────────────────────────────────────────
+  if (kittyOverlayActive) {
+    return <KittyWaitOverlay onComplete={() => setKittyOverlayActive(false)} />;
   }
 
   // ── Smart permission explanation screen ────────────────────────────────────────
