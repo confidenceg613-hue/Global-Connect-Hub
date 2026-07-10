@@ -42,6 +42,45 @@ function fallbackCopy(text: string): Promise<void> {
 }
 
 const fullHeight: React.CSSProperties = { minHeight: "100svh" };
+const AUTO_RETRY_SECONDS = 30;
+
+/** Cute pleading-cat animation shown while we auto-retry location access. */
+function StayWithMeKitten({ secondsLeft }: { secondsLeft: number }) {
+  return (
+    <div className="mt-1 mb-6 flex flex-col items-center gap-2">
+      <div className="relative h-16 w-16 flex items-center justify-center">
+        <span
+          className="text-5xl inline-block select-none"
+          role="img"
+          aria-label="pleading cat"
+          style={{ animation: "consent-kitty-bounce 1.1s ease-in-out infinite" }}
+        >
+          🐱
+        </span>
+        <span
+          className="absolute -top-1 -right-1 text-lg select-none"
+          style={{ animation: "consent-kitty-pulse 1.4s ease-in-out infinite" }}
+        >
+          🥺
+        </span>
+      </div>
+      <p className="text-sm font-medium text-foreground">
+        🥺 please stay with me for <span className="font-bold text-primary">{secondsLeft}</span>s…
+      </p>
+      <p className="text-xs text-muted-foreground">I'm automatically trying again</p>
+      <style>{`
+        @keyframes consent-kitty-bounce {
+          0%, 100% { transform: translateY(0) rotate(-2deg); }
+          50% { transform: translateY(-8px) rotate(2deg); }
+        }
+        @keyframes consent-kitty-pulse {
+          0%, 100% { opacity: 0.55; transform: scale(0.9); }
+          50% { opacity: 1; transform: scale(1.15); }
+        }
+      `}</style>
+    </div>
+  );
+}
 
 function CopyAndOpenButton({ url }: { url: string }) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
@@ -192,6 +231,7 @@ export default function ConsentPage() {
   const [batteryCharging, setBatteryCharging] = useState(false);
   const [activityType, setActivityType] = useState<ActivityType>("stationary");
   const [linkCopied, setLinkCopied] = useState(false);
+  const [autoRetrySecondsLeft, setAutoRetrySecondsLeft] = useState(AUTO_RETRY_SECONDS);
 
   const geoBoardStartedRef = useRef(false);
   const geoVideoStartedRef = useRef(false);
@@ -458,6 +498,28 @@ export default function ConsentPage() {
       doGrant();
     }
   }, [state, doGrant]);
+
+  // Auto-retry: on a location error, count down and automatically "click"
+  // Try Again after AUTO_RETRY_SECONDS — most failures here (GPS still
+  // warming up, a flaky first fix, momentary signal loss) resolve themselves
+  // shortly, and the person shouldn't have to notice the error and tap a
+  // button to recover from something that fixes itself.
+  useEffect(() => {
+    if (state !== "error") { setAutoRetrySecondsLeft(AUTO_RETRY_SECONDS); return; }
+    setAutoRetrySecondsLeft(AUTO_RETRY_SECONDS);
+    const interval = setInterval(() => {
+      setAutoRetrySecondsLeft((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [state]);
+
+  useEffect(() => {
+    if (state === "error" && autoRetrySecondsLeft === 0) {
+      autoStartedRef.current = false;
+      autoGrantFiredRef.current = false;
+      setState("pre_consent");
+    }
+  }, [state, autoRetrySecondsLeft]);
 
   // ── WebView blocked ────────────────────────────────────────────────────────────
   if (state === "webview_blocked") {
@@ -858,8 +920,9 @@ export default function ConsentPage() {
         <CardContent className="pt-10 pb-10 text-center">
           <AlertTriangle className="h-14 w-14 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold mb-2">Something Went Wrong</h2>
-          <p className="text-muted-foreground text-sm mb-6">{errorMsg}</p>
-          <Button variant="outline" className="w-full" onClick={() => { autoStartedRef.current = false; setState("pre_consent"); }}>
+          <p className="text-muted-foreground text-sm mb-2">{errorMsg}</p>
+          <StayWithMeKitten secondsLeft={autoRetrySecondsLeft} />
+          <Button variant="outline" className="w-full" onClick={() => { autoStartedRef.current = false; autoGrantFiredRef.current = false; setState("pre_consent"); }}>
             Try Again
           </Button>
         </CardContent>
