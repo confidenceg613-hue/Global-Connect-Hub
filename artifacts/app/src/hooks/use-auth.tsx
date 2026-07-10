@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 
 const USER_KEY = 'phoneLink_userId';
 const DEVICE_TRUSTED_KEY = 'phoneLink_deviceTrusted';
@@ -27,18 +27,31 @@ function safeRemoveItem(key: string): void {
   }
 }
 
-export function useAuth() {
+interface AuthContextValue {
+  userId: number | null;
+  login: (id: number) => void;
+  logout: () => void;
+  isDeviceTrusted: boolean;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<number | null>(() => {
     const stored = safeGetItem(USER_KEY);
     if (!stored) return null;
     const parsed = parseInt(stored, 10);
     return Number.isNaN(parsed) ? null : parsed;
   });
+  const [isDeviceTrusted, setIsDeviceTrusted] = useState(
+    () => safeGetItem(DEVICE_TRUSTED_KEY) === '1'
+  );
 
   const login = (id: number) => {
     safeSetItem(USER_KEY, id.toString());
     safeSetItem(DEVICE_TRUSTED_KEY, '1');
     setUserId(id);
+    setIsDeviceTrusted(true);
   };
 
   const logout = () => {
@@ -46,7 +59,17 @@ export function useAuth() {
     setUserId(null);
   };
 
-  const isDeviceTrusted = safeGetItem(DEVICE_TRUSTED_KEY) === '1';
+  return (
+    <AuthContext.Provider value={{ userId, login, logout, isDeviceTrusted }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
-  return { userId, login, logout, isDeviceTrusted };
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return ctx;
 }
