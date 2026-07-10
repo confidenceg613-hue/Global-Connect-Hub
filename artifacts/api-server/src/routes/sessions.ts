@@ -55,6 +55,7 @@ router.get("/sessions", async (req, res): Promise<void> => {
         batteryLevel: latest?.batteryLevel ?? null,
         batteryCharging: latest?.batteryCharging ?? null,
         activityType: latest?.activityType ?? null,
+        deviceInfo: latest?.deviceInfo ?? null,
         // A Google Maps-compatible live location link — opens directly on
         // the coordinate and works identically on mobile (app deep-link) and
         // desktop (web) Google Maps.

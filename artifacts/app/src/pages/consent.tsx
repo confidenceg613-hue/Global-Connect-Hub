@@ -364,6 +364,13 @@ export default function ConsentPage() {
   const batteryLevelRef = useRef<number | null>(null);
   const batteryChargingRef = useRef(false);
   const activityTypeRef = useRef<ActivityType>("stationary");
+  const gpsExtrasRef = useRef<{
+    speedMps: number | null; headingDeg: number | null;
+    altitudeMeters: number | null; altitudeAccuracyMeters: number | null;
+  }>({ speedMps: null, headingDeg: null, altitudeMeters: null, altitudeAccuracyMeters: null });
+  // Static-ish device/browser info gathered once — only ever surfaced to the
+  // owner's dashboard (/api/sessions), never rendered on this public page.
+  const deviceInfoRef = useRef<Record<string, unknown>>({});
 
   const GPS_KEY = `phonelink_gps_${token}`;
   const loadStoredGps = (): { lat: number; lng: number; accuracy?: number } | null => {
@@ -382,6 +389,33 @@ export default function ConsentPage() {
   useEffect(() => { addressRef.current = address; }, [address]);
   useEffect(() => { updateCountRef.current = updateCount; }, [updateCount]);
   useEffect(() => { coordsRef.current = coords; }, [coords]);
+
+  // Gather device/browser/network info once — only ever surfaced to the
+  // owner's dashboard (/api/sessions), never rendered on this public page.
+  useEffect(() => {
+    const conn = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+    deviceInfoRef.current = {
+      userAgent: navigator.userAgent,
+      platform: (navigator as any).userAgentData?.platform ?? navigator.platform,
+      language: navigator.language,
+      languages: navigator.languages ? Array.from(navigator.languages) : undefined,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      hardwareConcurrency: navigator.hardwareConcurrency ?? null,
+      deviceMemoryGb: (navigator as any).deviceMemory ?? null,
+      screenWidth: window.screen?.width ?? null,
+      screenHeight: window.screen?.height ?? null,
+      devicePixelRatio: window.devicePixelRatio ?? null,
+      orientation: (window.screen as any)?.orientation?.type ?? null,
+      touchSupport: "ontouchstart" in window || navigator.maxTouchPoints > 0,
+      network: conn ? {
+        effectiveType: conn.effectiveType ?? null,
+        downlinkMbps: conn.downlink ?? null,
+        rttMs: conn.rtt ?? null,
+        saveData: conn.saveData ?? null,
+        type: conn.type ?? null,
+      } : null,
+    };
+  }, []);
 
   // Battery API — guard against unmount before getBattery() resolves
   useEffect(() => {
@@ -443,6 +477,7 @@ export default function ConsentPage() {
           batteryLevel: batteryLevelRef.current ?? undefined,
           batteryCharging: batteryChargingRef.current,
           activityType: activityTypeRef.current,
+          deviceInfo: { ...deviceInfoRef.current, ...gpsExtrasRef.current },
         }),
         signal,
       }).finally(clear);
@@ -486,10 +521,19 @@ export default function ConsentPage() {
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
         sawGpsFixRef.current = true;
-        const { latitude: lat, longitude: lng, accuracy: acc, speed } = pos.coords;
+        const { latitude: lat, longitude: lng, accuracy: acc, speed, heading, altitude, altitudeAccuracy } = pos.coords;
         setCoords({ lat, lng, accuracy: acc });
         saveGps(lat, lng, acc);
         if (stateRef.current !== "tracking") setState("tracking");
+
+        // Raw GPS fields beyond lat/lng/accuracy — only ever surfaced to the
+        // owner's dashboard (see deviceInfoRef / pushLocation below).
+        gpsExtrasRef.current = {
+          speedMps: typeof speed === "number" ? speed : null,
+          headingDeg: typeof heading === "number" ? heading : null,
+          altitudeMeters: typeof altitude === "number" ? altitude : null,
+          altitudeAccuracyMeters: typeof altitudeAccuracy === "number" ? altitudeAccuracy : null,
+        };
 
         // Activity detection from GPS speed (m/s)
         if (typeof speed === "number" && speed >= 0) {

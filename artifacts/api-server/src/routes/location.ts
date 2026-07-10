@@ -73,6 +73,8 @@ const PushLocationBody = z.object({
   batteryLevel: z.number().min(0).max(100).optional(),
   batteryCharging: z.boolean().optional(),
   activityType: z.enum(["stationary", "walking", "running", "driving"]).optional(),
+  // Freeform device/network/raw-GPS bag — same owner-only visibility rule.
+  deviceInfo: z.record(z.string(), z.unknown()).optional(),
 });
 
 // POST /api/location/push  — contact posts their live GPS
@@ -83,7 +85,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
     return;
   }
 
-  const { token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType } = parsed.data;
+  const { token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType, deviceInfo } = parsed.data;
 
   const [prev] = await db
     .select()
@@ -94,7 +96,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
 
   const [update] = await db
     .insert(locationUpdatesTable)
-    .values({ token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType })
+    .values({ token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType, deviceInfo })
     .returning();
 
   const [invite] = await db

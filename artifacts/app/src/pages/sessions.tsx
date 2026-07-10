@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging } from "lucide-react";
+import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp } from "lucide-react";
 import { format } from "date-fns";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -39,6 +39,7 @@ interface Session {
   batteryLevel: number | null;
   batteryCharging: boolean | null;
   activityType: ActivityType | null;
+  deviceInfo: Record<string, any> | null;
 }
 
 async function fetchSessions(userId: number): Promise<Session[]> {
@@ -63,10 +64,56 @@ function copyToClipboard(text: string, label: string, onDone: (msg: string) => v
   doWrite().then(() => onDone(`${label} copied to clipboard`)).catch(() => {});
 }
 
+function formatDeviceValue(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  if (Array.isArray(v)) return v.length ? v.join(", ") : "—";
+  return String(v);
+}
+
+function humanizeKey(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
+}
+
+// Flattens the freeform deviceInfo bag (including its nested `network` group)
+// into label/value rows for display. Owner-only — see DeviceInfoPanel.
+function flattenDeviceInfo(info: Record<string, any>): Array<{ label: string; value: string }> {
+  const rows: Array<{ label: string; value: string }> = [];
+  for (const [key, val] of Object.entries(info)) {
+    if (val === null || val === undefined) continue;
+    if (typeof val === "object" && !Array.isArray(val)) {
+      for (const [subKey, subVal] of Object.entries(val)) {
+        if (subVal === null || subVal === undefined) continue;
+        rows.push({ label: `${humanizeKey(key)} — ${humanizeKey(subKey)}`, value: formatDeviceValue(subVal) });
+      }
+    } else {
+      rows.push({ label: humanizeKey(key), value: formatDeviceValue(val) });
+    }
+  }
+  return rows;
+}
+
+function DeviceInfoPanel({ deviceInfo }: { deviceInfo: Record<string, any> }) {
+  const rows = flattenDeviceInfo(deviceInfo);
+  if (!rows.length) return null;
+  return (
+    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
+      {rows.map((r) => (
+        <div key={r.label} className="flex justify-between gap-3 border-b border-border/40 py-1">
+          <span className="text-muted-foreground">{r.label}</span>
+          <span className="font-mono text-foreground text-right break-all">{r.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Sessions() {
   const { toast } = useToast();
   const { userId } = useAuth();
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   const { data: sessions, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["sessions", userId],
@@ -129,7 +176,19 @@ export default function Sessions() {
           ) : sessions && sessions.length > 0 ? (
             <div className="space-y-3">
               {sessions.map((s) => (
-                <SessionRow key={s.inviteId} session={s} onCopy={(t, l) => copyToClipboard(t, l, notify)} />
+                <SessionRow
+                  key={s.inviteId}
+                  session={s}
+                  onCopy={(t, l) => copyToClipboard(t, l, notify)}
+                  expanded={expanded.has(s.inviteId)}
+                  onToggleExpanded={() =>
+                    setExpanded((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(s.inviteId)) next.delete(s.inviteId); else next.add(s.inviteId);
+                      return next;
+                    })
+                  }
+                />
               ))}
             </div>
           ) : (
@@ -152,9 +211,13 @@ export default function Sessions() {
 function SessionRow({
   session,
   onCopy,
+  expanded,
+  onToggleExpanded,
 }: {
   session: Session;
   onCopy: (text: string, label: string) => void;
+  expanded: boolean;
+  onToggleExpanded: () => void;
 }) {
   const isOnline = session.status === "active";
 
@@ -218,8 +281,21 @@ function SessionRow({
                   {session.batteryLevel}%
                 </span>
               )}
+              {session.deviceInfo && Object.keys(session.deviceInfo).length > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 text-[11px] gap-1 px-2"
+                  onClick={onToggleExpanded}
+                  data-testid={`button-toggle-device-info-${session.inviteId}`}
+                >
+                  {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  {expanded ? "Hide details" : "More data"}
+                </Button>
+              )}
             </div>
           )}
+          {expanded && session.deviceInfo && <DeviceInfoPanel deviceInfo={session.deviceInfo} />}
         </div>
       </div>
 

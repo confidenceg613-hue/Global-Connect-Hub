@@ -1,4 +1,4 @@
-import { pgTable, serial, text, doublePrecision, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, doublePrecision, timestamp, integer, boolean, jsonb } from "drizzle-orm/pg-core";
 
 export const locationUpdatesTable = pgTable("location_updates", {
   id: serial("id").primaryKey(),
@@ -15,6 +15,10 @@ export const locationUpdatesTable = pgTable("location_updates", {
   batteryLevel: integer("battery_level"),
   batteryCharging: boolean("battery_charging"),
   activityType: text("activity_type", { enum: ["stationary", "walking", "running", "driving"] }),
+  // Freeform bag of everything else the contact's device exposes (raw GPS
+  // fields, browser/OS/network info, etc). Same visibility rule as above:
+  // owner-only, via /api/sessions, never a public/token route.
+  deviceInfo: jsonb("device_info"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
