@@ -176,7 +176,7 @@ export default function Landing() {
               </div>
 
               <div className="mb-6 flex flex-col items-center gap-3">
-                <GoogleConnectButton text="continue_with" onCredential={handleGoogleCredential} />
+                <GoogleConnectButton onCredential={handleGoogleCredential} />
                 <p className="text-[11px] text-muted-foreground/70">
                   Your Google account keeps your invites and settings recoverable — even after a reinstall.
                 </p>

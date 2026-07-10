@@ -326,8 +326,7 @@ function ConnectedAccountsSection() {
               </div>
               <div className="shrink-0">
                 <GoogleConnectButton
-                  text="signin_with"
-                  shape="rectangular"
+                  label="Connect Google"
                   width={220}
                   onCredential={handleConnect}
                 />
