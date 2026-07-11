@@ -539,14 +539,14 @@ router.post("/assistant", async (req, res) => {
   }
 
   /** Run one client through its own model fallback chain (no cross-client fallback) — used so each debate agent stays a genuinely distinct provider. */
-  async function runAgentOnClient(client: OpenAI, label: string, models: string[]): Promise<{ label: string; reply: string; command: MapCommandT | null }> {
+  async function runAgentOnClient(client: OpenAI, label: string, models: string[], temperature = 0.7): Promise<{ label: string; reply: string; command: MapCommandT | null }> {
     let lastErr: unknown;
     for (const model of models) {
       try {
         const completion = await client.chat.completions.create({
           model,
           max_tokens: 2000,
-          temperature: 0.7,
+          temperature,
           messages: chatMessages,
           response_format: { type: "json_object" },
         });
@@ -564,33 +564,48 @@ router.post("/assistant", async (req, res) => {
   // Two independently-configured providers each answer on their own, then a
   // third pass reconciles them into a single, more trustworthy final answer.
   if (parsed.data.mode === "debate" && !useVision) {
-    if (clients.length < 2) {
-      const only = clients[0];
-      const singleReply = only
-        ? await runAgentOnClient(only.client, only.label, modelsFor(only.label))
-            .then(r => r.reply)
-            .catch(() => "I ran into a hiccup — please try again.")
-        : "No AI provider is configured.";
-      res.status(200).json({
-        reply: "Cross-check mode needs a second AI provider configured — right now only one is set up, so here's a single-agent answer instead.\n\n" + singleReply,
-        command: null,
-        debate: null,
-      });
+    if (clients.length === 0) {
+      res.status(200).json({ reply: "No AI provider is configured.", command: null, debate: null });
       return;
     }
 
+    // With only one distinct provider configured, still run two genuinely separate
+    // completions against it (different sampling temperature) so the reconciler has
+    // two independent takes to compare, rather than refusing to cross-check at all.
+    const singleProvider = clients.length < 2;
+    const agentASpec = clients[0];
+    const agentBSpec = singleProvider ? clients[0] : clients[1];
+    const agentALabel = singleProvider ? `${agentASpec.label} (A)` : agentASpec.label;
+    const agentBLabel = singleProvider ? `${agentBSpec.label} (B)` : agentBSpec.label;
+
     try {
       const [agentAResult, agentBResult] = await Promise.allSettled([
-        runAgentOnClient(clients[0].client, clients[0].label, modelsFor(clients[0].label)),
-        runAgentOnClient(clients[1].client, clients[1].label, modelsFor(clients[1].label)),
+        runAgentOnClient(agentASpec.client, agentALabel, modelsFor(agentASpec.label), 0.4),
+        runAgentOnClient(agentBSpec.client, agentBLabel, modelsFor(agentBSpec.label), 0.9),
       ]);
 
-      const agentA = agentAResult.status === "fulfilled"
+      let agentA = agentAResult.status === "fulfilled"
         ? agentAResult.value
-        : { label: clients[0].label, reply: "(no response — this provider errored out)", command: null as MapCommandT | null };
-      const agentB = agentBResult.status === "fulfilled"
+        : { label: agentALabel, reply: "(no response — this provider errored out)", command: null as MapCommandT | null };
+      let agentB = agentBResult.status === "fulfilled"
         ? agentBResult.value
-        : { label: clients[1].label, reply: "(no response — this provider errored out)", command: null as MapCommandT | null };
+        : { label: agentBLabel, reply: "(no response — this provider errored out)", command: null as MapCommandT | null };
+
+      // If one side's dedicated provider errored (e.g. a misconfigured/invalid key)
+      // but the other provider is healthy, retry the failed side on the healthy
+      // provider (different temperature) instead of surfacing a dead agent.
+      if (agentAResult.status === "rejected" && agentBResult.status === "fulfilled") {
+        const retry = await runAgentOnClient(agentBSpec.client, `${agentBSpec.label} (A, ${agentASpec.label} unavailable)`, modelsFor(agentBSpec.label), 0.4).catch(() => null);
+        if (retry) agentA = retry;
+      } else if (agentBResult.status === "rejected" && agentAResult.status === "fulfilled") {
+        const retry = await runAgentOnClient(agentASpec.client, `${agentASpec.label} (B, ${agentBSpec.label} unavailable)`, modelsFor(agentASpec.label), 0.9).catch(() => null);
+        if (retry) agentB = retry;
+      }
+
+      if (agentAResult.status === "rejected" && agentBResult.status === "rejected") {
+        res.status(500).json({ reply: "Cross-check ran into a hiccup on my end — please try that again in a moment.", command: null, debate: null });
+        return;
+      }
 
       const reconcileMessages: OpenAI.ChatCompletionMessageParam[] = [
         {
