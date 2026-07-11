@@ -54,3 +54,4 @@ VAPID_PUBLIC_KEY = "BGsFFaTA-uRJu2LqW7spIXSkgaUGCfgy3eckDbxffUJ7N80C5NO0V1jhETym
 VAPID_SUBJECT = "mailto:admin@phonelink.app"
 VITE_GOOGLE_CLIENT_ID = "173322068449-fpgudmuc4u96vksoaqceapn26ubast7c.apps.googleusercontent.com"
 GOOGLE_CLIENT_ID = "173322068449-fpgudmuc4u96vksoaqceapn26ubast7c.apps.googleusercontent.com"
+GOOGLE_SEARCH_CX = "379664f23b1a7426c"

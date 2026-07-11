@@ -24,9 +24,47 @@ async function fetchSafe(url: string, ms = 6000): Promise<Response | null> {
   }
 }
 
+const googleApiKey = process.env.GOOGLE_API_KEY?.trim();
+const googleSearchCx = process.env.GOOGLE_SEARCH_CX?.trim();
+if (!googleApiKey || !googleSearchCx) {
+  console.warn("[images] GOOGLE_API_KEY/GOOGLE_SEARCH_CX not set — Google Image results disabled, falling back to Wikipedia/Flickr only");
+}
+
 async function searchImages(place: string): Promise<ImageResult[]> {
   const results: ImageResult[] = [];
   const encoded = encodeURIComponent(place);
+
+  // ── 0. Google Custom Search — real Google Images results ─────────────────
+  // Requires a Programmable Search Engine (cse.google.com) with "Search the
+  // entire web" + "Image search" enabled, plus a Custom Search API key.
+  if (googleApiKey && googleSearchCx) {
+    try {
+      const googleUrl =
+        `https://www.googleapis.com/customsearch/v1` +
+        `?key=${googleApiKey}&cx=${googleSearchCx}&q=${encoded}` +
+        `&searchType=image&num=6&safe=active`;
+      const res = await fetchSafe(googleUrl);
+      if (res?.ok) {
+        const data = await res.json() as {
+          items?: { link?: string; title?: string; image?: { thumbnailLink?: string; contextLink?: string } }[];
+        };
+        for (const item of data.items || []) {
+          if (!item.link) continue;
+          results.push({
+            url: item.link,
+            thumb: item.image?.thumbnailLink || item.link,
+            source: "Google",
+            alt: item.title || place,
+          });
+        }
+      } else if (res) {
+        const body = await res.text().catch(() => "");
+        console.warn(`[images] Google Custom Search HTTP ${res.status}: ${body.slice(0, 300)}`);
+      }
+    } catch (err) {
+      console.warn("[images] Google Custom Search failed:", err);
+    }
+  }
 
   // ── 1. Wikipedia page summary thumbnail ───────────────────────────────────
   try {
