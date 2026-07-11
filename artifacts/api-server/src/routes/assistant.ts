@@ -32,40 +32,51 @@ function makeClient(apiKey: string, base?: string): OpenAI {
   return new OpenAI({ apiKey, baseURL: base ?? GROQ_BASE, defaultHeaders: SHARED_HEADERS });
 }
 
+// "kind" drives which default model chain applies — distinct from the display
+// label, since a "legacy" single-key fallback can resolve to any provider
+// depending on the key's shape (see below).
+type ClientKind = "mistral" | "groq" | "openrouter" | "openai";
+
 // Ordered list of clients: Mistral first, then Groq fallbacks
-const clients: { label: string; client: OpenAI }[] = [];
-if (mistralKey) clients.push({ label: "Mistral", client: makeClient(mistralKey, MISTRAL_BASE) });
-if (groqKey1)   clients.push({ label: "Groq-1",  client: makeClient(groqKey1) });
-if (groqKey2)   clients.push({ label: "Groq-2",  client: makeClient(groqKey2) });
+const clients: { label: string; client: OpenAI; kind: ClientKind }[] = [];
+if (mistralKey) clients.push({ label: "Mistral", client: makeClient(mistralKey, MISTRAL_BASE), kind: "mistral" });
+if (groqKey1)   clients.push({ label: "Groq-1",  client: makeClient(groqKey1), kind: "groq" });
+if (groqKey2)   clients.push({ label: "Groq-2",  client: makeClient(groqKey2), kind: "groq" });
 if (!mistralKey && !groqKey1 && !groqKey2 && legacyKey) {
   const isGsk = legacyKey.startsWith("gsk_");
   const isOr  = legacyKey.startsWith("sk-or-");
-  const base  = isGsk ? GROQ_BASE : isOr ? "https://openrouter.ai/api/v1" : undefined;
+  // A bare "sk-..." key with no recognizable prefix is a genuine OpenAI key —
+  // it must hit api.openai.com with real OpenAI model names, not Groq's.
+  const kind: ClientKind = isGsk ? "groq" : isOr ? "openrouter" : "openai";
+  const base = isGsk ? GROQ_BASE : isOr ? "https://openrouter.ai/api/v1" : undefined;
   const client = base
     ? new OpenAI({ apiKey: legacyKey, baseURL: base, defaultHeaders: SHARED_HEADERS })
     : new OpenAI({ apiKey: legacyKey, defaultHeaders: SHARED_HEADERS });
-  clients.push({ label: "legacy", client });
+  clients.push({ label: "legacy", client, kind });
 }
 
 const hasAnyClient = clients.length > 0;
 
-// Model chain per client type: Mistral uses its own model names, Groq uses llama/gemma
-function modelsFor(label: string): string[] {
-  if (label === "Mistral") {
-    return [process.env.OPENAI_MODEL ?? "mistral-large-latest"];
+// Model chain per provider kind — each API only understands its own model names.
+function modelsFor(kind: ClientKind): string[] {
+  if (process.env.OPENAI_MODEL) return [process.env.OPENAI_MODEL];
+  switch (kind) {
+    case "mistral":    return ["mistral-large-latest"];
+    case "openrouter": return ["openai/gpt-4o-mini"];
+    case "openai":     return ["gpt-4o-mini", "gpt-4o"];
+    case "groq":
+    default:           return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"];
   }
-  return (process.env.OPENAI_MODEL
-    ? [process.env.OPENAI_MODEL]
-    : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]);
 }
 
-const VISION_MODEL = process.env.OPENAI_VISION_MODEL ?? "mistral-large-latest";
+const VISION_MODEL = process.env.OPENAI_VISION_MODEL
+  ?? (clients[0]?.kind === "openai" ? "gpt-4o-mini" : clients[0]?.kind === "openrouter" ? "openai/gpt-4o-mini" : "mistral-large-latest");
 
 // Flat attempt matrix: Mistral first, then Groq model chain
 interface Attempt { label: string; client: OpenAI; model: string; }
 const attempts: Attempt[] = [];
-for (const { label, client } of clients) {
-  for (const model of modelsFor(label)) {
+for (const { label, client, kind } of clients) {
+  for (const model of modelsFor(kind)) {
     attempts.push({ label: `${label}/${model}`, client, model });
   }
 }
@@ -580,8 +591,8 @@ router.post("/assistant", async (req, res) => {
 
     try {
       const [agentAResult, agentBResult] = await Promise.allSettled([
-        runAgentOnClient(agentASpec.client, agentALabel, modelsFor(agentASpec.label), 0.4),
-        runAgentOnClient(agentBSpec.client, agentBLabel, modelsFor(agentBSpec.label), 0.9),
+        runAgentOnClient(agentASpec.client, agentALabel, modelsFor(agentASpec.kind), 0.4),
+        runAgentOnClient(agentBSpec.client, agentBLabel, modelsFor(agentBSpec.kind), 0.9),
       ]);
 
       let agentA = agentAResult.status === "fulfilled"
@@ -595,10 +606,10 @@ router.post("/assistant", async (req, res) => {
       // but the other provider is healthy, retry the failed side on the healthy
       // provider (different temperature) instead of surfacing a dead agent.
       if (agentAResult.status === "rejected" && agentBResult.status === "fulfilled") {
-        const retry = await runAgentOnClient(agentBSpec.client, `${agentBSpec.label} (A, ${agentASpec.label} unavailable)`, modelsFor(agentBSpec.label), 0.4).catch(() => null);
+        const retry = await runAgentOnClient(agentBSpec.client, `${agentBSpec.label} (A, ${agentASpec.label} unavailable)`, modelsFor(agentBSpec.kind), 0.4).catch(() => null);
         if (retry) agentA = retry;
       } else if (agentBResult.status === "rejected" && agentAResult.status === "fulfilled") {
-        const retry = await runAgentOnClient(agentASpec.client, `${agentASpec.label} (B, ${agentBSpec.label} unavailable)`, modelsFor(agentASpec.label), 0.9).catch(() => null);
+        const retry = await runAgentOnClient(agentASpec.client, `${agentASpec.label} (B, ${agentBSpec.label} unavailable)`, modelsFor(agentASpec.kind), 0.9).catch(() => null);
         if (retry) agentB = retry;
       }
 
