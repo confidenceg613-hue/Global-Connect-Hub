@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck, Maximize2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -260,6 +260,27 @@ export default function LiveMap() {
   const prevPos       = useRef<globalThis.Map<string, { lat: number; lng: number }>>(new globalThis.Map());
   const aiViewLocked  = useRef(false);
   const viewHistory   = useRef<{ center: L.LatLng; zoom: number }[]>([]);
+  // Once the user manually pans/zooms the map, live location updates (SSE,
+  // telemetry polling, staleness ticks) must stop force-fitting the view back
+  // to "show everyone" — otherwise a user who zooms in on one contact gets
+  // yanked back out to the wide view on the next background update, which
+  // looks like the map "auto zooms out" and never lets them stay zoomed in.
+  // `programmaticMoveRef` distinguishes our own setView/fitBounds/flyTo calls
+  // (which also fire Leaflet's move/zoom events) from genuine user gestures.
+  const userViewLockRef      = useRef(false);
+  const programmaticMoveRef  = useRef(false);
+
+  // Wrap any code that calls map.setView/fitBounds/flyTo/zoomIn/etc so the
+  // resulting Leaflet move/zoom events aren't mistaken for user interaction.
+  const withProgrammaticMove = useCallback((fn: () => void) => {
+    programmaticMoveRef.current = true;
+    try { fn(); } finally {
+      // Leaflet fires move/zoom events synchronously for setView/fitBounds,
+      // but animated flyTo calls fire them across multiple frames — clear the
+      // flag on the next tick rather than immediately.
+      setTimeout(() => { programmaticMoveRef.current = false; }, 0);
+    }
+  }, []);
 
   const { data: invites, refetch } = useListInvites(
     { userId: userId! },
@@ -389,6 +410,17 @@ export default function LiveMap() {
       const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: false, maxZoom: 22 });
       L.control.zoom({ position: "bottomright" }).addTo(map);
       mapInst.current = map;
+
+      // Detect genuine user interaction (drag, scroll/pinch zoom, +/- zoom
+      // control, double-click zoom) vs our own programmatic moves so live
+      // background updates never force the view back to "fit everyone" once
+      // someone has manually framed the map themselves.
+      const lockFromUserGesture = () => {
+        if (!programmaticMoveRef.current) userViewLockRef.current = true;
+      };
+      map.on("dragstart", lockFromUserGesture);
+      map.on("zoomstart", lockFromUserGesture);
+      map.on("boxzoomend", lockFromUserGesture);
 
       if (!document.getElementById("pl-map-styles")) {
         const s = document.createElement("style");
@@ -557,26 +589,27 @@ export default function LiveMap() {
       if (cmd.type === "flyTo") {
         pushHistory();
         aiViewLocked.current = true;
-        map.flyTo([cmd.lat, cmd.lng], cmd.zoom ?? 14, { duration: 1.2 });
+        withProgrammaticMove(() => map.flyTo([cmd.lat, cmd.lng], cmd.zoom ?? 14, { duration: 1.2 }));
       } else if (cmd.type === "fitAll") {
         pushHistory();
         aiViewLocked.current = true;
+        userViewLockRef.current = false; // explicit "fit all" clears any manual zoom lock
         const pts = latestRef.current.map(
           (i) => [i.grantedLatitude!, i.grantedLongitude!] as [number, number],
         );
-        if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.08), { maxZoom: 19 });
+        if (pts.length) withProgrammaticMove(() => map.fitBounds(L.latLngBounds(pts).pad(0.08), { maxZoom: 19 }));
       } else if (cmd.type === "zoomIn") {
         pushHistory();
         aiViewLocked.current = true;
-        map.zoomIn(1, { animate: true });
+        withProgrammaticMove(() => map.zoomIn(1, { animate: true }));
       } else if (cmd.type === "zoomOut") {
         pushHistory();
         aiViewLocked.current = true;
-        map.zoomOut(1, { animate: true });
+        withProgrammaticMove(() => map.zoomOut(1, { animate: true }));
       } else if (cmd.type === "setZoom") {
         pushHistory();
         aiViewLocked.current = true;
-        map.setZoom(Math.max(map.getMinZoom(), Math.min(22, cmd.zoom)), { animate: true });
+        withProgrammaticMove(() => map.setZoom(Math.max(map.getMinZoom(), Math.min(22, cmd.zoom)), { animate: true }));
       } else if (cmd.type === "pan") {
         // Pan by a fraction of the current viewport in the requested compass
         // direction — smooth and proportional to zoom, never re-zooms.
@@ -586,7 +619,7 @@ export default function LiveMap() {
         const fraction = cmd.amount ?? 0.5;
         const dx = cmd.direction === "east" ? size.x * fraction : cmd.direction === "west" ? -size.x * fraction : 0;
         const dy = cmd.direction === "south" ? size.y * fraction : cmd.direction === "north" ? -size.y * fraction : 0;
-        map.panBy([dx, dy], { animate: true, duration: 0.8 });
+        withProgrammaticMove(() => map.panBy([dx, dy], { animate: true, duration: 0.8 }));
       } else if (cmd.type === "findContact") {
         const match = latestRef.current.find(
           (i) => i.toName?.toLowerCase().includes(cmd.name.toLowerCase()),
@@ -597,14 +630,15 @@ export default function LiveMap() {
         const lng = live ? live.lng : match.grantedLongitude!;
         pushHistory();
         aiViewLocked.current = true;
-        map.flyTo([lat, lng], 15, { duration: 1.2 });
+        withProgrammaticMove(() => map.flyTo([lat, lng], 15, { duration: 1.2 }));
       } else if (cmd.type === "goBack") {
         const prev = viewHistory.current.pop();
         if (prev) {
           aiViewLocked.current = true;
-          map.flyTo(prev.center, prev.zoom, { duration: 1 });
+          withProgrammaticMove(() => map.flyTo(prev.center, prev.zoom, { duration: 1 }));
         } else {
           aiViewLocked.current = false; // resume auto-fit to live contacts
+          userViewLockRef.current = false;
           toast({ title: "Already at the earliest view" });
         }
       } else if (cmd.type === "setLayer") {
@@ -618,7 +652,7 @@ export default function LiveMap() {
         }
         pushHistory();
         aiViewLocked.current = true;
-        map.flyTo([cmd.lat, cmd.lng], 17, { duration: 1.2 });
+        withProgrammaticMove(() => map.flyTo([cmd.lat, cmd.lng], 17, { duration: 1.2 }));
         setStreetView({ lat: cmd.lat, lng: cmd.lng, name: cmd.name ?? "Location" });
       } else if (cmd.type === "showImages") {
         const first = latestRef.current[0];
@@ -969,10 +1003,18 @@ export default function LiveMap() {
       myMarkerRef.current = null;
     }
 
-    if (latlngs.length > 0 && !aiViewLocked.current) {
+    // Only auto-fit while nothing has taken manual control of the view: not
+    // an AI navigation command, and not the user's own pan/zoom. Without the
+    // userViewLockRef check, every background tick (SSE update, 15s
+    // telemetry poll, 30s staleness sweep) would re-run fitBounds and yank a
+    // manually-zoomed-in view back out to "show everyone", which is what
+    // made the map appear to permanently auto-zoom-out.
+    if (latlngs.length > 0 && !aiViewLocked.current && !userViewLockRef.current) {
       try {
-        if (latlngs.length === 1) map.setView(latlngs[0], 13);
-        else map.fitBounds(L.latLngBounds(latlngs).pad(0.08), { maxZoom: 19 });
+        withProgrammaticMove(() => {
+          if (latlngs.length === 1) map.setView(latlngs[0], 13);
+          else map.fitBounds(L.latLngBounds(latlngs).pad(0.08), { maxZoom: 19 });
+        });
       } catch { /* ignore */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1053,6 +1095,47 @@ export default function LiveMap() {
       { enableHighAccuracy: true, timeout: 10000 },
     );
   };
+
+  // Explicit escape hatch: once the user has manually zoomed/panned, live
+  // updates stop auto-fitting the view (see userViewLockRef). This lets them
+  // opt back in to "show everyone" on demand instead of it snapping back on
+  // its own.
+  const handleRecenter = () => {
+    const map = mapInst.current;
+    if (!map) return;
+    aiViewLocked.current = false;
+    userViewLockRef.current = false;
+    const pts: [number, number][] = latestRef.current
+      .map((inv) => {
+        const live = livePos.current.get(inv.token);
+        return live ? [live.lat, live.lng] as [number, number]
+          : (isFinite(inv.grantedLatitude!) && isFinite(inv.grantedLongitude!) ? [inv.grantedLatitude!, inv.grantedLongitude!] as [number, number] : null);
+      })
+      .filter((p): p is [number, number] => p != null);
+    if (myPos && isFinite(myPos.lat) && isFinite(myPos.lng)) pts.push([myPos.lat, myPos.lng]);
+    if (pts.length === 0) return;
+    withProgrammaticMove(() => {
+      if (pts.length === 1) map.setView(pts[0], 13);
+      else map.fitBounds(L.latLngBounds(pts).pad(0.08), { maxZoom: 19 });
+    });
+    toast({ title: "Recentered on all contacts" });
+  };
+
+  // Dev-only test hooks so the zoom-lock fix can be exercised end-to-end from
+  // an external test script (no production impact — stripped by import.meta.env.DEV).
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    (window as unknown as Record<string, unknown>).__plZoomTest = {
+      getZoom: () => mapInst.current?.getZoom() ?? null,
+      isUserLocked: () => userViewLockRef.current,
+      isAiLocked: () => aiViewLocked.current,
+      forceTick: () => scheduleMarkerUpdate(),
+      recenter: () => handleRecenter(),
+      setMyPos: (lat: number, lng: number) => setMyPos({ lat, lng }),
+    };
+    return () => { delete (window as unknown as Record<string, unknown>).__plZoomTest; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -1200,6 +1283,7 @@ export default function LiveMap() {
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000]">
         <div className="pl-command-bar flex items-center gap-0.5 px-1.5 py-1.5">
           <CmdBtn active={false} onClick={handleFindMe} disabled={locating} icon={<Crosshair className="w-3.5 h-3.5" />} label={locating ? "Locating…" : "Find me"} />
+          <CmdBtn active={false} onClick={handleRecenter} icon={<Maximize2 className="w-3.5 h-3.5" />} label="Recenter" />
           <CmdBtn active={false} onClick={handleRefresh} disabled={refreshing} icon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />} label="Refresh" />
           <div className="w-px h-5 bg-white/10 mx-1" />
           <CmdBtn active={showTypePanel || activeDetails.size > 0} onClick={() => setShowTypePanel(true)} icon={<Settings2 className="w-3.5 h-3.5" />} label={MAP_MODE_LABELS[mapMode]} activeClass="border-violet-500/40 text-violet-300 bg-violet-500/10" />
