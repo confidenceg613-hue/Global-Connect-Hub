@@ -72,6 +72,33 @@ function modelsFor(kind: ClientKind): string[] {
 const VISION_MODEL = process.env.OPENAI_VISION_MODEL
   ?? (clients[0]?.kind === "openai" ? "gpt-4o-mini" : clients[0]?.kind === "openrouter" ? "openai/gpt-4o-mini" : "mistral-large-latest");
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Retries a completion call on 429 (rate limit) with backoff — Mistral's free tier
+ * enforces a strict per-second cap, and debate mode fires several calls back-to-back
+ * against the same key, so a bare retry loop is required to avoid hard-failing. */
+async function withRateLimitRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      lastErr = err;
+      const status = (err as { status?: number })?.status;
+      if (status !== 429 || attempt === maxRetries) throw err;
+      const headers = (err as { headers?: Record<string, string> })?.headers;
+      const retryAfterHeader = headers?.["retry-after"];
+      const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : NaN;
+      const backoffMs = Number.isFinite(retryAfterMs) ? retryAfterMs : 800 * Math.pow(2, attempt);
+      console.warn(`[assistant] 429 rate limited, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})…`);
+      await sleep(backoffMs);
+    }
+  }
+  throw lastErr;
+}
+
 // Flat attempt matrix: Mistral first, then Groq model chain
 interface Attempt { label: string; client: OpenAI; model: string; }
 const attempts: Attempt[] = [];
@@ -86,7 +113,9 @@ async function withFallback<T>(fn: (client: OpenAI, model: string, label: string
   let lastErr: unknown;
   for (const { label, client, model } of attempts) {
     try {
-      return await fn(client, model, label);
+      // A 429 is retried in place (same client/model) before moving on — with a
+      // single-provider setup there's no "next" client to fall back to anyway.
+      return await withRateLimitRetry(() => fn(client, model, label));
     } catch (err: unknown) {
       const status = (err as { status?: number })?.status;
       // Always try next — auth errors (401) on one provider shouldn't block others
@@ -554,13 +583,13 @@ router.post("/assistant", async (req, res) => {
     let lastErr: unknown;
     for (const model of models) {
       try {
-        const completion = await client.chat.completions.create({
+        const completion = await withRateLimitRetry(() => client.chat.completions.create({
           model,
           max_tokens: 2000,
           temperature,
           messages: chatMessages,
           response_format: { type: "json_object" },
-        });
+        }));
         const raw = completion.choices[0]?.message?.content ?? '{"reply":"Sorry, something went wrong."}';
         return { label: `${label}/${model}`, ...parseAiJson(raw) };
       } catch (err) {
@@ -590,9 +619,16 @@ router.post("/assistant", async (req, res) => {
     const agentBLabel = singleProvider ? `${agentBSpec.label} (B)` : agentBSpec.label;
 
     try {
+      // When both agents share the same underlying key (single provider configured),
+      // firing them at the exact same instant doubles the odds of tripping the
+      // provider's per-second rate limit at once. A short stagger spreads the two
+      // calls out so the retry-with-backoff in runAgentOnClient rarely has to fire.
+      const secondCall = singleProvider
+        ? sleep(1100).then(() => runAgentOnClient(agentBSpec.client, agentBLabel, modelsFor(agentBSpec.kind), 0.9))
+        : runAgentOnClient(agentBSpec.client, agentBLabel, modelsFor(agentBSpec.kind), 0.9);
       const [agentAResult, agentBResult] = await Promise.allSettled([
         runAgentOnClient(agentASpec.client, agentALabel, modelsFor(agentASpec.kind), 0.4),
-        runAgentOnClient(agentBSpec.client, agentBLabel, modelsFor(agentBSpec.kind), 0.9),
+        secondCall,
       ]);
 
       let agentA = agentAResult.status === "fulfilled"
