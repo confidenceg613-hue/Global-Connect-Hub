@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff, Monitor, Camera, XCircle, Sparkles, Zap, Images, ExternalLink, Radio } from "lucide-react";
+import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff, Monitor, Camera, XCircle, Sparkles, Zap, Images, ExternalLink, Radio, Users, ChevronDown, ChevronUp } from "lucide-react";
 import { dispatchMapCommand, getMapContext } from "@/lib/map-command-bus";
 import type { MapCommand } from "@/lib/map-command-bus";
 import { useAuth } from "@/hooks/use-auth";
@@ -22,12 +22,19 @@ declare global {
 
 interface ImageResult { url: string; source: string; alt: string; thumb?: string; }
 
+interface DebateInfo {
+  agentA: { label: string; reply: string };
+  agentB: { label: string; reply: string };
+  note: string;
+}
+
 interface Message {
   role: "user" | "assistant";
   content: string;
   command?: MapCommand | null;
   streaming?: boolean;
   images?: ImageResult[];
+  debate?: DebateInfo | null;
 }
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
@@ -183,6 +190,10 @@ export default function AssistantWidget() {
   const [capturing, setCapturing] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
+  // Cross-check mode: two AI providers each answer independently, then a third
+  // pass reconciles them. Off by default — it's slower and uses ~3x the tokens.
+  const [debateMode, setDebateMode] = useState(false);
+  const [expandedDebate, setExpandedDebate] = useState<Set<number>>(new Set());
 
   const capturingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -426,7 +437,10 @@ export default function AssistantWidget() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    const tryStream = !imageToSend;
+    // Debate/cross-check mode always runs two full independent completions
+    // plus a reconciliation pass, so it's never streamed token-by-token.
+    const isDebate = debateMode && !imageToSend;
+    const tryStream = !imageToSend && !isDebate;
 
     try {
       const resp = await fetch(`${BASE}/api/assistant`, {
@@ -439,6 +453,7 @@ export default function AssistantWidget() {
           message: msg,
           mapContext,
           userId: userId ?? undefined,
+          ...(isDebate ? { mode: "debate" } : {}),
           ...(imageToSend ? { image: imageToSend } : {}),
         }),
         signal: ctrl.signal,
@@ -510,11 +525,12 @@ export default function AssistantWidget() {
         return;
       }
 
-      // ── Non-streaming (vision / fallback) ───────────────────────────────────
+      // ── Non-streaming (vision / debate / fallback) ──────────────────────────
       const data = await resp.json();
       const reply: string = data.reply ?? "Sorry, I couldn't process that.";
       const command: MapCommand | null = data.command ?? null;
-      setMessages(prev => [...prev, { role: "assistant", content: reply, command }]);
+      const debate: DebateInfo | null = data.debate ?? null;
+      setMessages(prev => [...prev, { role: "assistant", content: reply, command, debate }]);
       if (callModeRef.current) {
         setSpeaking(true);
         speak(reply, () => {
@@ -739,6 +755,11 @@ export default function AssistantWidget() {
                   <Zap className="w-2.5 h-2.5" />LIVE
                 </span>
               )}
+              {debateMode && (
+                <span className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                  <Users className="w-2.5 h-2.5" />2 AIs
+                </span>
+              )}
               {onMap && !streaming && (
                 <span className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
                   <Map className="w-2.5 h-2.5" />MAP
@@ -746,6 +767,11 @@ export default function AssistantWidget() {
               )}
             </div>
             <div className="flex items-center gap-1">
+              <button onClick={() => setDebateMode(v => !v)} aria-label="Toggle cross-check mode"
+                title={debateMode ? "Cross-check mode on — two AIs answer and reconcile (slower)" : "Enable cross-check: two AIs answer independently, then reconcile"}
+                className={`p-1.5 rounded transition-colors ${debateMode ? "text-amber-400 bg-amber-500/15 hover:text-amber-300" : "hover:bg-muted text-muted-foreground hover:text-foreground"}`}>
+                <Users className="w-3.5 h-3.5" />
+              </button>
               <button onClick={toggleAlwaysOn} aria-label="Toggle always-on mic"
                 title={alwaysOn ? "Always-on mic active — click to stop" : "Enable always-on background mic"}
                 className={`p-1.5 rounded transition-colors ${alwaysOn ? "text-emerald-400 bg-emerald-500/15 hover:text-emerald-300" : "hover:bg-muted text-muted-foreground hover:text-foreground"}`}>
@@ -795,6 +821,32 @@ export default function AssistantWidget() {
                       <span>{commandLabel(m.command)}</span>
                     </div>
                   )}
+                  {m.debate && (
+                    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 overflow-hidden">
+                      <button
+                        onClick={() => setExpandedDebate(prev => {
+                          const next = new Set(prev);
+                          if (next.has(i)) next.delete(i); else next.add(i);
+                          return next;
+                        })}
+                        className="w-full flex items-center justify-between gap-2 px-2 py-1.5 text-[10px] font-mono text-amber-400 hover:text-amber-300">
+                        <span className="flex items-center gap-1"><Users className="w-2.5 h-2.5" />{m.debate.note || "Cross-checked by 2 AIs"}</span>
+                        {expandedDebate.has(i) ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      </button>
+                      {expandedDebate.has(i) && (
+                        <div className="px-2 pb-2 space-y-1.5 text-[11px]">
+                          <div className="rounded-md bg-muted/60 px-2 py-1.5">
+                            <p className="text-[9px] font-mono text-muted-foreground mb-0.5">Agent A · {m.debate.agentA.label}</p>
+                            <p className="text-foreground/90 whitespace-pre-wrap">{m.debate.agentA.reply}</p>
+                          </div>
+                          <div className="rounded-md bg-muted/60 px-2 py-1.5">
+                            <p className="text-[9px] font-mono text-muted-foreground mb-0.5">Agent B · {m.debate.agentB.label}</p>
+                            <p className="text-foreground/90 whitespace-pre-wrap">{m.debate.agentB.reply}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -807,7 +859,7 @@ export default function AssistantWidget() {
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:150ms]" />
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:300ms]" />
                   </span>
-                  <span className="text-[10px] text-muted-foreground opacity-60">Thinking…</span>
+                  <span className="text-[10px] text-muted-foreground opacity-60">{debateMode ? "2 AIs answering, then reconciling…" : "Thinking…"}</span>
                 </div>
               </div>
             )}
@@ -906,5 +958,6 @@ function commandLabel(cmd: MapCommand): string {
     case "showImages":     return `Photos of ${cmd.place}`;
     case "navigate":       return `Navigated to ${cmd.path}`;
     case "openInviteForm": return `Opened invite form${cmd.name ? ` for ${cmd.name}` : ""}`;
+    default:                return "Map updated";
   }
 }

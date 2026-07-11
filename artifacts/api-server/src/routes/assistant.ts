@@ -111,6 +111,14 @@ const AiResponseSchema = z.object({
   command: MapCommandSchema.nullable().optional(),
 });
 
+type MapCommandT = z.infer<typeof MapCommandSchema>;
+
+interface DebateInfo {
+  agentA: { label: string; reply: string };
+  agentB: { label: string; reply: string };
+  note: string;
+}
+
 // ── Request schema ────────────────────────────────────────────────────────────
 const ContactCtx = z.object({
   name: z.string().nullable().optional(),
@@ -123,6 +131,10 @@ const ContactCtx = z.object({
 const SendMessageBody = z.object({
   message: z.string().min(1).max(8000),
   userId: z.number().int().positive().optional(),
+  // "debate": two independently-configured AI providers each answer the
+  // question on their own, then a third pass reconciles/cross-checks them
+  // into one final answer. Requires 2+ distinct providers to be meaningful.
+  mode: z.enum(["single", "debate"]).optional(),
   image: z
     .string()
     .regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/)
@@ -507,6 +519,128 @@ router.post("/assistant", async (req, res) => {
     })),
     { role: "user", content: userContent },
   ];
+
+  /** Best-effort parse of a model's raw JSON-object output into {reply, command}. */
+  function parseAiJson(raw: string): { reply: string; command: MapCommandT | null } {
+    let obj: unknown;
+    try { obj = JSON.parse(raw); } catch {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) try { obj = JSON.parse(m[0]); } catch { /* */ }
+    }
+    if (!obj) return { reply: raw.trim() || "Got it!", command: null };
+    const validated = AiResponseSchema.safeParse(obj);
+    if (!validated.success) {
+      const fallback = typeof (obj as Record<string, unknown>)?.reply === "string"
+        ? (obj as { reply: string }).reply : "Got it!";
+      return { reply: fallback, command: null };
+    }
+    const guarded = stripMoveCommandIfInformational(validated.data);
+    return { reply: guarded.reply, command: guarded.command ?? null };
+  }
+
+  /** Run one client through its own model fallback chain (no cross-client fallback) — used so each debate agent stays a genuinely distinct provider. */
+  async function runAgentOnClient(client: OpenAI, label: string, models: string[]): Promise<{ label: string; reply: string; command: MapCommandT | null }> {
+    let lastErr: unknown;
+    for (const model of models) {
+      try {
+        const completion = await client.chat.completions.create({
+          model,
+          max_tokens: 2000,
+          temperature: 0.7,
+          messages: chatMessages,
+          response_format: { type: "json_object" },
+        });
+        const raw = completion.choices[0]?.message?.content ?? '{"reply":"Sorry, something went wrong."}';
+        return { label: `${label}/${model}`, ...parseAiJson(raw) };
+      } catch (err) {
+        lastErr = err;
+        continue;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(`${label} failed all models`);
+  }
+
+  // ── Debate / cross-check mode ────────────────────────────────────────────────
+  // Two independently-configured providers each answer on their own, then a
+  // third pass reconciles them into a single, more trustworthy final answer.
+  if (parsed.data.mode === "debate" && !useVision) {
+    if (clients.length < 2) {
+      const only = clients[0];
+      const singleReply = only
+        ? await runAgentOnClient(only.client, only.label, modelsFor(only.label))
+            .then(r => r.reply)
+            .catch(() => "I ran into a hiccup — please try again.")
+        : "No AI provider is configured.";
+      res.status(200).json({
+        reply: "Cross-check mode needs a second AI provider configured — right now only one is set up, so here's a single-agent answer instead.\n\n" + singleReply,
+        command: null,
+        debate: null,
+      });
+      return;
+    }
+
+    try {
+      const [agentAResult, agentBResult] = await Promise.allSettled([
+        runAgentOnClient(clients[0].client, clients[0].label, modelsFor(clients[0].label)),
+        runAgentOnClient(clients[1].client, clients[1].label, modelsFor(clients[1].label)),
+      ]);
+
+      const agentA = agentAResult.status === "fulfilled"
+        ? agentAResult.value
+        : { label: clients[0].label, reply: "(no response — this provider errored out)", command: null as MapCommandT | null };
+      const agentB = agentBResult.status === "fulfilled"
+        ? agentBResult.value
+        : { label: clients[1].label, reply: "(no response — this provider errored out)", command: null as MapCommandT | null };
+
+      const reconcileMessages: OpenAI.ChatCompletionMessageParam[] = [
+        {
+          role: "system",
+          content: `You are the reconciler in a two-AI cross-check pipeline for PhoneLink AI. Two independent AI agents were each asked the same user question with the same context and answered without seeing each other's response. Your job: compare them, decide which parts are correct/well-supported, resolve any disagreement, and produce ONE final answer that is at least as good as the better of the two — merging complementary details, dropping anything wrong or unsupported.\n\nOriginal system context given to both agents:\n${systemPrompt}\n\nRespond with strict JSON: {"reply": "...", "command": {...}|null, "note": "one short sentence on whether the two agents agreed or what you reconciled"}. Follow the exact same MAP COMMANDS and OUTPUT RULES from the context above for "reply"/"command". Never invent a command neither agent proposed unless it's obviously the correct merge of what both intended.`,
+        },
+        { role: "user", content: `User's question: ${enrichedMessage}\n\nAgent A (${agentA.label}) answered:\n${agentA.reply}${agentA.command ? `\n[Agent A command: ${JSON.stringify(agentA.command)}]` : ""}\n\nAgent B (${agentB.label}) answered:\n${agentB.reply}${agentB.command ? `\n[Agent B command: ${JSON.stringify(agentB.command)}]` : ""}` },
+      ];
+
+      const reconcileCompletion = await withFallback((client, mdl) => client.chat.completions.create({
+        model: mdl,
+        max_tokens: 2000,
+        temperature: 0.4,
+        messages: reconcileMessages,
+        response_format: { type: "json_object" },
+      }));
+
+      const raw = reconcileCompletion.choices[0]?.message?.content ?? "{}";
+      let finalReply = "Got it!";
+      let finalCommand: MapCommandT | null = null;
+      let note = "";
+      try {
+        const obj = JSON.parse(raw) as { reply?: string; command?: unknown; note?: string };
+        const guarded = stripMoveCommandIfInformational({
+          reply: obj.reply ?? "Got it!",
+          command: (MapCommandSchema.nullable().optional().safeParse(obj.command).success
+            ? (obj.command as MapCommandT | null | undefined) : null) ?? null,
+        });
+        finalReply = guarded.reply;
+        finalCommand = guarded.command ?? null;
+        note = obj.note ?? "";
+      } catch {
+        const fallback = parseAiJson(raw);
+        finalReply = fallback.reply;
+        finalCommand = fallback.command;
+      }
+
+      if (userId) await saveMessages(userId, message, finalReply);
+      res.json({
+        reply: finalReply,
+        command: finalCommand,
+        debate: { agentA: { label: agentA.label, reply: agentA.reply }, agentB: { label: agentB.label, reply: agentB.reply }, note } as DebateInfo,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[assistant] debate mode failed:", msg);
+      res.status(500).json({ reply: "Cross-check ran into a hiccup on my end — please try that again in a moment.", command: null, debate: null });
+    }
+    return;
+  }
 
   // ── Streaming response ──────────────────────────────────────────────────────
   if (wantsStream && !useVision) {
