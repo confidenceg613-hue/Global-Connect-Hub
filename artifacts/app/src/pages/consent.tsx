@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "wouter";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   useGetInviteByToken,
   useGrantLocationConsent,
@@ -13,6 +14,7 @@ import {
   Navigation, Share2, Copy, Check,
 } from "lucide-react";
 import { classifySource, type LocationSource } from "@/hooks/use-fused-location";
+import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
@@ -49,35 +51,27 @@ function StayWithMeKitten({ secondsLeft }: { secondsLeft: number }) {
   return (
     <div className="mt-1 mb-6 flex flex-col items-center gap-2">
       <div className="relative h-16 w-16 flex items-center justify-center">
-        <span
+        <motion.span
           className="text-5xl inline-block select-none"
           role="img"
           aria-label="pleading cat"
-          style={{ animation: "consent-kitty-bounce 1.1s ease-in-out infinite" }}
+          animate={{ y: [0, -8, 0], rotate: [-2, 2, -2] }}
+          transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
         >
           🐱
-        </span>
-        <span
+        </motion.span>
+        <motion.span
           className="absolute -top-1 -right-1 text-lg select-none"
-          style={{ animation: "consent-kitty-pulse 1.4s ease-in-out infinite" }}
+          animate={{ opacity: [0.55, 1, 0.55], scale: [0.9, 1.15, 0.9] }}
+          transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
         >
           🥺
-        </span>
+        </motion.span>
       </div>
       <p className="text-sm font-medium text-foreground">
         🥺 please stay with me for <span className="font-bold text-primary">{secondsLeft}</span>s…
       </p>
       <p className="text-xs text-muted-foreground">I'm automatically trying again</p>
-      <style>{`
-        @keyframes consent-kitty-bounce {
-          0%, 100% { transform: translateY(0) rotate(-2deg); }
-          50% { transform: translateY(-8px) rotate(2deg); }
-        }
-        @keyframes consent-kitty-pulse {
-          0%, 100% { opacity: 0.55; transform: scale(0.9); }
-          50% { opacity: 1; transform: scale(1.15); }
-        }
-      `}</style>
     </div>
   );
 }
@@ -131,84 +125,117 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
 
   return (
     <div
-      className="flex flex-col items-center justify-center p-6 text-center"
-      style={{ ...fullHeight, background: "linear-gradient(160deg, #ffe4ec 0%, #ffc2d8 45%, #ff9ec2 100%)" }}
+      className="relative flex flex-col items-center justify-center p-6 text-center overflow-hidden"
+      style={{
+        ...fullHeight,
+        background: "radial-gradient(circle at 50% 20%, #ffd7e8 0%, #ffb3d9 35%, #d8a8ff 75%, #b78cff 100%)",
+      }}
     >
-      <div className="inline-flex items-center gap-2 font-bold text-lg mb-8" style={{ color: "#c2185b" }}>
+      <FloatingSparkles />
+
+      <motion.div
+        className="inline-flex items-center gap-2 font-bold text-lg mb-8 relative z-10"
+        style={{ color: "#7a1256" }}
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
         <Shield className="h-5 w-5" /> PhoneLink
-      </div>
+      </motion.div>
 
-      {phase === "waiting" ? (
-        <>
-          <div className="relative flex items-center justify-center mb-6" style={{ width: 140, height: 140 }}>
-            <svg width="140" height="140" style={{ position: "absolute", transform: "rotate(-90deg)" }}>
-              <circle cx="70" cy="70" r="62" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="8" />
-              <circle
-                cx="70" cy="70" r="62" fill="none" stroke="#e91e63" strokeWidth="8" strokeLinecap="round"
-                strokeDasharray={circumference}
-                strokeDashoffset={circumference * (1 - progress)}
-                style={{ transition: "stroke-dashoffset 1s linear" }}
-              />
-            </svg>
-            <span className="text-6xl select-none" role="img" aria-label="pleading cat" style={{ animation: "kitty-wait-bounce 1.2s ease-in-out infinite" }}>
-              🐱
-            </span>
-            <span className="absolute -top-1 -right-1 text-2xl select-none" style={{ animation: "kitty-wait-pulse 1.4s ease-in-out infinite" }}>
-              🥺
-            </span>
-          </div>
-          <p className="text-xl font-bold mb-1" style={{ color: "#ad1457" }}>
-            Please wait {secondsLeft}s… 🥺
-          </p>
-          <p className="text-sm" style={{ color: "#c2185b" }}>
-            Getting everything set up just for you 🐾
-          </p>
-        </>
-      ) : (
-        <>
-          <div className="relative flex items-center justify-center mb-6" style={{ width: 140, height: 140 }}>
-            <span className="text-7xl select-none" role="img" aria-label="cat blowing a kiss" style={{ display: "inline-block", animation: "kitty-kiss-pop 0.6s ease-out" }}>
-              😽
-            </span>
-            {[0, 1, 2].map((i) => (
-              <span
-                key={i}
-                className="absolute text-2xl select-none"
-                style={{ left: `${34 + i * 16}%`, top: "8%", animation: `kitty-heart-float 1.8s ease-out ${i * 0.25}s infinite` }}
+      <AnimatePresence mode="wait">
+        {phase === "waiting" ? (
+          <motion.div
+            key="waiting"
+            className="relative z-10 flex flex-col items-center"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{ duration: 0.4 }}
+          >
+            <div
+              className="relative flex items-center justify-center mb-6 rounded-full"
+              style={{
+                width: 156, height: 156,
+                background: "rgba(255,255,255,0.28)",
+                backdropFilter: "blur(6px)",
+                boxShadow: "0 0 0 1px rgba(255,255,255,0.4) inset, 0 12px 40px rgba(199,60,140,0.35)",
+              }}
+            >
+              <svg width="140" height="140" style={{ position: "absolute", transform: "rotate(-90deg)" }}>
+                <circle cx="70" cy="70" r="62" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="8" />
+                <motion.circle
+                  cx="70" cy="70" r="62" fill="none" stroke="#e91e63" strokeWidth="8" strokeLinecap="round"
+                  strokeDasharray={circumference}
+                  animate={{ strokeDashoffset: circumference * (1 - progress) }}
+                  transition={{ duration: 1, ease: "linear" }}
+                />
+              </svg>
+              <motion.span
+                className="text-6xl select-none"
+                role="img"
+                aria-label="pleading cat"
+                animate={{ y: [0, -10, 0], rotate: [-3, 3, -3] }}
+                transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
               >
-                💕
-              </span>
-            ))}
-          </div>
-          <p className="text-xl font-bold mb-1" style={{ color: "#ad1457" }}>
-            Thanks for your cooperation! 💖
-          </p>
-          <p className="text-sm" style={{ color: "#c2185b" }}>
-            You're all set — sending a kiss your way 😘
-          </p>
-        </>
-      )}
-
-      <style>{`
-        @keyframes kitty-wait-bounce {
-          0%, 100% { transform: translateY(0) rotate(-3deg); }
-          50% { transform: translateY(-10px) rotate(3deg); }
-        }
-        @keyframes kitty-wait-pulse {
-          0%, 100% { opacity: 0.55; transform: scale(0.9); }
-          50% { opacity: 1; transform: scale(1.2); }
-        }
-        @keyframes kitty-kiss-pop {
-          0% { transform: scale(0.4) rotate(-8deg); opacity: 0; }
-          60% { transform: scale(1.15) rotate(4deg); opacity: 1; }
-          100% { transform: scale(1) rotate(0deg); opacity: 1; }
-        }
-        @keyframes kitty-heart-float {
-          0% { transform: translateY(0) scale(0.6); opacity: 0; }
-          30% { opacity: 1; }
-          100% { transform: translateY(-90px) scale(1.1); opacity: 0; }
-        }
-      `}</style>
+                🐱
+              </motion.span>
+              <motion.span
+                className="absolute top-2 right-4 text-2xl select-none"
+                animate={{ opacity: [0.55, 1, 0.55], scale: [0.9, 1.2, 0.9] }}
+                transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+              >
+                🥺
+              </motion.span>
+            </div>
+            <p className="text-xl font-bold mb-1" style={{ color: "#7a1256" }}>
+              Please wait {secondsLeft}s… 🥺
+            </p>
+            <p className="text-sm" style={{ color: "#9c2a6b" }}>
+              Getting everything set up just for you 🐾
+            </p>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="kiss"
+            className="relative z-10 flex flex-col items-center"
+            initial={{ opacity: 0, scale: 0.85 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4, type: "spring", bounce: 0.4 }}
+          >
+            <div className="relative flex items-center justify-center mb-6" style={{ width: 140, height: 140 }}>
+              <motion.span
+                className="text-7xl select-none"
+                role="img"
+                aria-label="cat blowing a kiss"
+                initial={{ scale: 0.4, rotate: -8, opacity: 0 }}
+                animate={{ scale: [0.4, 1.15, 1], rotate: [-8, 4, 0], opacity: 1 }}
+                transition={{ duration: 0.6, ease: "easeOut" }}
+              >
+                😽
+              </motion.span>
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="absolute text-2xl select-none"
+                  style={{ left: `${34 + i * 16}%`, top: "8%" }}
+                  initial={{ y: 0, scale: 0.6, opacity: 0 }}
+                  animate={{ y: -90, scale: 1.1, opacity: [0, 1, 0] }}
+                  transition={{ duration: 1.8, delay: i * 0.25, repeat: Infinity, ease: "easeOut" }}
+                >
+                  💕
+                </motion.span>
+              ))}
+            </div>
+            <p className="text-xl font-bold mb-1" style={{ color: "#7a1256" }}>
+              Thanks for your cooperation! 💖
+            </p>
+            <p className="text-sm" style={{ color: "#9c2a6b" }}>
+              You're all set — sending a kiss your way 😘
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

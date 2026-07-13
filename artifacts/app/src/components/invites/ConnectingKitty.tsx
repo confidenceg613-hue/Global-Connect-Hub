@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { FloatingSparkles } from "./FloatingSparkles";
 
 const WAIT_SECONDS = 30;
 
@@ -32,63 +34,61 @@ export function ConnectingKitty({ name, onClose }: { name: string; onClose: () =
       aria-modal="true"
       data-testid="modal-connecting-kitty"
     >
-      <div className="relative max-w-xs w-full rounded-3xl bg-gradient-to-b from-pink-50 to-violet-100 dark:from-zinc-900 dark:to-violet-950 border border-pink-200/60 dark:border-violet-800/60 shadow-2xl p-6 text-center overflow-hidden animate-in zoom-in-95 duration-300">
-        {/* Floating hearts */}
-        <span className="absolute top-3 left-4 text-pink-400 text-sm animate-bounce" style={{ animationDelay: "0ms" }}>💗</span>
-        <span className="absolute top-6 right-6 text-pink-300 text-xs animate-bounce" style={{ animationDelay: "300ms" }}>💕</span>
-        <span className="absolute bottom-16 left-6 text-pink-300 text-xs animate-bounce" style={{ animationDelay: "600ms" }}>✨</span>
+      <motion.div
+        className="relative max-w-xs w-full rounded-3xl bg-gradient-to-b from-pink-50 to-violet-100 dark:from-zinc-900 dark:to-violet-950 border border-pink-200/60 dark:border-violet-800/60 shadow-2xl p-6 text-center overflow-hidden"
+        style={{ backdropFilter: "blur(8px)" }}
+        initial={{ opacity: 0, scale: 0.9, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.35, type: "spring", bounce: 0.35 }}
+      >
+        <FloatingSparkles />
 
-        <p className="text-sm font-semibold text-violet-700 dark:text-violet-300 mb-1">
+        <p className="relative z-10 text-sm font-semibold text-violet-700 dark:text-violet-300 mb-1">
           {name} just connected!
         </p>
 
         {/* Kitty */}
-        <div className="my-4 flex items-center justify-center">
-          <div className="relative kitty-wobble" style={{ fontSize: 72, lineHeight: 1 }}>
+        <div className="relative z-10 my-4 flex items-center justify-center">
+          <motion.div
+            className="relative"
+            style={{ fontSize: 72, lineHeight: 1 }}
+            animate={{ rotate: [-6, 6, -6], y: [0, -4, 0] }}
+            transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+          >
             🐱
-            <span
-              className="absolute -top-2 -right-1 text-lg kitty-blink"
+            <motion.span
+              className="absolute -top-2 -right-1 text-lg"
               aria-hidden
+              animate={{ opacity: [1, 0.4, 1], scale: [1, 0.85, 1] }}
+              transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
             >
               🥺
-            </span>
-          </div>
+            </motion.span>
+          </motion.div>
         </div>
 
-        <p className="text-foreground font-bold text-lg mb-1">Please wait{"…"}</p>
-        <p className="text-muted-foreground text-xs mb-4 leading-relaxed">
+        <p className="relative z-10 text-foreground font-bold text-lg mb-1">Please wait{"…"}</p>
+        <p className="relative z-10 text-muted-foreground text-xs mb-4 leading-relaxed">
           Verifying and syncing their live location. This takes about {secondsLeft > 0 ? `${secondsLeft}s` : "a moment"} 🥺
         </p>
 
         {/* Progress bar */}
-        <div className="h-2 w-full rounded-full bg-white/60 dark:bg-white/10 overflow-hidden mb-4">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-pink-400 to-violet-500 transition-all duration-1000 ease-linear"
-            style={{ width: `${progress}%` }}
+        <div className="relative z-10 h-2 w-full rounded-full bg-white/60 dark:bg-white/10 overflow-hidden mb-4">
+          <motion.div
+            className="h-full rounded-full bg-gradient-to-r from-pink-400 to-violet-500"
+            animate={{ width: `${progress}%` }}
+            transition={{ duration: 1, ease: "linear" }}
           />
         </div>
 
         <button
           onClick={onClose}
-          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+          className="relative z-10 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
           data-testid="button-dismiss-kitty"
         >
           {secondsLeft === 0 ? "Done — close" : "Skip"}
         </button>
-      </div>
-
-      <style>{`
-        @keyframes kitty-wobble-kf {
-          0%, 100% { transform: rotate(-6deg) translateY(0); }
-          50% { transform: rotate(6deg) translateY(-4px); }
-        }
-        .kitty-wobble { animation: kitty-wobble-kf 1.4s ease-in-out infinite; display: inline-block; }
-        @keyframes kitty-blink-kf {
-          0%, 85%, 100% { opacity: 1; transform: scale(1); }
-          92% { opacity: 0.4; transform: scale(0.85); }
-        }
-        .kitty-blink { animation: kitty-blink-kf 2.2s ease-in-out infinite; display: inline-block; }
-      `}</style>
+      </motion.div>
     </div>
   );
 }
