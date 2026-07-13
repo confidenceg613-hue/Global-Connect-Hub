@@ -71,6 +71,11 @@ Tables: `users`, `assistant_messages`, `geo_videos`, `geo_photos`, `geofences`, 
 
 The live map's Street View button resolves nearby crowdsourced imagery via Mapillary's free Graph API (`MAPILLARY_ACCESS_TOKEN` secret required). Every resolved location is saved permanently in the `street_view_photos` table (`artifacts/api-server/src/routes/maps.ts` → `GET /api/maps/street-view`), so repeat lookups near the same spot are served from the DB cache instead of calling Mapillary again.
 
+## Setup notes
+
+- On fresh imports, `artifacts/mobile/package.json` needs `"main": "expo-router/entry"` (missing after import, which made Metro look for a non-existent classic `App.js` entry) plus `react-native-web` + `react-dom` as dependencies (needed for the Expo web bundle to build). Both are now committed.
+- `artifacts/mockup-sandbox` has no `dev` script by default — it's scaffolded on demand by the mockup-sandbox skill when canvas prototyping is used, so its workflow showing `FINISHED` at rest is expected.
+
 ## User preferences
 
 - Keep the existing monorepo structure and stack; do not restructure or migrate.
