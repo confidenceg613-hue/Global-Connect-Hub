@@ -12,7 +12,7 @@ const router = Router();
 const SHARED_HEADERS = { "HTTP-Referer": "https://phonelink.app", "X-Title": "PhoneLink AI" };
 const GROQ_BASE    = "https://api.groq.com/openai/v1";
 const MISTRAL_BASE = "https://api.mistral.ai/v1";
-const GEMINI_BASE  = "https://generativelanguage.googleapis.com/openai/";
+const GEMINI_BASE  = "https://generativelanguage.googleapis.com/v1beta/openai/";
 
 const geminiKey  = process.env.GEMINI_API_KEY?.trim();
 const mistralKey = process.env.MISTRAL_API_KEY?.trim();
@@ -38,10 +38,11 @@ function makeClient(apiKey: string, base?: string): OpenAI {
 // "kind" drives which default model chain applies — distinct from the display
 // label, since a "legacy" single-key fallback can resolve to any provider
 // depending on the key's shape (see below).
-type ClientKind = "mistral" | "groq" | "openrouter" | "openai";
+type ClientKind = "gemini" | "mistral" | "groq" | "openrouter" | "openai";
 
-// Ordered list of clients: Mistral first, then Groq fallbacks
+// Ordered list of clients: Gemini first, then Mistral, then Groq fallbacks
 const clients: { label: string; client: OpenAI; kind: ClientKind }[] = [];
+if (geminiKey)  clients.push({ label: "Gemini",  client: makeClient(geminiKey, GEMINI_BASE), kind: "gemini" });
 if (mistralKey) clients.push({ label: "Mistral", client: makeClient(mistralKey, MISTRAL_BASE), kind: "mistral" });
 if (groqKey1)   clients.push({ label: "Groq-1",  client: makeClient(groqKey1), kind: "groq" });
 if (groqKey2)   clients.push({ label: "Groq-2",  client: makeClient(groqKey2), kind: "groq" });
@@ -64,6 +65,7 @@ const hasAnyClient = clients.length > 0;
 function modelsFor(kind: ClientKind): string[] {
   if (process.env.OPENAI_MODEL) return [process.env.OPENAI_MODEL];
   switch (kind) {
+    case "gemini":     return ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
     case "mistral":    return ["mistral-large-latest"];
     case "openrouter": return ["openai/gpt-4o-mini"];
     case "openai":     return ["gpt-4o-mini", "gpt-4o"];
