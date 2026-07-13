@@ -46,7 +46,7 @@ Optional secrets (features degrade gracefully without them):
 - `MISTRAL_API_KEY` — Mistral AI model
 - `GROQ_API_KEY_1` / `GROQ_API_KEY_2` — Groq inference
 - `GOOGLE_MAPS_API_KEY` — Maps integration
-- `MAPILLARY_ACCESS_TOKEN` — Street View imagery (unavailable without it)
+- `GOOGLE_MAPS_API_KEY` — Street View imagery via Google Street View Static + Embed APIs (unavailable without it)
 
 Database (`DATABASE_URL`) is managed automatically by Replit.
 

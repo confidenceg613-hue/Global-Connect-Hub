@@ -21,10 +21,10 @@ function throttledNominatim<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-// ── Mapillary — free street-level imagery, requires a free (no-card) access token ──
-const MAPILLARY_TOKEN = process.env.MAPILLARY_ACCESS_TOKEN;
-if (!MAPILLARY_TOKEN) {
-  console.warn("[maps] MAPILLARY_ACCESS_TOKEN is not set — street-level imagery will be unavailable");
+// ── Google Maps — Street View Static + Embed APIs ────────────────────────────
+const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_API_KEY;
+if (!GOOGLE_MAPS_KEY) {
+  console.warn("[maps] GOOGLE_MAPS_API_KEY is not set — street-level imagery will be unavailable");
 }
 
 // ── Simple in-memory rate limiter ─────────────────────────────────────────────
@@ -236,16 +236,15 @@ router.get("/maps/street-view", rateLimiter, async (req: Request, res: Response)
     return;
   }
 
-  if (!MAPILLARY_TOKEN) {
+  if (!GOOGLE_MAPS_KEY) {
     res.status(503).json({ error: "Street-level imagery not configured", available: false });
     return;
   }
 
   const { data: lat } = latParsed;
   const { data: lng } = lngParsed;
-  // Cache lookup uses a wide-ish box; the live Mapillary search below starts
-  // tight and progressively widens so nearby (but not exact) imagery is found.
-  const cacheDelta = 0.01; // ~1-2km wide box for cache reuse
+  // Cache lookup uses a ~500m box so nearby lookups reuse the same panorama.
+  const cacheDelta = 0.005;
 
   try {
     // Check the permanent cache first — once a location's street view has
@@ -267,7 +266,7 @@ router.get("/maps/street-view", rateLimiter, async (req: Request, res: Response)
       const c = cached[0];
       res.json({
         available: true,
-        imageId: c.mapillaryImageId,
+        panoId: c.mapillaryImageId,
         imageUrl: c.imageUrl,
         embedUrl: c.embedUrl,
         cached: true,
@@ -275,100 +274,44 @@ router.get("/maps/street-view", rateLimiter, async (req: Request, res: Response)
       return;
     }
 
-    type MapillaryImage = {
-      id: string;
-      thumb_1024_url?: string;
-      computed_geometry?: { coordinates?: [number, number] };
-    };
-
-    function pickClosest(candidates: MapillaryImage[]): MapillaryImage | undefined {
-      if (candidates.length === 0) return undefined;
-      return candidates.reduce((closest, c) => {
-        const coords = c.computed_geometry?.coordinates;
-        if (!coords) return closest;
-        const d = (coords[0] - lng) ** 2 + (coords[1] - lat) ** 2;
-        const closestCoords = closest?.computed_geometry?.coordinates;
-        const closestD = closestCoords ? (closestCoords[0] - lng) ** 2 + (closestCoords[1] - lat) ** 2 : Infinity;
-        return d < closestD ? c : closest;
-      }, candidates[0]);
+    // Ask Google Street View Metadata API whether imagery exists at this point.
+    const metaUrl = new URL("https://maps.googleapis.com/maps/api/streetview/metadata");
+    metaUrl.searchParams.set("location", `${lat},${lng}`);
+    metaUrl.searchParams.set("key", GOOGLE_MAPS_KEY);
+    const metaResp = await fetch(metaUrl.toString());
+    if (!metaResp.ok) {
+      console.warn(`[maps/street-view] Google metadata HTTP ${metaResp.status}`);
+      res.status(502).json({ error: "Failed to reach Google Street View", available: false });
+      return;
     }
 
-    let img: MapillaryImage | undefined;
-
-    // 1) Try Mapillary's Image Radius Search first (lat/lng + radius, meters).
-    // Mapillary caps `radius` at 50m, so this only catches imagery that's
-    // very close to the exact point — but it's the most precise match when
-    // it hits, so it takes priority over the wider bbox fallback below.
-    try {
-      const radiusUrl = new URL("https://graph.mapillary.com/images");
-      radiusUrl.searchParams.set("access_token", MAPILLARY_TOKEN);
-      radiusUrl.searchParams.set("fields", "id,thumb_1024_url,computed_geometry");
-      radiusUrl.searchParams.set("lat", String(lat));
-      radiusUrl.searchParams.set("lng", String(lng));
-      radiusUrl.searchParams.set("radius", "50");
-      radiusUrl.searchParams.set("limit", "20");
-
-      const radiusResp = await fetch(radiusUrl.toString());
-      if (radiusResp.ok) {
-        const radiusJson = (await radiusResp.json()) as { data?: MapillaryImage[] };
-        img = pickClosest(radiusJson.data ?? []);
-      } else {
-        console.warn(`[maps/street-view] Mapillary radius search HTTP ${radiusResp.status}`);
-      }
-    } catch (err) {
-      console.warn("[maps/street-view] Mapillary radius search failed:", err);
-    }
-
-    // 2) Fall back to a progressively widening bbox search so sparse-coverage
-    // areas still find the nearest available imagery beyond the 50m radius cap.
-    if (!img) {
-      const deltas = [0.001, 0.003, 0.008, 0.02, 0.05];
-      for (const delta of deltas) {
-        const url = new URL("https://graph.mapillary.com/images");
-        url.searchParams.set("access_token", MAPILLARY_TOKEN);
-        url.searchParams.set("fields", "id,thumb_1024_url,computed_geometry");
-        url.searchParams.set("bbox", `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`);
-        url.searchParams.set("limit", "20");
-
-        const resp = await fetch(url.toString());
-        if (!resp.ok) {
-          console.warn(`[maps/street-view] Mapillary HTTP ${resp.status} at delta=${delta}`);
-          continue;
-        }
-
-        const json = (await resp.json()) as { data?: MapillaryImage[] };
-        const candidates = json.data ?? [];
-        if (candidates.length === 0) continue;
-
-        img = pickClosest(candidates);
-        break;
-      }
-    }
-
-    if (!img) {
+    const meta = (await metaResp.json()) as { status: string; pano_id?: string };
+    if (meta.status !== "OK" || !meta.pano_id) {
       res.status(404).json({ error: "No street-level imagery near this location", available: false });
       return;
     }
 
-    const embedUrl = `https://www.mapillary.com/embed?image_key=${img.id}&style=photo`;
+    const panoId   = meta.pano_id;
+    const embedUrl = `https://www.google.com/maps/embed/v1/streetview?key=${GOOGLE_MAPS_KEY}&location=${lat},${lng}&fov=90&heading=0&pitch=0`;
+    const imageUrl = `https://maps.googleapis.com/maps/api/streetview?size=640x320&location=${lat},${lng}&key=${GOOGLE_MAPS_KEY}`;
 
-    // Save permanently so this location never needs to hit Mapillary again.
+    // Save permanently so this location never needs to hit Google again.
     // onConflictDoNothing guards against duplicate rows under concurrent cache misses.
     await db
       .insert(streetViewPhotosTable)
       .values({
         latitude: lat,
         longitude: lng,
-        mapillaryImageId: img.id,
-        imageUrl: img.thumb_1024_url ?? null,
+        mapillaryImageId: panoId,   // column reused to store the Google pano_id
+        imageUrl,
         embedUrl,
       })
       .onConflictDoNothing({ target: streetViewPhotosTable.mapillaryImageId });
 
     res.json({
       available: true,
-      imageId: img.id,
-      imageUrl: img.thumb_1024_url ?? null,
+      panoId,
+      imageUrl,
       embedUrl,
       cached: false,
     });
