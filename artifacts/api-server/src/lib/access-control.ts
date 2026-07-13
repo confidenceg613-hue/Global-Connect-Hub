@@ -144,7 +144,24 @@ export async function consumeAccess(userId: number): Promise<AccessStatus> {
     .set({ freeAccessesUsed: row.freeAccessesUsed + 1, updatedAt: now })
     .where(eq(userAccessTable.userId, userId))
     .returning();
-  return evaluate(updated);
+
+  // This request itself was a legitimate free access (checked against the
+  // pre-increment count above), so it must be reported as allowed even
+  // though it may have just used up the last one — evaluate() judges
+  // *current* standing, not whether the action that just happened was ok.
+  const remaining = Math.max(updated.freeAccessLimit - updated.freeAccessesUsed, 0);
+  return {
+    allowed: true,
+    status: "free",
+    freeAccessesUsed: updated.freeAccessesUsed,
+    freeAccessLimit: updated.freeAccessLimit,
+    freeAccessesRemaining: remaining,
+    accessExpiresAt: null,
+    message:
+      remaining > 0
+        ? `${remaining} free access${remaining === 1 ? "" : "es"} remaining.`
+        : "This was your last free access. Pay to receive a subscription code next time.",
+  };
 }
 
 export type RedeemResult =
