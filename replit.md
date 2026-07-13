@@ -47,6 +47,7 @@ Set in `.replit` shared env:
 
 Required secrets (add in Replit Secrets):
 - `SESSION_SECRET` — Session signing secret
+- `ADMIN_SECRET` — Shared secret for the `/api/admin/*` subscription-code management routes (sent as the `x-admin-secret` header). Never exposed to the app itself.
 
 Optional secrets (features degrade gracefully without them):
 - `VAPID_PRIVATE_KEY` — Web push private key; without it, push notifications are skipped (still logged to `notifications_log`) but nothing else breaks
@@ -57,6 +58,20 @@ Optional secrets (features degrade gracefully without them):
 - `GOOGLE_MAPS_API_KEY` — Street View imagery via Google Street View Static + Embed APIs (unavailable without it)
 
 Database (`DATABASE_URL`) is managed automatically by Replit.
+
+## Monetization (subscription codes)
+
+3 free accesses per user, then a paid weekly code is required. Backend lives entirely in `artifacts/api-server/src/lib/access-control.ts`.
+
+- **Tables** (`lib/db/src/schema/`): `subscription_codes` (admin-managed codes; `duration_days: null` = never expires, reserved for internal/dev codes; `max_redemptions: null` = unlimited users per code), `user_access` (one row per user — free-access counter + current subscription expiry), `code_redemptions` (append-only audit log).
+- **User-facing routes** (`artifacts/api-server/src/routes/access.ts`, no auth beyond `userId`, matching the rest of the app):
+  - `GET /api/access/payment-info` — bank transfer details to show when paywalled.
+  - `GET /api/access/:userId/status` — check access without consuming a free use.
+  - `POST /api/access/:userId/check-in` — call once per app open/session; consumes one free access if no active subscription; returns 402 + payment details once free/paid access is exhausted.
+  - `POST /api/access/:userId/redeem` — submit a code received after payment; 402 if invalid/revoked/exhausted.
+- **Admin routes** (`artifacts/api-server/src/routes/admin-codes.ts`, gated by `x-admin-secret` header == `ADMIN_SECRET`): `POST /api/admin/codes`, `GET /api/admin/codes`, `PATCH /api/admin/codes/:id/revoke`. Codes are never returned by any non-admin route.
+- Seeded codes already in the dev DB: `224`/`462`/`418` (7-day weekly codes, unlimited redemptions) and `419` (dev/internal bypass — unlimited duration, never displayed to users). Add more weekly codes via the admin API as new weeks start.
+- Frontend paywall UI is not built yet — the app doesn't call `/api/access/*` anywhere. Next step to actually enforce this is wiring a check-in call + redeem-code screen into `artifacts/app`.
 
 ## Database
 

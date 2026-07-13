@@ -6,3 +6,5 @@
 - [Google Sign-In as account recovery](google-signin-recovery.md) — closes the "rediscover userId after reinstall" gap; link/merge rules and the null-guard/transaction bugs a review caught.
 - [Telemetry privacy boundary](telemetry-privacy-boundary.md) — battery/speed/deviceInfo must never be broadcast over the token-based location SSE stream; only exposed via owner-scoped /api/sessions.
 - [Group Share / GMap feature](group-share.md) — one link → many participants; group tokens never touch invites table so they're invisible to live-map; dedicated SSE channel in group-shares.ts.
+- [Monetization / paywall system](monetization.md) — free-access + weekly-code subscription model; codes are separate from grants so one code can serve many users; admin routes gated by ADMIN_SECRET.
+- [Drizzle pg error codes](drizzle-pg-errors.md) — Postgres error code (e.g. unique violation 23505) lands on `err.cause.code`, not `err.code`, because drizzle wraps it in DrizzleQueryError.

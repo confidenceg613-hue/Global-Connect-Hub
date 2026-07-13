@@ -30,7 +30,10 @@ router.post("/admin/codes", async (req, res): Promise<void> => {
     const code = await createCode(parsed.data);
     res.status(201).json(code);
   } catch (err: unknown) {
-    if ((err as { code?: string })?.code === "23505") {
+    const pgCode =
+      (err as { code?: string })?.code ??
+      (err as { cause?: { code?: string } })?.cause?.code;
+    if (pgCode === "23505") {
       res.status(409).json({ error: "That code already exists." });
       return;
     }
