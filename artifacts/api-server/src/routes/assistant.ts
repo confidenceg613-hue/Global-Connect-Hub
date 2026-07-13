@@ -12,20 +12,23 @@ const router = Router();
 const SHARED_HEADERS = { "HTTP-Referer": "https://phonelink.app", "X-Title": "PhoneLink AI" };
 const GROQ_BASE    = "https://api.groq.com/openai/v1";
 const MISTRAL_BASE = "https://api.mistral.ai/v1";
+const GEMINI_BASE  = "https://generativelanguage.googleapis.com/openai/";
 
+const geminiKey  = process.env.GEMINI_API_KEY?.trim();
 const mistralKey = process.env.MISTRAL_API_KEY?.trim();
 const groqKey1   = process.env.GROQ_API_KEY_1?.trim();
 const groqKey2   = process.env.GROQ_API_KEY_2?.trim();
 // Legacy single-key fallback kept for backward-compat
 const legacyKey  = process.env.OPENAI_API_KEY?.trim();
 
-if (!mistralKey && !groqKey1 && !groqKey2 && !legacyKey) {
+if (!geminiKey && !mistralKey && !groqKey1 && !groqKey2 && !legacyKey) {
   console.error("[assistant] No API keys set — /api/assistant will return 503");
 } else {
-  if (mistralKey) console.log("[assistant] Mistral key ready (primary)");
+  if (geminiKey)  console.log("[assistant] Gemini key ready (primary)");
+  if (mistralKey) console.log("[assistant] Mistral key ready");
   if (groqKey1)   console.log("[assistant] Groq key 1 ready");
   if (groqKey2)   console.log("[assistant] Groq key 2 ready");
-  if (!mistralKey && !groqKey1 && !groqKey2 && legacyKey) console.log("[assistant] Using legacy OPENAI_API_KEY");
+  if (!geminiKey && !mistralKey && !groqKey1 && !groqKey2 && legacyKey) console.log("[assistant] Using legacy OPENAI_API_KEY");
 }
 
 function makeClient(apiKey: string, base?: string): OpenAI {
