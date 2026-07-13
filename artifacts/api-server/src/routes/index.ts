@@ -18,6 +18,8 @@ import imagesRouter from "./images";
 import sessionsRouter from "./sessions";
 import googleAuthRouter from "./google-auth";
 import groupSharesRouter from "./group-shares";
+import accessRouter from "./access";
+import adminCodesRouter from "./admin-codes";
 
 const router: IRouter = Router();
 
@@ -40,5 +42,7 @@ router.use(mapsRouter);
 router.use(imagesRouter);
 router.use(sessionsRouter);
 router.use(groupSharesRouter);
+router.use(accessRouter);
+router.use(adminCodesRouter);
 
 export default router;
