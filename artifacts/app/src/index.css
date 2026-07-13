@@ -3,6 +3,28 @@
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
+/* ── Safe area insets (iPhone X+ notch / Dynamic Island) ── */
+:root {
+  --sai-top:    env(safe-area-inset-top, 0px);
+  --sai-bottom: env(safe-area-inset-bottom, 0px);
+  --sai-left:   env(safe-area-inset-left, 0px);
+  --sai-right:  env(safe-area-inset-right, 0px);
+}
+
+/* ── Reduced-motion: kill all Framer Motion / tw-animate transitions ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Framer Motion inline styles use --motion-duration; zero it out */
+  [style*="--motion-duration"] {
+    --motion-duration: 0.01ms !important;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

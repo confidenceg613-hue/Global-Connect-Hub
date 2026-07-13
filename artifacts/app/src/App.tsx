@@ -36,7 +36,7 @@ const SettingsPage = lazy(() => import("@/pages/settings"));
 const Surveillance = lazy(() => import("@/pages/surveillance"));
 const MapboxTest = lazy(() => import("@/pages/mapbox-test"));
 const GMap = lazy(() => import("@/pages/gmap"));
-import GroupJoinPage from "@/pages/group-join";
+const GroupJoinPage = lazy(() => import("@/pages/group-join"));
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";

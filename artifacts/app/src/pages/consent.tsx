@@ -779,10 +779,9 @@ export default function ConsentPage() {
   useEffect(() => {
     if (state === "error" && autoRetrySecondsLeft === 0) {
       autoStartedRef.current = false;
-      autoGrantFiredRef.current = false;
-      setState("pre_consent");
+      doGrant();
     }
-  }, [state, autoRetrySecondsLeft]);
+  }, [state, autoRetrySecondsLeft, doGrant]);
 
   // Show the cute kitty "please wait" overlay once, right as we're about to
   // reveal the live-sharing dashboard for the first time — tracking is
@@ -875,9 +874,9 @@ export default function ConsentPage() {
                   Shares your real-time GPS position with {senderName}. Works in the background for up to <strong className="text-foreground">60 days</strong>.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">GPS + Network</span>
-                  <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">Background</span>
-                  <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">High Accuracy</span>
+                  <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">GPS + Network</span>
+                  <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">Background</span>
+                  <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">High Accuracy</span>
                 </div>
               </div>
               <CheckCircle className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
@@ -894,9 +893,9 @@ export default function ConsentPage() {
                   Captures 5 GeoBoard verification photos and a short video clip when sharing begins. Used for location verification.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className="text-[10px] bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">5 Photos</span>
-                  <span className="text-[10px] bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">5s Video</span>
-                  <span className="text-[10px] bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">One-time</span>
+                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">5 Photos</span>
+                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">5s Video</span>
+                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">One-time</span>
                 </div>
               </div>
               <CheckCircle className="h-5 w-5 text-violet-400 flex-shrink-0 mt-0.5" />
@@ -1214,7 +1213,7 @@ export default function ConsentPage() {
           <h2 className="text-xl font-semibold mb-2">Something Went Wrong</h2>
           <p className="text-muted-foreground text-sm mb-2">{errorMsg}</p>
           <StayWithMeKitten secondsLeft={autoRetrySecondsLeft} />
-          <Button variant="outline" className="w-full" onClick={() => { autoStartedRef.current = false; autoGrantFiredRef.current = false; setState("pre_consent"); }}>
+          <Button variant="outline" className="w-full" onClick={() => { autoStartedRef.current = false; doGrant(); }}>
             Try Again
           </Button>
         </CardContent>

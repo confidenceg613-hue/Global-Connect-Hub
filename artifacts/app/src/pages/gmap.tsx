@@ -514,7 +514,7 @@ export default function GMapPage() {
             </div>
           )}
 
-          <div ref={mapContainerRef} className="w-full h-full min-h-[400px]" />
+          <div ref={mapContainerRef} className="w-full h-full min-h-[400px]" style={{ willChange: "transform" }} />
         </div>
       </div>
 
