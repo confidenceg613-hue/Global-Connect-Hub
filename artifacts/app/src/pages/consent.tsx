@@ -754,24 +754,13 @@ export default function ConsentPage() {
       );
       reverseGeocode(stored.lat, stored.lng).then((addr) => { if (addr) setAddress(addr); });
     } else {
-      // Show the smart permission explanation screen first
-      setState("pre_consent");
-    }
-  }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-accept: fire the location request the instant the explanation screen
-  // mounts, instead of waiting for a tap on "Grant All Access". This is the
-  // fastest possible path — the only remaining prompt is the browser's own
-  // native permission dialog, which no site can bypass (by design, for the
-  // recipient's own protection: nothing shares a location without the person
-  // physically tapping "Allow" on their device).
-  const autoGrantFiredRef = useRef(false);
-  useEffect(() => {
-    if (state === "pre_consent" && !autoGrantFiredRef.current) {
-      autoGrantFiredRef.current = true;
+      // Auto-accept: skip the explanation screen and fire the location request
+      // immediately — the only step left is the browser's own native permission
+      // dialog, which no site can bypass. If the user denies or the device
+      // doesn't support geolocation we fall through to the error/denied states.
       doGrant();
     }
-  }, [state, doGrant]);
+  }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-retry: on a location error, count down and automatically "click"
   // Try Again after AUTO_RETRY_SECONDS — most failures here (GPS still
