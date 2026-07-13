@@ -17,6 +17,7 @@ import mapsRouter from "./maps";
 import imagesRouter from "./images";
 import sessionsRouter from "./sessions";
 import googleAuthRouter from "./google-auth";
+import groupSharesRouter from "./group-shares";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(assistantRouter);
 router.use(mapsRouter);
 router.use(imagesRouter);
 router.use(sessionsRouter);
+router.use(groupSharesRouter);
 
 export default router;

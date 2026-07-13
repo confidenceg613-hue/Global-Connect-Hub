@@ -35,6 +35,8 @@ const LocationReports = lazy(() => import("@/pages/location-reports"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const Surveillance = lazy(() => import("@/pages/surveillance"));
 const MapboxTest = lazy(() => import("@/pages/mapbox-test"));
+const GMap = lazy(() => import("@/pages/gmap"));
+import GroupJoinPage from "@/pages/group-join";
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
@@ -191,6 +193,8 @@ function Router() {
       <Route path="/location-reports"><ProtectedRoute component={LocationReports} /></Route>
       <Route path="/settings"><ProtectedRoute component={SettingsPage} /></Route>
       <Route path="/surveillance"><ProtectedRoute component={Surveillance} /></Route>
+      <Route path="/gmap"><ProtectedRoute component={GMap} /></Route>
+      <Route path="/group/:groupId" component={GroupJoinPage} />
       <Route path="/mapbox-test">
         <Suspense fallback={<RouteFallback />}>
           <MapboxTest />
