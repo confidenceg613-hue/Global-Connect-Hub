@@ -27,7 +27,13 @@ scripts/
 
 ## Running the app
 
-A single `Start application` workflow runs `scripts/start-dev.sh`, which builds and starts the API server on port 8080, waits for it to be ready, then starts the Vite dev server on port 5000. `.replit` only maps port 5000 to the external/public domain (`[[ports]] localPort = 5000`), so port 5000 (proxied to `/api` on 8080 by Vite) is what's actually reachable — `artifact.toml` files exist under `artifacts/*/.replit-artifact/` declaring other ports (e.g. app on 23863), but since `.replit` doesn't expose those ports externally and this environment's workflow tooling doesn't support arbitrary ports, the combined single-workflow setup on port 5000 is the correct and verified one to use here.
+The project runs as separate Replit artifacts, each with its own workflow (auto-managed from `artifacts/*/.replit-artifact/artifact.toml`, not editable via the workflows tool):
+- `artifacts/app: web` — Vite dev server (localPort 23863), path `/`
+- `artifacts/api-server: API Server` — Express API (localPort 8080), path `/api`
+- `artifacts/mobile: expo` — Expo dev server (localPort 18115), path `/mobile/`
+- `artifacts/mockup-sandbox: Component Preview Server` — canvas previews, path `/__mockup`
+
+Replit's path router combines these under the public domain by path. There is no longer a combined `Start application` workflow / `scripts/start-dev.sh` in the run path — that legacy single-process workflow was removed because it duplicated the API server on port 8080 and conflicted with the `artifacts/api-server` artifact workflow. `scripts/start-dev.sh` still exists in the repo but isn't wired to any workflow; don't reintroduce it as a workflow alongside the artifact workflows.
 
 ## Environment variables
 

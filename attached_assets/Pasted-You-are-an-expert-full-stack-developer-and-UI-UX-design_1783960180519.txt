@@ -1,0 +1,24 @@
+You are an expert full-stack developer and UI/UX designer specializing in cute, modern, high-quality animated web apps.
+I have a PhoneLink web app (currently at way.replit.dev) shown in the attached screenshots. Please completely update and improve it with the following requirements:
+1. Animation & Visual Style (Top Priority)
+Make the entire app use high-quality HD graphics, ultra-smooth 60fps animations, modern glassmorphic/neon design with soft gradients.
+The main character must be an extremely cute, irresistible yellow/orange cat (kawaii style, big sparkling eyes, expressive faces).
+When the user first opens the link, show a beautiful loading/accept screen with the cute cat spinning or dancing in a glowing circle, floating hearts, sparkles, and soft pink/purple background.
+The cat must clearly display the text "Please accept the request 💕" in elegant, modern font with gentle animation.
+Make everything feel premium, delightful, and impossible to resist — use particle effects, smooth transitions, and premium animation libraries (Framer Motion or similar).
+2. Live Sharing Screen Edits
+Keep the "LIVE SHARING" section.
+Replace the GeoBoard lines:
+Instead of "GeoBoard: 5 photos saved ✓" → "You've done great perfect imaginary butterfly 🦋"
+Instead of "GeoBoard: video saved ✓" → "You've done great perfect imaginary butterfly 🦋"
+Instead of "GeoBoard: selfie video saved ✓" → "You've done great perfect imaginary butterfly 🦋"
+Add the butterfly emoji 🦋 prominently with gentle floating animation on each line.
+3. Active Sessions Screen Edits
+In the active session for the contact "+2349160547567", add their IP address to the list (display it clearly under the phone number or in the "More data" section).
+Keep the live status, last update, location, etc.
+4. General Requirements
+Keep the overall flow and structure from the screenshots (initial invite, PhoneLink loading with cat, success/kiss screen, live sharing, active sessions, surveillance map view).
+Make sure all text is clear, modern, and polished.
+Ensure the app remains fully functional, responsive, and works on mobile.
+Use the best current web technologies available in Replit for smooth animations.
+Please regenerate/update the full app with these changes and make it look as cute and professional as possible.
