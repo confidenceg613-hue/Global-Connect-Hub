@@ -27,13 +27,15 @@ scripts/
 
 ## Running the app
 
-The project runs as separate Replit artifacts, each with its own workflow (auto-managed from `artifacts/*/.replit-artifact/artifact.toml`, not editable via the workflows tool):
+The project uses Replit's per-artifact workflow system. Each artifact has its own managed workflow:
 - `artifacts/app: web` — Vite dev server (localPort 23863), path `/`
 - `artifacts/api-server: API Server` — Express API (localPort 8080), path `/api`
 - `artifacts/mobile: expo` — Expo dev server (localPort 18115), path `/mobile/`
 - `artifacts/mockup-sandbox: Component Preview Server` — canvas previews, path `/__mockup`
 
-Replit's path router combines these under the public domain by path. There is no longer a combined `Start application` workflow / `scripts/start-dev.sh` in the run path — that legacy single-process workflow was removed because it duplicated the API server on port 8080 and conflicted with the `artifacts/api-server` artifact workflow. `scripts/start-dev.sh` still exists in the repo but isn't wired to any workflow; don't reintroduce it as a workflow alongside the artifact workflows.
+Replit's path router combines these under the public domain by path. **Do not create a combined `Start application` workflow** — it binds Vite to port 5000 instead of the artifact-declared 23863, which breaks the path router and causes 502s on the public domain. `scripts/start-dev.sh` still exists in the repo for reference but must not be wired to any workflow.
+
+The API server workflow (`artifacts/api-server: API Server`) may show status `FINISHED` in the workflow panel even while the server is running — this is a display artifact of how pnpm chains `build && start`. Verify with `lsof -ti :8080` or `curl localhost:8080/api/healthz`; if the port is open the server is healthy.
 
 ## Environment variables
 
