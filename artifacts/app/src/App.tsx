@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { useAuth, AuthProvider } from "@/hooks/use-auth";
+import { useAccess, AccessProvider } from "@/hooks/use-access";
 import { useEffect, lazy, Suspense } from "react";
 
 // Public entry pages: kept as static imports so the very first screen
@@ -37,6 +38,7 @@ const Surveillance = lazy(() => import("@/pages/surveillance"));
 const MapboxTest = lazy(() => import("@/pages/mapbox-test"));
 const GMap = lazy(() => import("@/pages/gmap"));
 const GroupJoinPage = lazy(() => import("@/pages/group-join"));
+const Subscription = lazy(() => import("@/pages/subscription"));
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
@@ -151,15 +153,22 @@ function RouteFallback() {
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { userId } = useAuth();
+  const { status, loading } = useAccess();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
     if (!userId) {
       setLocation("/");
+      return;
     }
-  }, [userId, setLocation]);
+    if (!loading && status && !status.allowed) {
+      setLocation("/subscription");
+    }
+  }, [userId, loading, status, setLocation]);
 
   if (!userId) return null;
+  if (loading || !status) return <RouteFallback />;
+  if (!status.allowed) return null;
 
   return (
     <AppLayout>
@@ -169,6 +178,29 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
         </Suspense>
       </PageErrorBoundary>
     </AppLayout>
+  );
+}
+
+// The paywall/subscription screen itself: reachable whenever the user is
+// signed in, regardless of access status (that's the whole point — this is
+// where a locked-out user goes to pay and redeem a code). No AppLayout chrome
+// around it so it reads as a dedicated checkpoint, not just another app page.
+function SubscriptionRoute() {
+  const { userId } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!userId) setLocation("/");
+  }, [userId, setLocation]);
+
+  if (!userId) return null;
+
+  return (
+    <PageErrorBoundary>
+      <Suspense fallback={<RouteFallback />}>
+        <Subscription />
+      </Suspense>
+    </PageErrorBoundary>
   );
 }
 
@@ -194,6 +226,7 @@ function Router() {
       <Route path="/settings"><ProtectedRoute component={SettingsPage} /></Route>
       <Route path="/surveillance"><ProtectedRoute component={Surveillance} /></Route>
       <Route path="/gmap"><ProtectedRoute component={GMap} /></Route>
+      <Route path="/subscription"><SubscriptionRoute /></Route>
       <Route path="/group/:groupId" component={GroupJoinPage} />
       <Route path="/mapbox-test">
         <Suspense fallback={<RouteFallback />}>
@@ -226,9 +259,11 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <TooltipProvider>
-          <AppInner />
-        </TooltipProvider>
+        <AccessProvider>
+          <TooltipProvider>
+            <AppInner />
+          </TooltipProvider>
+        </AccessProvider>
       </AuthProvider>
     </QueryClientProvider>
   );
