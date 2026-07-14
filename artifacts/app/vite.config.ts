@@ -73,6 +73,10 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
         secure: false,
+        // Debate mode fires 3 sequential Mistral calls; give it 3 minutes.
+        // SSE streaming uses keepalive pings so this is just a safety net.
+        proxyTimeout: 180_000,
+        timeout: 180_000,
       },
     },
   },

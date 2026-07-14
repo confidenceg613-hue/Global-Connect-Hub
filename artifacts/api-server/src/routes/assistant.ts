@@ -717,6 +717,18 @@ router.post("/assistant", async (req, res) => {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
+    // Send a keepalive comment immediately so proxies don't time out waiting for
+    // the first byte while Mistral processes the request (can take several seconds).
+    res.write(": keepalive\n\n");
+
+    // Continue sending keepalive pings every 15 s until the first real token arrives.
+    let keepaliveInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
+      if (!res.writableEnded) res.write(": keepalive\n\n");
+    }, 15_000);
+    const stopKeepalive = () => {
+      if (keepaliveInterval) { clearInterval(keepaliveInterval); keepaliveInterval = null; }
+    };
+
     let accumulated = "";
     let sentReplyLength = 0;
 
@@ -734,6 +746,7 @@ router.post("/assistant", async (req, res) => {
         response_format: { type: "json_object" },
         stream: true,
       }));
+      stopKeepalive();
 
       for await (const chunk of stream) {
         const text = chunk.choices[0]?.delta?.content ?? "";
@@ -769,6 +782,7 @@ router.post("/assistant", async (req, res) => {
       send({ type: "done", command, fullReply });
       res.end();
     } catch (err: unknown) {
+      stopKeepalive();
       const msg = err instanceof Error ? err.message : String(err);
       console.error("[assistant] stream failed:", msg);
       send({ type: "error", message: "I ran into a hiccup on my end — please try that again in a moment." });
