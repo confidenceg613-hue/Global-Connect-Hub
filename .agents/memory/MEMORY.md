@@ -8,3 +8,4 @@
 - [Group Share / GMap feature](group-share.md) — one link → many participants; group tokens never touch invites table so they're invisible to live-map; dedicated SSE channel in group-shares.ts.
 - [Monetization / paywall system](monetization.md) — free-access + weekly-code subscription model; codes are separate from grants so one code can serve many users; admin routes gated by ADMIN_SECRET.
 - [Drizzle pg error codes](drizzle-pg-errors.md) — Postgres error code (e.g. unique violation 23505) lands on `err.cause.code`, not `err.code`, because drizzle wraps it in DrizzleQueryError.
+- [Mobile deploy Metro timeout](expo-mobile-deploy.md) — publish failures with "Metro timeout" on the mobile artifact mean check `expo install --check` for Expo package/SDK version drift first.
