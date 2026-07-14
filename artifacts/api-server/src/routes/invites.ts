@@ -7,6 +7,7 @@ function shortToken(): string {
 }
 import { db, invitesTable, usersTable } from "@workspace/db";
 import { sendPushAndLog } from "../lib/notifications.js";
+import { consumeAccess, BANK_DETAILS } from "../lib/access-control.js";
 import {
   ListInvitesQueryParams,
   CreateInviteBody,
@@ -52,6 +53,17 @@ router.post("/invites", async (req, res): Promise<void> => {
   const parsed = CreateInviteBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  // Each invite sent counts as one free trial. Block after 3.
+  const access = await consumeAccess(parsed.data.fromUserId);
+  if (!access.allowed) {
+    res.status(402).json({
+      error: "You've used all 3 free invite trials. Activate a pass to continue sending invites.",
+      ...access,
+      payment: BANK_DETAILS,
+    });
     return;
   }
 

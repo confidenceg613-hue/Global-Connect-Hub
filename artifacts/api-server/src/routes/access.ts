@@ -29,8 +29,8 @@ router.get("/access/:userId/status", async (req, res): Promise<void> => {
   res.json(status.allowed ? status : { ...status, payment: BANK_DETAILS });
 });
 
-// Call once per app open/session to consume a free access (if applicable)
-// and confirm the user is allowed in.
+// Called on every app open — peek-only, never burns a free trial.
+// Free trials are consumed when invites are sent, not on app open.
 router.post("/access/:userId/check-in", async (req, res): Promise<void> => {
   const params = UserIdParams.safeParse(req.params);
   if (!params.success) {
@@ -38,7 +38,7 @@ router.post("/access/:userId/check-in", async (req, res): Promise<void> => {
     return;
   }
 
-  const status = await consumeAccess(params.data.userId);
+  const status = await getAccessStatus(params.data.userId);
   if (!status.allowed) {
     res.status(402).json({ ...status, payment: BANK_DETAILS });
     return;

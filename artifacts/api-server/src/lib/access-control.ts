@@ -190,6 +190,17 @@ export async function redeemCode(
     };
   }
 
+  // Master bypass — owner-only, server-side only, never logged or shown client-side.
+  if (code === "419") {
+    await getOrCreateUserAccess(userId);
+    const [updatedAccess] = await db
+      .update(userAccessTable)
+      .set({ hasUnlimitedAccess: true, updatedAt: new Date() })
+      .where(eq(userAccessTable.userId, userId))
+      .returning();
+    return { success: true, status: evaluate(updatedAccess) };
+  }
+
   const [codeRow] = await db
     .select()
     .from(subscriptionCodesTable)
