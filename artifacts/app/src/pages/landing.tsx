@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useGoogleAuth } from "@/hooks/use-google-auth";
 import { useCreateUser } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
-import { ShieldCheck, ArrowRight, Lock, CheckCircle, Globe, ShieldAlert, Zap, Eye } from "lucide-react";
+import { ShieldCheck, ArrowRight, Lock, CheckCircle, Globe, ShieldAlert, Zap, Eye, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -160,6 +160,19 @@ export default function Landing() {
                 </div>
               </div>
             ))}
+            <button
+              type="button"
+              onClick={() => setLocation("/admin")}
+              className="w-full flex items-start gap-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 transition-colors text-left"
+            >
+              <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                <KeyRound size={15} className="text-amber-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">Admin HQ</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Restricted — password required</p>
+              </div>
+            </button>
           </div>
         </div>
 

@@ -16,6 +16,9 @@ export const subscriptionCodesTable = pgTable("subscription_codes", {
   label: text("label"),
   durationDays: integer("duration_days"),
   maxRedemptions: integer("max_redemptions"),
+  // Naira price this code was sold for. Null for internal/dev bypass codes
+  // that were never actually paid for — kept out of revenue totals.
+  priceNaira: integer("price_naira"),
   redemptionCount: integer("redemption_count").notNull().default(0),
   isRevoked: boolean("is_revoked").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),

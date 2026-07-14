@@ -11,6 +11,7 @@ export interface NotifPayload {
   body: string;
   tag?: string;
   data?: Record<string, unknown>;
+  pinned?: boolean;
 }
 
 function setupVapid() {
@@ -33,6 +34,7 @@ export async function sendPushAndLog(userId: number, payload: NotifPayload): Pro
     body: payload.body,
     data: payload.data ?? null,
     read: false,
+    pinned: payload.pinned ?? false,
   });
 
   if (!setupVapid()) return;

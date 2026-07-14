@@ -7,12 +7,15 @@ export const notificationsLogTable = pgTable("notifications_log", {
     .notNull()
     .references(() => usersTable.id, { onDelete: "cascade" }),
   type: text("type", {
-    enum: ["geofence_enter", "geofence_exit", "location_offline", "location_online", "location_stale", "sos", "grant", "location_type_report"],
+    enum: ["geofence_enter", "geofence_exit", "location_offline", "location_online", "location_stale", "sos", "grant", "location_type_report", "admin_message"],
   }).notNull(),
   title: text("title").notNull(),
   body: text("body").notNull(),
   data: jsonb("data"),
   read: boolean("read").notNull().default(false),
+  // Admin-sent messages are pinned so they stay at the top of a user's
+  // notification panel instead of scrolling away with regular activity.
+  pinned: boolean("pinned").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

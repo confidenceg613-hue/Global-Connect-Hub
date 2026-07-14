@@ -119,6 +119,10 @@ export async function getAccessStatus(userId: number): Promise<AccessStatus> {
   return evaluate(row);
 }
 
+// Exposed for the admin dashboard, which needs to classify every user's
+// access row the exact same way the paywall itself does.
+export { evaluate as evaluateAccess, getOrCreateUserAccess };
+
 /**
  * Call this once per "use" of the app (e.g. on launch / check-in), not on
  * every API request. Consumes one free access if the user has no active
@@ -257,17 +261,28 @@ export async function createCode(input: {
   label?: string | null;
   durationDays?: number | null;
   maxRedemptions?: number | null;
+  priceNaira?: number | null;
 }): Promise<SubscriptionCode> {
+  const durationDays =
+    input.durationDays === undefined
+      ? DEFAULT_CODE_DURATION_DAYS
+      : input.durationDays;
   const [row] = await db
     .insert(subscriptionCodesTable)
     .values({
       code: input.code.trim(),
       label: input.label ?? null,
-      durationDays:
-        input.durationDays === undefined
-          ? DEFAULT_CODE_DURATION_DAYS
-          : input.durationDays,
+      durationDays,
       maxRedemptions: input.maxRedemptions ?? null,
+      // Dev/internal bypass codes (no expiry) default to no price since
+      // they were never actually sold. Normal weekly codes default to the
+      // standard bank-transfer price unless the admin overrides it.
+      priceNaira:
+        input.priceNaira !== undefined
+          ? input.priceNaira
+          : durationDays === null
+            ? null
+            : BANK_DETAILS.amountNaira,
     })
     .returning();
   return row;
@@ -278,6 +293,15 @@ export async function listCodes(): Promise<SubscriptionCode[]> {
     .select()
     .from(subscriptionCodesTable)
     .orderBy(desc(subscriptionCodesTable.createdAt));
+}
+
+/** Total naira collected across every redemption of every priced code. */
+export async function getTotalRevenueNaira(): Promise<number> {
+  const codes = await listCodes();
+  return codes.reduce(
+    (sum, c) => sum + (c.priceNaira ?? 0) * c.redemptionCount,
+    0,
+  );
 }
 
 export async function revokeCode(id: number): Promise<SubscriptionCode | null> {

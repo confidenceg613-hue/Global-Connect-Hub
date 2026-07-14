@@ -17,6 +17,9 @@ const CreateCodeBody = z.object({
   // Omit or null => unlimited redemptions (normal case for a weekly code
   // shared with every user who paid that week).
   maxRedemptions: z.number().int().positive().nullable().optional(),
+  // Naira price this code is sold for. Omit to use the standard bank-transfer
+  // price for paid codes, or null for free/internal codes.
+  priceNaira: z.number().int().nonnegative().nullable().optional(),
 });
 
 router.post("/admin/codes", async (req, res): Promise<void> => {

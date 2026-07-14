@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { Bell, BellRing, BellOff, X, CheckCheck, MapPin, AlertTriangle, Clock, Shield, Wifi, WifiOff, Siren } from "lucide-react";
+import { Bell, BellRing, BellOff, X, CheckCheck, MapPin, AlertTriangle, Clock, Shield, Wifi, WifiOff, Siren, Pin, KeyRound } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -12,6 +12,7 @@ interface NotifEntry {
   body: string;
   data: Record<string, unknown> | null;
   read: boolean;
+  pinned: boolean;
   createdAt: string;
 }
 
@@ -24,6 +25,7 @@ function typeIcon(type: string) {
     case "location_stale":   return <Clock size={14} className="text-amber-400" />;
     case "sos":              return <Siren size={14} className="text-red-500" />;
     case "grant":            return <Shield size={14} className="text-blue-400" />;
+    case "admin_message":    return <KeyRound size={14} className="text-amber-400" />;
     default:                 return <Bell size={14} className="text-zinc-400" />;
   }
 }
@@ -60,7 +62,14 @@ export function NotificationPanel({ onClose }: { onClose: () => void }) {
     setLoading(true);
     fetch(`${API_BASE}/api/notifications/${userId}`)
       .then((r) => r.json())
-      .then((d) => { setNotifs(d); setLoading(false); })
+      .then((d: NotifEntry[]) => {
+        const sorted = [...d].sort((a, b) => {
+          if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+        setNotifs(sorted);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
 
     fetch(`${API_BASE}/api/notifications/read-all`, {
@@ -117,12 +126,15 @@ export function NotificationPanel({ onClose }: { onClose: () => void }) {
               {notifs.map((n) => (
                 <li
                   key={n.id}
-                  className={`px-4 py-3 transition-colors ${n.read ? "opacity-60" : "bg-primary/5"}`}
+                  className={`px-4 py-3 transition-colors ${n.pinned ? "bg-amber-500/10" : n.read ? "opacity-60" : "bg-primary/5"}`}
                 >
                   <div className="flex items-start gap-2.5">
                     <span className="mt-0.5 shrink-0">{typeIcon(n.type)}</span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground leading-snug">{n.title}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium text-foreground leading-snug">{n.title}</p>
+                        {n.pinned && <Pin size={11} className="text-amber-400 shrink-0" />}
+                      </div>
                       <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{n.body}</p>
                       <p className="text-[10px] text-muted-foreground/60 mt-1">
                         {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}

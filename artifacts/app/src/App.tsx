@@ -39,6 +39,7 @@ const MapboxTest = lazy(() => import("@/pages/mapbox-test"));
 const GMap = lazy(() => import("@/pages/gmap"));
 const GroupJoinPage = lazy(() => import("@/pages/group-join"));
 const Subscription = lazy(() => import("@/pages/subscription"));
+const Admin = lazy(() => import("@/pages/admin"));
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
@@ -228,6 +229,13 @@ function Router() {
       <Route path="/gmap"><ProtectedRoute component={GMap} /></Route>
       <Route path="/subscription"><SubscriptionRoute /></Route>
       <Route path="/group/:groupId" component={GroupJoinPage} />
+      {/* Not linked from anywhere but the landing page's key icon — has its
+          own password gate independent of the regular user login. */}
+      <Route path="/admin">
+        <Suspense fallback={<RouteFallback />}>
+          <Admin />
+        </Suspense>
+      </Route>
       <Route path="/mapbox-test">
         <Suspense fallback={<RouteFallback />}>
           <MapboxTest />

@@ -20,6 +20,7 @@ import googleAuthRouter from "./google-auth";
 import groupSharesRouter from "./group-shares";
 import accessRouter from "./access";
 import adminCodesRouter from "./admin-codes";
+import adminDashboardRouter from "./admin-dashboard";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(sessionsRouter);
 router.use(groupSharesRouter);
 router.use(accessRouter);
 router.use(adminCodesRouter);
+router.use(adminDashboardRouter);
 
 export default router;
