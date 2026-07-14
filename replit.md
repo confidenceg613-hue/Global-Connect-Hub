@@ -27,15 +27,14 @@ scripts/
 
 ## Running the app
 
-The project uses Replit's per-artifact workflow system. Each artifact has its own managed workflow:
-- `artifacts/app: web` — Vite dev server (localPort 23863), path `/`
-- `artifacts/api-server: API Server` — Express API (localPort 8080), path `/api`
-- `artifacts/mobile: expo` — Expo dev server (localPort 18115), path `/mobile/`
-- `artifacts/mockup-sandbox: Component Preview Server` — canvas previews, path `/__mockup`
+This workspace re-import does not support Replit's per-artifact/path-router workflow system (this project's environment only registers a `mockup-sandbox` artifact type — `createArtifact` rejects `web`/`api`/`mobile` types here). The `artifacts/*/.replit-artifact/artifact.toml` files are kept for reference/documentation but nothing auto-registers them as live artifacts in this environment.
 
-Replit's path router combines these under the public domain by path. **Do not create a combined `Start application` workflow** — it binds Vite to port 5000 instead of the artifact-declared 23863, which breaks the path router and causes 502s on the public domain. `scripts/start-dev.sh` still exists in the repo for reference but must not be wired to any workflow.
+Instead, a single combined workflow runs everything:
+- **`Start application`** — runs `scripts/start-dev.sh`, which builds and starts the API server in the background on port 8080, then runs the Vite dev server in the foreground on port 5000 (webview). Vite proxies `/api/*` to `localhost:8080`.
 
-The API server workflow (`artifacts/api-server: API Server`) may show status `FINISHED` in the workflow panel even while the server is running — this is a display artifact of how pnpm chains `build && start`. Verify with `lsof -ti :8080` or `curl localhost:8080/api/healthz`; if the port is open the server is healthy.
+If this project is ever moved back into an environment that supports per-artifact workflows, switch back to the per-artifact setup described in git history and stop wiring `scripts/start-dev.sh` to a workflow directly, per the original design.
+
+Mobile (`artifacts/mobile`, Expo) and the mockup sandbox are not started automatically — no workflow currently runs them. Ask if you need those.
 
 ## Environment variables
 
