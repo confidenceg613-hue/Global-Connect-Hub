@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
 import { analyzeLocation, findClusters, TYPE_CONFIG } from "@/lib/location-intelligence";
-import { fetchStreetView, streetViewUrl, type StreetViewResult } from "@/lib/maps-config";
+import { fetchStreetView, streetViewUrl, mapillaryViewerUrl, type StreetViewResult } from "@/lib/maps-config";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -1202,14 +1202,23 @@ export default function LiveMap() {
             <div className="flex items-center justify-center text-xs text-zinc-500" style={{ height: 238 }}>
               Looking for nearby street-level photos…
             </div>
-          ) : svResult?.available && svResult.embedUrl ? (
-            <iframe
-              title="Street View"
-              src={svResult.embedUrl}
-              className="w-full border-0"
-              style={{ height: 238 }}
-              loading="lazy"
-            />
+          ) : svResult?.available && svResult.imageUrl ? (
+            <div className="relative w-full overflow-hidden" style={{ height: 238 }}>
+              <img
+                src={svResult.imageUrl}
+                alt={`Street-level view near ${streetView.name}`}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+              <a
+                href={svResult.imageId ? mapillaryViewerUrl(svResult.imageId) : streetViewUrl(streetView.lat, streetView.lng)}
+                target="_blank"
+                rel="noreferrer"
+                className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/70 hover:bg-black/90 text-white text-xs font-semibold px-2.5 py-1.5 rounded-full backdrop-blur-sm transition-all"
+              >
+                View in Mapillary →
+              </a>
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center gap-2 text-center px-6" style={{ height: 238 }}>
               <span className="text-xs text-zinc-500">No street-level imagery available near this location.</span>

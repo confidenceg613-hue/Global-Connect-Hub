@@ -9,8 +9,9 @@ const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export interface StreetViewResult {
   available: boolean;
-  embedUrl?: string;
+  imageId?: string;
   imageUrl?: string;
+  embedUrl?: string;
 }
 
 /** Look up the nearest Mapillary street-level photo near a coordinate. */
@@ -19,10 +20,20 @@ export async function fetchStreetView(lat: number, lng: number): Promise<StreetV
     const r = await fetch(`${API_BASE}/api/maps/street-view?lat=${lat}&lng=${lng}`);
     const json = await r.json().catch(() => ({}));
     if (!r.ok) return { available: false };
-    return { available: !!json.available, embedUrl: json.embedUrl, imageUrl: json.imageUrl };
+    return {
+      available: !!json.available,
+      imageId: json.imageId,
+      imageUrl: json.imageUrl,
+      embedUrl: json.embedUrl,
+    };
   } catch {
     return { available: false };
   }
+}
+
+/** Full Mapillary viewer URL for a given image ID — opens the interactive 360° view. */
+export function mapillaryViewerUrl(imageId: string): string {
+  return `https://www.mapillary.com/app/?pKey=${imageId}&focus=photo`;
 }
 
 /** Esri World Imagery static export — free, no API key or billing required. */

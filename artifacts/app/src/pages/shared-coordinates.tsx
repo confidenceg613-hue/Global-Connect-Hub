@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
-import { fetchStreetView, googleTileImageUrl, streetViewUrl, type StreetViewResult } from "@/lib/maps-config";
+import { fetchStreetView, googleTileImageUrl, streetViewUrl, mapillaryViewerUrl, type StreetViewResult } from "@/lib/maps-config";
 
 /** Convert decimal degrees to DMS string, e.g. 8°56′59.8″N */
 function toDMS(dd: number, isLat: boolean): string {
@@ -153,14 +153,23 @@ function CoordinateCard({
             <div className="w-full h-full flex items-center justify-center bg-muted/40 text-xs text-muted-foreground">
               Looking for nearby street-level photos…
             </div>
-          ) : svResult?.available && svResult.embedUrl ? (
-            <iframe
-              key="sv"
-              title={`Street View from ${invite.toName ?? invite.toPhone}`}
-              src={svResult.embedUrl}
-              className="w-full h-full border-0"
-              loading="lazy"
-            />
+          ) : svResult?.available && svResult.imageUrl ? (
+            <div key="sv" className="relative w-full h-full overflow-hidden">
+              <img
+                src={svResult.imageUrl}
+                alt={`Street-level view near location shared by ${invite.toName ?? invite.toPhone}`}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+              <a
+                href={svResult.imageId ? mapillaryViewerUrl(svResult.imageId) : svExtUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/70 hover:bg-black/90 text-white text-xs font-semibold px-2.5 py-1.5 rounded-full backdrop-blur-sm transition-all"
+              >
+                View in Mapillary →
+              </a>
+            </div>
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-muted/40 text-center px-4">
               <span className="text-xs text-muted-foreground">No street-level imagery available near this location.</span>
