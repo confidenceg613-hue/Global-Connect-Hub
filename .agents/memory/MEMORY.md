@@ -10,3 +10,4 @@
 - [Drizzle pg error codes](drizzle-pg-errors.md) — Postgres error code (e.g. unique violation 23505) lands on `err.cause.code`, not `err.code`, because drizzle wraps it in DrizzleQueryError.
 - [Mobile deploy Metro timeout](expo-mobile-deploy.md) — publish failures with "Metro timeout" on the mobile artifact mean check `expo install --check` for Expo package/SDK version drift first.
 - [Admin HQ dashboard](admin-hq-panel.md) — password-gated admin panel pattern: never hardcode the password client-side, verify server-side only.
+- [Path-router migration](path-router-migration.md) — this project moved from a single combined dev workflow to real per-artifact workflows; don't recreate the old combined one.

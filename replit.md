@@ -13,34 +13,32 @@ A full-stack trust-first safety platform for real-time location intelligence. Co
 
 ```
 artifacts/
-  app/          React frontend (Vite dev server, port 5000)
+  app/          React frontend (Vite dev server, artifact-declared port 23863)
   api-server/   Express API (port 8080)
-  mobile/       Expo mobile app
+  mobile/       Expo mobile app (artifact-declared port 18115)
+  mockup-sandbox/  Canvas component preview server
 lib/
   db/           Drizzle ORM schema and connection
   api-spec/     Shared Zod API schema
   api-client-react/  TanStack Query hooks
 scripts/
-  start-dev.sh  Dev startup script (builds api-server, starts both services)
+  start-dev.sh  Legacy combined dev script — superseded by per-artifact workflows below, kept only for reference
   serve-app.mjs Production static file server + API proxy
 ```
 
 ## Running the app
 
-This workspace re-import does not support Replit's per-artifact/path-router workflow system (this project's environment only registers a `mockup-sandbox` artifact type — `createArtifact` rejects `web`/`api`/`mobile` types here). The `artifacts/*/.replit-artifact/artifact.toml` files are kept for reference/documentation but nothing auto-registers them as live artifacts in this environment.
+As of 2026-07-14 this environment supports Replit's per-artifact/path-router workflow system. Each `artifacts/*/.replit-artifact/artifact.toml` is a real registered artifact with its own managed dev workflow (generated from the toml, not hand-configured):
+- **`artifacts/app: web`** — Vite dev server on port 23863; path router proxies `/` to it.
+- **`artifacts/api-server: API Server`** — Express API on port 8080; path router proxies `/api` to it.
+- **`artifacts/mobile: expo`** — Expo dev server on port 18115; path router proxies `/mobile/` to it. Not started by default — start it if mobile preview is needed.
+- **`artifacts/mockup-sandbox: Component Preview Server`** — canvas component previews; scaffolded/started on demand by the mockup-sandbox skill.
 
-Instead, a single combined workflow runs everything:
-- **`Start application`** — runs `scripts/start-dev.sh`, which builds and starts the API server in the background on port 8080, then runs the Vite dev server in the foreground on port 5000 (webview). Vite proxies `/api/*` to `localhost:8080`.
-
-If this project is ever moved back into an environment that supports per-artifact workflows, switch back to the per-artifact setup described in git history and stop wiring `scripts/start-dev.sh` to a workflow directly, per the original design.
-
-Mobile (`artifacts/mobile`, Expo) and the mockup sandbox are not started automatically — no workflow currently runs them. Ask if you need those.
+The previous combined `Start application` workflow (running `scripts/start-dev.sh` on port 5000) is gone — do not recreate it or start `start-dev.sh` as a workflow. Restart the two exact managed workflows above (`artifacts/app: web`, `artifacts/api-server: API Server`) after code changes, same as any other workflow. If a stray process is ever left bound to 8080/23863 from the old setup, kill it before restarting.
 
 ## Environment variables
 
 Set in `.replit` shared env:
-- `PORT=5000` — Vite dev server port
-- `BASE_PATH=/` — Vite base path
 - `VAPID_PUBLIC_KEY` — Web push public key
 - `VAPID_SUBJECT` — Web push contact email
 

@@ -82,7 +82,7 @@ export default function Landing() {
     e.preventDefault();
     if (isLocked) return;
 
-    if (!isDeviceTrusted && code !== ACCESS_CODE) {
+    if (!isDeviceTrusted && code.trim() !== "" && code !== ACCESS_CODE) {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts); setCodeError(true);
       if (newAttempts >= MAX_ATTEMPTS) {
@@ -228,8 +228,8 @@ export default function Landing() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <Label htmlFor="access-code" className="text-sm font-medium">Access Code</Label>
-                    <Input id="access-code" type="password" placeholder="Enter access code" value={code}
+                    <Label htmlFor="access-code" className="text-sm font-medium">Access Code <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    <Input id="access-code" type="password" placeholder="Enter access code (optional)" value={code}
                       onChange={e => { setCode(e.target.value); setCodeError(false); }}
                       className={`h-11 bg-background/60 ${codeError ? "border-destructive focus-visible:ring-destructive" : ""}`}
                       autoComplete="off" disabled={isLocked} />
