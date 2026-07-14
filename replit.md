@@ -69,8 +69,8 @@ Database (`DATABASE_URL`) is managed automatically by Replit.
   - `POST /api/access/:userId/check-in` — call once per app open/session; consumes one free access if no active subscription; returns 402 + payment details once free/paid access is exhausted.
   - `POST /api/access/:userId/redeem` — submit a code received after payment; 402 if invalid/revoked/exhausted.
 - **Admin routes** (`artifacts/api-server/src/routes/admin-codes.ts`, gated by `x-admin-secret` header == `ADMIN_SECRET`): `POST /api/admin/codes`, `GET /api/admin/codes`, `PATCH /api/admin/codes/:id/revoke`. Codes are never returned by any non-admin route.
-- Seeded codes already in the dev DB: `224`/`462`/`418` (7-day weekly codes, unlimited redemptions) and `419` (dev/internal bypass — unlimited duration, never displayed to users). Add more weekly codes via the admin API as new weeks start.
-- Frontend paywall UI is not built yet — the app doesn't call `/api/access/*` anywhere. Next step to actually enforce this is wiring a check-in call + redeem-code screen into `artifacts/app`.
+- No subscription codes are seeded in this re-imported dev DB yet (the `subscription_codes` table is empty) — create some via the admin API once `ADMIN_SECRET` is set.
+- Frontend paywall is fully wired: `AccessProvider`/`useAccess` (`artifacts/app/src/hooks/use-access.tsx`) calls `check-in` once per session, `ProtectedRoute` in `App.tsx` redirects to `/subscription` whenever `status.allowed` is false, and `artifacts/app/src/pages/subscription.tsx` shows payment info + a redeem-code form.
 
 ## Database
 
