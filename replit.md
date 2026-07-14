@@ -34,7 +34,9 @@ As of 2026-07-14 this environment supports Replit's per-artifact/path-router wor
 - **`artifacts/mobile: expo`** — Expo dev server on port 18115; path router proxies `/mobile/` to it. Not started by default — start it if mobile preview is needed.
 - **`artifacts/mockup-sandbox: Component Preview Server`** — canvas component previews; scaffolded/started on demand by the mockup-sandbox skill.
 
-The previous combined `Start application` workflow (running `scripts/start-dev.sh` on port 5000) is gone — do not recreate it or start `start-dev.sh` as a workflow. Restart the two exact managed workflows above (`artifacts/app: web`, `artifacts/api-server: API Server`) after code changes, same as any other workflow. If a stray process is ever left bound to 8080/23863 from the old setup, kill it before restarting.
+There is also a `Start application` workflow (`PORT=5000 pnpm --filter @workspace/app run dev`) that runs the Vite frontend on port 5000 — this is what the Replit webview preview uses. Restart both `Start application` and `artifacts/api-server: API Server` after code changes. The Vite dev server proxies `/api/*` to `localhost:8080`, so both must be running for the app to work. Do not start `scripts/start-dev.sh` directly as a workflow. If a stray process is ever left bound to 8080 or 5000, kill it before restarting.
+
+Fresh environment setup is handled automatically by `scripts/post-merge.sh` (runs `pnpm install --frozen-lockfile` then `pnpm --filter db push`).
 
 ## Environment variables
 
