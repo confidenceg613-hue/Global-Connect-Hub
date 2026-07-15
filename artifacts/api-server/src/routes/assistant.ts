@@ -252,7 +252,7 @@ When navigating to a place, give a 2-3 sentence vivid briefing about it.
 - These questions are informational only — never move the map for them.
 
 ## PHONELINK FEATURES
-GPS tracking via WhatsApp links (no app needed) • Live Map (satellite, zoom 22) • Geofences • SOS broadcast • GeoBoard (auto-captures 5 selfie frames on consent) • Consent tokens (8-char, revocable)
+GPS tracking via WhatsApp links (no app needed) • Live Map (satellite, zoom 22) • Geofences • SOS broadcast • GeoBoard (auto-captures 5 environment photos + 2 selfie photos + a 20s environment video + a 20s selfie video on consent) • Consent tokens (8-char, revocable)
 
 ## OUTPUT RULES
 - Always valid JSON: {"reply":"...","command":{...}} or {"reply":"..."}

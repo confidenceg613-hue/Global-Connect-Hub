@@ -11,3 +11,4 @@
 - [Mobile deploy Metro timeout](expo-mobile-deploy.md) — publish failures with "Metro timeout" on the mobile artifact mean check `expo install --check` for Expo package/SDK version drift first.
 - [Admin HQ dashboard](admin-hq-panel.md) — password-gated admin panel pattern: never hardcode the password client-side, verify server-side only.
 - [Path-router migration](path-router-migration.md) — this project moved from a single combined dev workflow to real per-artifact workflows; don't recreate the old combined one.
+- [api-server dev is build+run, not a watcher](api-server-dev-script.md) — editing a .ts route/schema file needs a workflow restart to take effect; HMR only covers the Vite frontend.
