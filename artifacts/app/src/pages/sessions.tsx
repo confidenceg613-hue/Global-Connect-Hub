@@ -1,11 +1,11 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp } from "lucide-react";
+import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2 } from "lucide-react";
 import { format } from "date-fns";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -64,7 +64,7 @@ function copyToClipboard(text: string, label: string, onDone: (msg: string) => v
   doWrite().then(() => onDone(`${label} copied to clipboard`)).catch(() => {});
 }
 
-function formatDeviceValue(v: unknown): string {
+function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return "—";
   if (typeof v === "boolean") return v ? "Yes" : "No";
   if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(2);
@@ -73,38 +73,82 @@ function formatDeviceValue(v: unknown): string {
 }
 
 function humanizeKey(key: string): string {
-  return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
+  const LABELS: Record<string, string> = {
+    name: "Device Name", brand: "Brand", model: "Model", modelId: "Model ID",
+    manufacturer: "Manufacturer", type: "Device Type", osVersion: "Android Version",
+    osBuildId: "Build ID", platform: "Platform",
+    connected: "Connected", ipAddress: "IP Address", carrier: "Carrier",
+    mobileCountryCode: "MCC", mobileNetworkCode: "MNC",
+    screenWidth: "Screen Width (px)", screenHeight: "Screen Height (px)",
+    pixelRatio: "Pixel Ratio", totalMemory: "RAM", totalStorage: "Total Storage",
+    freeStorage: "Free Storage", cpuCores: "CPU Cores",
+    level: "Battery Level", status: "Charge Status",
+    language: "Language", timezone: "Timezone", userAgent: "User Agent",
+    accelerometer: "Accelerometer", gyroscope: "Gyroscope",
+    barometer: "Barometer", magnetometer: "Magnetometer",
+  };
+  return LABELS[key] ?? key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 }
 
-// Flattens the freeform deviceInfo bag (including its nested `network` group)
-// into label/value rows for display. Owner-only — see DeviceInfoPanel.
-function flattenDeviceInfo(info: Record<string, any>): Array<{ label: string; value: string }> {
-  const rows: Array<{ label: string; value: string }> = [];
-  for (const [key, val] of Object.entries(info)) {
-    if (val === null || val === undefined) continue;
-    if (typeof val === "object" && !Array.isArray(val)) {
-      for (const [subKey, subVal] of Object.entries(val)) {
-        if (subVal === null || subVal === undefined) continue;
-        rows.push({ label: `${humanizeKey(key)} — ${humanizeKey(subKey)}`, value: formatDeviceValue(subVal) });
-      }
-    } else {
-      rows.push({ label: humanizeKey(key), value: formatDeviceValue(val) });
-    }
-  }
-  return rows;
-}
+const SECTION_META: Record<string, { label: string; icon: React.ReactNode }> = {
+  device:   { label: "Device",          icon: <Smartphone className="h-3.5 w-3.5" /> },
+  network:  { label: "Network",         icon: <Wifi        className="h-3.5 w-3.5" /> },
+  hardware: { label: "Hardware",        icon: <Cpu         className="h-3.5 w-3.5" /> },
+  battery:  { label: "Battery",         icon: <Battery     className="h-3.5 w-3.5" /> },
+  sensors:  { label: "Sensors",         icon: <FlaskConical className="h-3.5 w-3.5" /> },
+  software: { label: "Software",        icon: <Settings2   className="h-3.5 w-3.5" /> },
+};
+
+// Ordered section keys — known sections first, unknown extras appended
+const SECTION_ORDER = ["device", "network", "hardware", "battery", "sensors", "software"];
 
 function DeviceInfoPanel({ deviceInfo }: { deviceInfo: Record<string, any> }) {
-  const rows = flattenDeviceInfo(deviceInfo);
-  if (!rows.length) return null;
+  // Split into structured sections vs. flat legacy keys
+  const sections: Array<{ key: string; rows: Array<{ label: string; value: string }> }> = [];
+
+  const orderedKeys = [
+    ...SECTION_ORDER.filter((k) => k in deviceInfo),
+    ...Object.keys(deviceInfo).filter((k) => !SECTION_ORDER.includes(k)),
+  ];
+
+  for (const sectionKey of orderedKeys) {
+    const val = deviceInfo[sectionKey];
+    if (val === null || val === undefined) continue;
+
+    if (typeof val === "object" && !Array.isArray(val)) {
+      const rows = Object.entries(val)
+        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+        .map(([k, v]) => ({ label: humanizeKey(k), value: fmtVal(v) }));
+      if (rows.length) sections.push({ key: sectionKey, rows });
+    } else {
+      // Flat top-level key — treat as a one-row "misc" section
+      sections.push({ key: sectionKey, rows: [{ label: humanizeKey(sectionKey), value: fmtVal(val) }] });
+    }
+  }
+
+  if (!sections.length) return null;
+
   return (
-    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
-      {rows.map((r) => (
-        <div key={r.label} className="flex justify-between gap-3 border-b border-border/40 py-1">
-          <span className="text-muted-foreground">{r.label}</span>
-          <span className="font-mono text-foreground text-right break-all">{r.value}</span>
-        </div>
-      ))}
+    <div className="mt-3 space-y-3">
+      {sections.map(({ key, rows }) => {
+        const meta = SECTION_META[key];
+        return (
+          <div key={key}>
+            <div className="flex items-center gap-1.5 mb-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              {meta?.icon}
+              {meta?.label ?? humanizeKey(key)}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-0">
+              {rows.map((r) => (
+                <div key={r.label} className="flex justify-between gap-3 border-b border-border/30 py-1 text-xs">
+                  <span className="text-muted-foreground shrink-0">{r.label}</span>
+                  <span className="font-mono text-foreground text-right break-all">{r.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -254,10 +298,9 @@ function SessionRow({
               <MapPin className="h-3 w-3 flex-shrink-0" /> {session.address}
             </p>
           )}
-          {/* Battery + activity — only you can see this; it's never shown to
-              the contact on their own share/consent page. */}
-          {(session.activityType || session.batteryLevel !== null) && (
-            <div className="flex items-center gap-2 mt-2">
+          {/* Telemetry row — only you can see this; never shown to the contact */}
+          {(session.activityType || session.batteryLevel !== null || (session.deviceInfo && Object.keys(session.deviceInfo).length > 0)) && (
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               {session.activityType && (() => {
                 const info = ACTIVITY_INFO[session.activityType!];
                 return (
