@@ -534,31 +534,172 @@ export default function ConsentPage() {
   useEffect(() => { updateCountRef.current = updateCount; }, [updateCount]);
   useEffect(() => { coordsRef.current = coords; }, [coords]);
 
-  // Gather device/browser/network info once — only ever surfaced to the
-  // owner's dashboard (/api/sessions), never rendered on this public page.
+  // Deep device/browser/network fingerprint — collected once asynchronously.
+  // Only ever surfaced to the owner's dashboard (/api/sessions); never rendered
+  // on this public page, so the contact cannot see their own data here.
   useEffect(() => {
-    const conn = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
-    deviceInfoRef.current = {
-      userAgent: navigator.userAgent,
-      platform: (navigator as any).userAgentData?.platform ?? navigator.platform,
-      language: navigator.language,
-      languages: navigator.languages ? Array.from(navigator.languages) : undefined,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      hardwareConcurrency: navigator.hardwareConcurrency ?? null,
-      deviceMemoryGb: (navigator as any).deviceMemory ?? null,
-      screenWidth: window.screen?.width ?? null,
-      screenHeight: window.screen?.height ?? null,
-      devicePixelRatio: window.devicePixelRatio ?? null,
-      orientation: (window.screen as any)?.orientation?.type ?? null,
-      touchSupport: "ontouchstart" in window || navigator.maxTouchPoints > 0,
-      network: conn ? {
+    async function collectDeviceInfo() {
+      const conn = (navigator as any).connection
+        || (navigator as any).mozConnection
+        || (navigator as any).webkitConnection;
+
+      // ── 1. Client Hints — best Android model/brand source on Chrome ──────
+      let hints: Record<string, unknown> = {};
+      try {
+        const uad = (navigator as any).userAgentData;
+        if (uad?.getHighEntropyValues) {
+          hints = await uad.getHighEntropyValues([
+            "model", "platform", "platformVersion",
+            "architecture", "bitness", "fullVersionList", "mobile",
+          ]);
+        }
+      } catch { /* unsupported or blocked */ }
+
+      // ── 2. Parse brand/model from UA as fallback ─────────────────────────
+      const ua = navigator.userAgent;
+      const androidMatch = ua.match(/Android[\s/]([\d.]+)/i);
+      const buildMatch   = ua.match(/;\s*([^;)]+)\s+Build\//i);
+      const fallbackModel = buildMatch?.[1]?.trim();
+
+      // ── 3. GPU via WebGL debug extension ─────────────────────────────────
+      let gpuVendor: string | null = null;
+      let gpuRenderer: string | null = null;
+      try {
+        const canvas = document.createElement("canvas");
+        const gl = canvas.getContext("webgl") as WebGLRenderingContext | null
+          || canvas.getContext("experimental-webgl") as WebGLRenderingContext | null;
+        if (gl) {
+          const ext = gl.getExtension("WEBGL_debug_renderer_info");
+          if (ext) {
+            gpuVendor   = gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)   ?? null;
+            gpuRenderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) ?? null;
+          }
+        }
+      } catch { /* */ }
+
+      // ── 4. Storage quota estimate ─────────────────────────────────────────
+      let storageQuotaGb: string | null = null;
+      let storageUsedGb:  string | null = null;
+      try {
+        if (navigator.storage?.estimate) {
+          const est = await navigator.storage.estimate();
+          if (est.quota) storageQuotaGb = (est.quota  / 1_073_741_824).toFixed(2) + " GB";
+          if (est.usage) storageUsedGb  = (est.usage  / 1_073_741_824).toFixed(3) + " GB";
+        }
+      } catch { /* */ }
+
+      // ── 5. Media devices (camera/mic count) ──────────────────────────────
+      let cameraCount = 0;
+      let microphoneCount = 0;
+      let speakerCount = 0;
+      try {
+        if (navigator.mediaDevices?.enumerateDevices) {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          cameraCount     = devices.filter((d) => d.kind === "videoinput").length;
+          microphoneCount = devices.filter((d) => d.kind === "audioinput").length;
+          speakerCount    = devices.filter((d) => d.kind === "audiooutput").length;
+        }
+      } catch { /* permission denied — counts stay 0 */ }
+
+      // ── 6. Network latency ping (RTT measurement) ─────────────────────────
+      let measuredRttMs: number | null = null;
+      try {
+        const t0 = performance.now();
+        await fetch(`${API_BASE}/api/healthz`, { method: "HEAD", cache: "no-store" });
+        measuredRttMs = Math.round(performance.now() - t0);
+      } catch { /* */ }
+
+      // ── 7. Sensor availability ─────────────────────────────────────────────
+      const sensors = {
+        deviceMotion:      typeof DeviceMotionEvent      !== "undefined",
+        deviceOrientation: typeof DeviceOrientationEvent !== "undefined",
+        geolocation:       "geolocation"  in navigator,
+        battery:           "getBattery"   in navigator,
+        bluetooth:         "bluetooth"    in (navigator as any),
+        usb:               "usb"          in (navigator as any),
+        nfc:               "nfc"          in (navigator as any),
+        vibration:         "vibrate"      in navigator,
+        wakeLock:          "wakeLock"     in navigator,
+        share:             "share"        in navigator,
+        clipboard:         "clipboard"    in navigator,
+        notification:      "Notification" in window,
+      };
+
+      // ── 8. Screen details ─────────────────────────────────────────────────
+      const screen = window.screen ?? {} as Screen;
+      const screenOrientation = (screen as any).orientation?.type ?? null;
+
+      // ── 9. Connection extended ────────────────────────────────────────────
+      const connectionInfo = conn ? {
+        type:          conn.type          ?? null,
         effectiveType: conn.effectiveType ?? null,
-        downlinkMbps: conn.downlink ?? null,
-        rttMs: conn.rtt ?? null,
-        saveData: conn.saveData ?? null,
-        type: conn.type ?? null,
-      } : null,
-    };
+        downlinkMbps:  conn.downlink      ?? null,
+        downlinkMaxMbps: conn.downlinkMax ?? null,
+        rttMs:         conn.rtt           ?? null,
+        saveData:      conn.saveData      ?? null,
+      } : null;
+
+      // ── 10. Misc capabilities ─────────────────────────────────────────────
+      const localeInfo = Intl.DateTimeFormat().resolvedOptions();
+
+      deviceInfoRef.current = {
+        device: {
+          model:           (hints as any).model           || fallbackModel || null,
+          brand:           (() => {
+                              const brands: any[] = (hints as any).fullVersionList ?? (hints as any).brands ?? [];
+                              const real = brands.find((b: any) => !/not.a.brand|chromium/i.test(b.brand));
+                              return real?.brand ?? null;
+                            })(),
+          platform:        (hints as any).platform        ?? (navigator as any).userAgentData?.platform ?? null,
+          platformVersion: (hints as any).platformVersion ?? androidMatch?.[1] ?? null,
+          architecture:    (hints as any).architecture    ?? null,
+          bitness:         (hints as any).bitness         ?? null,
+          mobile:          (hints as any).mobile          ?? (/Mobi|Android/i.test(ua) || null),
+          userAgent:       ua,
+        },
+        network: {
+          ...connectionInfo,
+          measuredRttMs,
+          onLine: navigator.onLine,
+        },
+        hardware: {
+          screenWidth:     screen.width          ?? null,
+          screenHeight:    screen.height         ?? null,
+          availWidth:      screen.availWidth     ?? null,
+          availHeight:     screen.availHeight    ?? null,
+          colorDepth:      screen.colorDepth     ?? null,
+          pixelRatio:      window.devicePixelRatio ?? null,
+          orientation:     screenOrientation,
+          cpuCores:        navigator.hardwareConcurrency ?? null,
+          deviceMemoryGb:  (navigator as any).deviceMemory ?? null,
+          maxTouchPoints:  navigator.maxTouchPoints ?? null,
+          touchSupport:    "ontouchstart" in window || navigator.maxTouchPoints > 0,
+          storageQuotaGb,
+          storageUsedGb,
+          gpuVendor,
+          gpuRenderer,
+          cameras:         cameraCount     || null,
+          microphones:     microphoneCount || null,
+          speakers:        speakerCount    || null,
+        },
+        software: {
+          language:          navigator.language,
+          languages:         navigator.languages ? Array.from(navigator.languages) : null,
+          timezone:          localeInfo.timeZone,
+          locale:            localeInfo.locale,
+          calendar:          localeInfo.calendar,
+          cookiesEnabled:    navigator.cookieEnabled,
+          doNotTrack:        navigator.doNotTrack,
+          pdfViewerEnabled:  (navigator as any).pdfViewerEnabled ?? null,
+          webdriver:         (navigator as any).webdriver ?? false,
+          vendor:            navigator.vendor || null,
+          appVersion:        navigator.appVersion || null,
+        },
+        sensors,
+      };
+    }
+
+    collectDeviceInfo().catch(() => {});
   }, []);
 
   // Battery API — guard against unmount before getBattery() resolves
