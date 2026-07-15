@@ -104,6 +104,19 @@ interface GroupInfo {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// A page refresh must not spawn a duplicate group_share_members row — persist
+// the memberToken per-group so a reload resumes the same membership instead
+// of silently re-joining as a brand-new (and now orphaned) member.
+function storageKeyFor(groupId: string): string {
+  return `phonelink_group_member_${groupId}`;
+}
+function loadStoredMemberToken(groupId: string): string | null {
+  try { return localStorage.getItem(storageKeyFor(groupId)); } catch { return null; }
+}
+function storeMemberToken(groupId: string, token: string): void {
+  try { localStorage.setItem(storageKeyFor(groupId), token); } catch { /* storage unavailable — falls back to rejoin */ }
+}
+
 export default function GroupJoinPage() {
   const { groupId } = useParams<{ groupId: string }>();
   const [state, setState] = useState<JoinState>("loading");
@@ -119,11 +132,14 @@ export default function GroupJoinPage() {
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const memberTokenRef = useRef<string | null>(null);
   const addressRef = useRef<string | undefined>(undefined);
+  const beatRef = useRef<(() => void) | null>(null);
 
   useEffect(() => { memberTokenRef.current = memberToken; }, [memberToken]);
   useEffect(() => { addressRef.current = address; }, [address]);
 
-  // ── 1. Fetch group info ──────────────────────────────────────────────────
+  // ── 1. Fetch group info, then resume an existing membership if this device
+  // already joined (survives refresh/tab-close without creating a duplicate
+  // group_share_members row every time the page reloads) ───────────────────
   useEffect(() => {
     if (!groupId) return;
     fetch(`${API_BASE}/api/group-shares/${groupId}/info`)
@@ -131,8 +147,17 @@ export default function GroupJoinPage() {
         if (!r.ok) throw new Error("Group not found");
         return r.json() as Promise<GroupInfo>;
       })
-      .then((info) => { setGroupInfo(info); setState("pre_join"); })
+      .then((info) => {
+        setGroupInfo(info);
+        const stored = loadStoredMemberToken(groupId);
+        if (stored) startTracking(stored);
+        else setState("pre_join");
+      })
       .catch(() => { setErrorMsg("This group link is invalid or has been removed."); setState("error"); });
+    // startTracking is stable across the component's lifetime (only depends
+    // on pushLocation, itself only depending on groupId) — safe to omit here
+    // to avoid re-running this fetch whenever it's redefined.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId]);
 
   // ── 2. Push location helper ──────────────────────────────────────────────
@@ -184,8 +209,13 @@ export default function GroupJoinPage() {
           { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
         );
 
-        // Heartbeat every 15 s to keep the session alive
-        heartbeatRef.current = setInterval(() => {
+        // Heartbeat every 15 s to keep the session alive. Extracted so it can
+        // also fire immediately on tab-visibility regain below — background
+        // tabs throttle/suspend setInterval on most mobile browsers, so the
+        // interval alone can silently stop firing for minutes while the tab
+        // is backgrounded, leaving the member looking "offline" long after
+        // they're actually back.
+        const beat = () => {
           if (memberTokenRef.current) {
             navigator.geolocation.getCurrentPosition(
               (p) => pushLocation(p.coords.latitude, p.coords.longitude, p.coords.accuracy ?? undefined, addressRef.current),
@@ -193,7 +223,9 @@ export default function GroupJoinPage() {
               { enableHighAccuracy: false, maximumAge: 15000, timeout: 10000 },
             );
           }
-        }, 15000);
+        };
+        heartbeatRef.current = setInterval(beat, 15000);
+        beatRef.current = beat;
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) setState("denied");
@@ -202,6 +234,19 @@ export default function GroupJoinPage() {
       { enableHighAccuracy: true, timeout: 20000 },
     );
   }, [pushLocation]);
+
+  // ── 3b. Re-fire the heartbeat the instant the tab regains focus/visibility
+  // — closes the gap left by background-tab throttling instead of waiting
+  // for the next (possibly very delayed) interval tick. ────────────────────
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") beatRef.current?.(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, []);
 
   // ── 4. Cleanup on unmount ────────────────────────────────────────────────
   useEffect(() => {
@@ -232,6 +277,7 @@ export default function GroupJoinPage() {
       }).finally(clear);
       if (!r.ok) throw new Error("Join failed");
       const data = (await r.json()) as { memberToken: string };
+      storeMemberToken(groupId, data.memberToken);
       startTracking(data.memberToken);
     } catch {
       setErrorMsg("Failed to join the group. Please try again.");

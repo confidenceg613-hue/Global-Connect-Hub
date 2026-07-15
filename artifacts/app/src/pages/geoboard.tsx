@@ -25,6 +25,7 @@ interface GeoPhoto {
   latitude: number | null;
   longitude: number | null;
   address: string | null;
+  cameraFacing?: "environment" | "user";
   takenAt: string;
   inviteToken: string;
   toName: string | null;
@@ -392,6 +393,11 @@ function ContactPhotoGroup({ group }: { group: ContactGroup }) {
                 <div className="absolute top-1 left-1 bg-black/60 rounded-full w-5 h-5 flex items-center justify-center">
                   <span className="text-white text-[9px] font-bold">{idx + 1}</span>
                 </div>
+                {photo.cameraFacing === "user" && (
+                  <div className="absolute bottom-1 right-1 bg-pink-500/90 rounded-full px-1.5 py-0.5">
+                    <span className="text-white text-[8px] font-bold leading-none">Selfie</span>
+                  </div>
+                )}
               </button>
             ))}
           </div>
@@ -439,11 +445,19 @@ function ContactPhotoGroup({ group }: { group: ContactGroup }) {
 
           {selected && (
             <div className="bg-muted rounded-xl p-4 space-y-2 mt-3">
-              <img
-                src={selected.photoData}
-                alt="GeoBoard photo detail"
-                className="w-full max-h-64 object-contain rounded-lg bg-black/30 mb-3"
-              />
+              <div className="relative">
+                <img
+                  src={selected.photoData}
+                  alt="GeoBoard photo detail"
+                  className="w-full max-h-64 object-contain rounded-lg bg-black/30 mb-3"
+                />
+                <Badge
+                  className="absolute top-2 right-2"
+                  style={{ backgroundColor: selected.cameraFacing === "user" ? "#ec4899" : group.color, color: "#fff" }}
+                >
+                  {selected.cameraFacing === "user" ? "Selfie" : "Environment"}
+                </Badge>
+              </div>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="flex items-start gap-1.5">
                   <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />

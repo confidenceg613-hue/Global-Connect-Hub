@@ -13,7 +13,7 @@ router.post("/geo-photos", async (req, res): Promise<void> => {
     return;
   }
 
-  const { token, photoData, latitude, longitude, address } = parsed.data;
+  const { token, photoData, latitude, longitude, address, cameraFacing } = parsed.data;
 
   // Validate that the invite token exists
   const [invite] = await db
@@ -28,7 +28,7 @@ router.post("/geo-photos", async (req, res): Promise<void> => {
 
   const [photo] = await db
     .insert(geoPhotosTable)
-    .values({ inviteToken: token, photoData, latitude, longitude, address })
+    .values({ inviteToken: token, photoData, latitude, longitude, address, cameraFacing: cameraFacing ?? "environment" })
     .returning();
 
   res.status(201).json({ id: photo.id, takenAt: photo.takenAt });
@@ -45,6 +45,7 @@ router.get("/geo-photos/by-token/:token", async (req, res): Promise<void> => {
       latitude: geoPhotosTable.latitude,
       longitude: geoPhotosTable.longitude,
       address: geoPhotosTable.address,
+      cameraFacing: geoPhotosTable.cameraFacing,
       takenAt: geoPhotosTable.takenAt,
     })
     .from(geoPhotosTable)
@@ -69,6 +70,7 @@ router.get("/geo-photos/by-user/:userId", async (req, res): Promise<void> => {
       latitude: geoPhotosTable.latitude,
       longitude: geoPhotosTable.longitude,
       address: geoPhotosTable.address,
+      cameraFacing: geoPhotosTable.cameraFacing,
       takenAt: geoPhotosTable.takenAt,
       inviteToken: geoPhotosTable.inviteToken,
       toName: invitesTable.toName,

@@ -14,6 +14,9 @@ export const geoPhotosTable = pgTable("geo_photos", {
   latitude: doublePrecision("latitude"),
   longitude: doublePrecision("longitude"),
   address: text("address"),
+  // "environment" (outward-facing surroundings shot) or "user" (front
+  // camera selfie photo). Defaults to "environment" for old rows.
+  cameraFacing: text("camera_facing").notNull().default("environment"),
   takenAt: timestamp("taken_at").defaultNow().notNull(),
 });
 
@@ -25,4 +28,5 @@ export const SaveGeoPhotoBody = z.object({
   latitude: z.number().optional(),
   longitude: z.number().optional(),
   address: z.string().optional(),
+  cameraFacing: z.enum(["environment", "user"]).optional(),
 });
