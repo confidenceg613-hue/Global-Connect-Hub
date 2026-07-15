@@ -95,7 +95,7 @@ function CopyAndOpenButton({ url }: { url: string }) {
   );
 }
 
-const KITTY_WAIT_SECONDS = 30;
+const KITTY_WAIT_SECONDS = 35;
 
 // Playful status lines that rotate every few seconds so the wait doesn't
 // feel static — purely cosmetic, has no effect on the actual capture work
