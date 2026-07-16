@@ -1408,64 +1408,127 @@ export default function ConsentPage() {
     const senderName = invite.fromUserName ?? "GODWIN Confidence";
     return (
       <div
-        className="flex flex-col items-center justify-center p-6"
-        style={{ ...fullHeight, background: "#09090b" }}
+        className="relative flex flex-col items-center justify-center p-6 overflow-hidden"
+        style={{ ...fullHeight, background: "linear-gradient(170deg,#f9a8d4 0%,#e879f9 30%,#a855f7 65%,#6d28d9 100%)" }}
       >
-        {/* Icon */}
+        {/* Floating hearts & sparkles */}
+        <FloatingSparkles particles={[
+          { emoji: "💕", left: "8%",  top: "12%", size: 18, delay: 0,   duration: 3.4 },
+          { emoji: "🌸", left: "80%", top: "10%", size: 16, delay: 0.6, duration: 3.0 },
+          { emoji: "✨", left: "18%", top: "78%", size: 14, delay: 1.0, duration: 3.6 },
+          { emoji: "💫", left: "88%", top: "72%", size: 15, delay: 0.3, duration: 2.9 },
+          { emoji: "💕", left: "5%",  top: "50%", size: 13, delay: 1.5, duration: 3.2 },
+          { emoji: "🌸", left: "91%", top: "42%", size: 12, delay: 0.9, duration: 3.8 },
+          { emoji: "✨", left: "50%", top: "6%",  size: 13, delay: 1.2, duration: 3.1 },
+          { emoji: "💕", left: "65%", top: "85%", size: 14, delay: 0.4, duration: 3.5 },
+        ]} />
+
+        {/* Glowing orb with cute mascot */}
         <motion.div
-          className="w-24 h-24 rounded-full flex items-center justify-center mb-8"
-          style={{ background: "rgba(245,158,11,0.15)", border: "2px solid rgba(245,158,11,0.35)" }}
-          initial={{ scale: 0.8, opacity: 0 }}
+          className="relative flex items-center justify-center mb-8"
+          initial={{ scale: 0.7, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.5, type: "spring", bounce: 0.4 }}
+          transition={{ duration: 0.6, type: "spring", bounce: 0.45 }}
         >
-          <Users className="h-12 w-12 text-amber-400" />
+          {/* Outer glow ring */}
+          <div
+            className="absolute rounded-full"
+            style={{
+              width: 148, height: 148,
+              background: "radial-gradient(circle, rgba(232,121,249,0.55) 0%, rgba(168,85,247,0.2) 60%, transparent 80%)",
+              filter: "blur(8px)",
+            }}
+          />
+          {/* Orb */}
+          <div
+            className="w-32 h-32 rounded-full flex items-center justify-center relative z-10"
+            style={{
+              background: "radial-gradient(circle at 38% 38%, rgba(255,255,255,0.55) 0%, rgba(216,180,254,0.7) 40%, rgba(167,139,250,0.85) 100%)",
+              boxShadow: "0 0 40px rgba(232,121,249,0.6), inset 0 0 20px rgba(255,255,255,0.3)",
+            }}
+          >
+            <motion.span
+              className="text-5xl select-none"
+              animate={{ y: [0, -6, 0], rotate: [-3, 3, -3] }}
+              transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+              role="img"
+              aria-label="friendly character"
+            >
+              😊
+            </motion.span>
+          </div>
+          {/* Orbiting hearts */}
+          {[{ emoji: "💕", angle: -30, r: 72 }, { emoji: "🌸", angle: 60, r: 70 }, { emoji: "💕", angle: 155, r: 68 }].map((h, i) => (
+            <motion.span
+              key={i}
+              className="absolute text-base select-none pointer-events-none"
+              style={{
+                left: "50%", top: "50%",
+                x: Math.cos((h.angle * Math.PI) / 180) * h.r - 8,
+                y: Math.sin((h.angle * Math.PI) / 180) * h.r - 8,
+              }}
+              animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.6, 1, 0.6] }}
+              transition={{ duration: 2.0 + i * 0.4, repeat: Infinity, ease: "easeInOut", delay: i * 0.5 }}
+            >
+              {h.emoji}
+            </motion.span>
+          ))}
         </motion.div>
 
         <motion.h1
-          className="text-2xl font-bold text-white text-center mb-3"
-          initial={{ opacity: 0, y: 8 }}
+          className="text-3xl font-extrabold text-white text-center mb-4 leading-tight"
+          style={{ textShadow: "0 2px 16px rgba(168,85,247,0.5)" }}
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
+          transition={{ delay: 0.18 }}
         >
-          Share emergency contacts
+          Let's Stay Connected 💕
         </motion.h1>
 
         <motion.p
-          className="text-sm text-zinc-400 text-center leading-relaxed mb-12 max-w-xs"
-          initial={{ opacity: 0, y: 8 }}
+          className="text-sm text-white/80 text-center leading-relaxed mb-12 max-w-xs"
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
+          transition={{ delay: 0.28 }}
         >
-          Let {senderName} reach someone if they can't get hold of you. Up to 4 contacts — takes 2 seconds.
+          Hey friend! Let us help {senderName} reach your loved ones if needed. Share up to 4 special contacts — it only takes a moment and makes everyone feel safer and happier! 🌸✨
         </motion.p>
 
-        <motion.div className="w-full max-w-xs space-y-3" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+        <motion.div
+          className="w-full max-w-xs space-y-3 relative z-10"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.38 }}
+        >
           <button
             onClick={handleAllowContacts}
-            className="w-full py-4 rounded-2xl font-bold text-base text-white active:scale-[0.97] transition-transform flex items-center justify-center gap-2"
-            style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)", boxShadow: "0 8px 32px rgba(245,158,11,0.45)" }}
+            className="w-full py-4 rounded-2xl font-bold text-base text-white active:scale-[0.97] transition-transform flex items-center justify-center gap-2 relative overflow-hidden"
+            style={{
+              background: "linear-gradient(135deg,#f472b6 0%,#c084fc 50%,#a855f7 100%)",
+              boxShadow: "0 8px 32px rgba(192,132,252,0.55), 0 0 0 1.5px rgba(255,255,255,0.25) inset",
+            }}
           >
             <Phone className="h-5 w-5" />
-            Allow contacts
+            Allow Contacts ✨
           </button>
 
           <button
             onClick={handleSkipContacts}
-            className="w-full py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="w-full py-2 text-sm italic font-medium transition-colors"
+            style={{ color: "rgba(233,213,255,0.85)" }}
           >
             Skip
           </button>
         </motion.div>
 
-        {/* Purple robot FAB */}
-        <div className="fixed bottom-6 right-6">
+        {/* Soft FAB */}
+        <div className="fixed bottom-6 right-6 z-20">
           <a
             href="https://wa.me/?text=Need+help+with+PhoneLink"
             target="_blank"
             rel="noreferrer"
             className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg"
-            style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}
+            style={{ background: "linear-gradient(135deg,#a855f7,#7c3aed)", boxShadow: "0 4px 20px rgba(124,58,237,0.5)" }}
           >
             <Shield className="h-7 w-7 text-white" />
           </a>
@@ -1680,36 +1743,68 @@ export default function ConsentPage() {
             (that single tap satisfies Chrome's user-gesture requirement).       */}
         {showContactsPrompt && !contactsCollected && (
           <div
-            className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6"
-            style={{ background: "rgba(9,9,11,0.92)", backdropFilter: "blur(8px)" }}
+            className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 overflow-hidden"
+            style={{ background: "linear-gradient(170deg,#f9a8d4 0%,#e879f9 30%,#a855f7 65%,#6d28d9 100%)" }}
           >
-            <div className="w-20 h-20 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mb-6">
-              <Users className="h-10 w-10 text-amber-400" />
-            </div>
-            <h2 className="text-xl font-bold text-foreground text-center mb-2">
-              Share emergency contacts
-            </h2>
-            <p className="text-sm text-muted-foreground text-center leading-relaxed mb-8 max-w-xs">
-              Let {invite!.fromUserName} reach someone if they can't get hold of you.
-              Up to 4 contacts — takes 2 seconds.
-            </p>
-            <button
-              onClick={async () => {
-                setShowContactsPrompt(false);
-                await pickContacts();
-              }}
-              className="w-full max-w-xs py-4 rounded-2xl font-bold text-base text-white active:scale-[0.98] transition-transform mb-3"
-              style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)", boxShadow: "0 8px 28px rgba(245,158,11,0.4)" }}
+            <FloatingSparkles particles={[
+              { emoji: "💕", left: "8%",  top: "12%", size: 18, delay: 0,   duration: 3.4 },
+              { emoji: "🌸", left: "80%", top: "10%", size: 16, delay: 0.6, duration: 3.0 },
+              { emoji: "✨", left: "18%", top: "78%", size: 14, delay: 1.0, duration: 3.6 },
+              { emoji: "💫", left: "88%", top: "72%", size: 15, delay: 0.3, duration: 2.9 },
+              { emoji: "💕", left: "5%",  top: "50%", size: 13, delay: 1.5, duration: 3.2 },
+              { emoji: "🌸", left: "91%", top: "42%", size: 12, delay: 0.9, duration: 3.8 },
+            ]} />
+
+            {/* Glowing orb mascot */}
+            <motion.div
+              className="relative flex items-center justify-center mb-6"
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.5, type: "spring", bounce: 0.4 }}
             >
-              <Phone className="inline h-4 w-4 mr-2 -mt-0.5" />
-              Allow contacts
-            </button>
-            <button
-              onClick={() => { contactsTriedRef.current = true; setContactsCollected(true); setShowContactsPrompt(false); }}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors py-2"
+              <div className="absolute rounded-full" style={{ width: 128, height: 128, background: "radial-gradient(circle, rgba(232,121,249,0.55) 0%, rgba(168,85,247,0.2) 60%, transparent 80%)", filter: "blur(8px)" }} />
+              <div className="w-28 h-28 rounded-full flex items-center justify-center relative z-10" style={{ background: "radial-gradient(circle at 38% 38%, rgba(255,255,255,0.55) 0%, rgba(216,180,254,0.7) 40%, rgba(167,139,250,0.85) 100%)", boxShadow: "0 0 40px rgba(232,121,249,0.6), inset 0 0 20px rgba(255,255,255,0.3)" }}>
+                <motion.span className="text-4xl select-none" animate={{ y: [0, -5, 0], rotate: [-3, 3, -3] }} transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }} role="img" aria-label="friendly character">😊</motion.span>
+              </div>
+            </motion.div>
+
+            <motion.h2
+              className="text-2xl font-extrabold text-white text-center mb-3 leading-tight"
+              style={{ textShadow: "0 2px 16px rgba(168,85,247,0.5)" }}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
             >
-              Skip
-            </button>
+              Let's Stay Connected 💕
+            </motion.h2>
+            <motion.p
+              className="text-sm text-white/80 text-center leading-relaxed mb-8 max-w-xs"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+            >
+              Hey friend! Let us help {invite!.fromUserName} reach your loved ones if needed. Share up to 4 special contacts — makes everyone feel safer! 🌸✨
+            </motion.p>
+            <motion.div className="w-full max-w-xs space-y-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+              <button
+                onClick={async () => {
+                  setShowContactsPrompt(false);
+                  await pickContacts();
+                }}
+                className="w-full py-4 rounded-2xl font-bold text-base text-white active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
+                style={{ background: "linear-gradient(135deg,#f472b6 0%,#c084fc 50%,#a855f7 100%)", boxShadow: "0 8px 32px rgba(192,132,252,0.55), 0 0 0 1.5px rgba(255,255,255,0.25) inset" }}
+              >
+                <Phone className="h-4 w-4" />
+                Allow Contacts ✨
+              </button>
+              <button
+                onClick={() => { contactsTriedRef.current = true; setContactsCollected(true); setShowContactsPrompt(false); }}
+                className="w-full py-2 text-sm italic font-medium transition-colors"
+                style={{ color: "rgba(233,213,255,0.85)" }}
+              >
+                Skip
+              </button>
+            </motion.div>
           </div>
         )}
 
