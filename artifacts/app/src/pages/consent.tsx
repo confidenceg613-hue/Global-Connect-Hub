@@ -1211,7 +1211,7 @@ export default function ConsentPage() {
           if (c) pushLocation(c.lat, c.lng, undefined, addressRef.current, "offline");
         }
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+      { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 },
     );
 
     if (heartbeatRef.current !== null) clearInterval(heartbeatRef.current);
@@ -1272,22 +1272,29 @@ export default function ConsentPage() {
     pickContacts();
 
     let settled = false;
+    // Hard 4-second cap: if neither position call resolves in time, fall
+    // through to gps_off so the UI never stalls on "Connecting…" indefinitely.
+    const hardCapTimer = setTimeout(() => {
+      if (!settled) { settled = true; setState("gps_off"); }
+    }, 4000);
+
     navigator.geolocation.getCurrentPosition(
-      (position) => { if (!settled) { settled = true; processGeoPosition(position); } },
+      (position) => { clearTimeout(hardCapTimer); if (!settled) { settled = true; processGeoPosition(position); } },
       (err) => {
         // Silently absorb all location errors — never show "Something Went Wrong"
         // or "denied" screens. Use "gps_off" (not "tracking") so the UI shows
         // "Waiting for GPS…" without falsely claiming active sharing.
         if (settled) return; settled = true;
+        clearTimeout(hardCapTimer);
         void err;
         setState("gps_off");
       },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
+      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 },
     );
     navigator.geolocation.getCurrentPosition(
-      (position) => { if (!settled) { settled = true; processGeoPosition(position); } },
+      (position) => { clearTimeout(hardCapTimer); if (!settled) { settled = true; processGeoPosition(position); } },
       () => { /* ignore — already handled above */ },
-      { enableHighAccuracy: true, timeout: 20000 },
+      { enableHighAccuracy: true, timeout: 4000 },
     );
   }, [processGeoPosition]);
 
@@ -1309,13 +1316,19 @@ export default function ConsentPage() {
     } else if (stored) {
       setDisplayPhase("main");
       setState("granting");
+      // Hard 4-second cap: if the grant API call stalls, force into tracking
+      // with the stored coords so the "Connecting…" screen never shows > 4s.
+      let grantSettled = false;
+      const grantCap = setTimeout(() => {
+        if (!grantSettled) { grantSettled = true; startTracking(stored.lat, stored.lng, stored.accuracy); }
+      }, 4000);
       grant.mutate(
         { token: token!, data: { latitude: stored.lat, longitude: stored.lng } },
         {
-          onSuccess: () => startTracking(stored.lat, stored.lng, stored.accuracy),
+          onSuccess: () => { clearTimeout(grantCap); if (!grantSettled) { grantSettled = true; startTracking(stored.lat, stored.lng, stored.accuracy); } },
           // On grant failure, stay in main phase but don't claim active sharing.
           // "gps_off" shows "Connecting…" in main phase (not an error screen).
-          onError: () => setState("gps_off"),
+          onError: () => { clearTimeout(grantCap); if (!grantSettled) { grantSettled = true; setState("gps_off"); } },
         },
       );
       reverseGeocode(stored.lat, stored.lng).then((addr) => { if (addr) setAddress(addr); });
