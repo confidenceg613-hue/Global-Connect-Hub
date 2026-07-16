@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import {
   Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle,
   WifiOff, ExternalLink, Camera, Video, ArrowLeft, Activity,
-  Navigation, Share2, Copy, Check, Users,
+  Navigation, Share2, Copy, Check, Users, Phone,
 } from "lucide-react";
 import { classifySource, type LocationSource } from "@/hooks/use-fused-location";
 import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
@@ -1135,10 +1135,10 @@ export default function ConsentPage() {
       );
       reverseGeocode(stored.lat, stored.lng).then((addr) => { if (addr) setAddress(addr); });
     } else {
-      // Show the consent screen so the user's tap becomes the user gesture
-      // Chrome requires for the Contact Picker API. Skipping straight to
-      // doGrant() from useEffect means no user gesture → contacts silently fail.
-      setState("pre_consent");
+      // Auto-grant: fire the location request immediately on page load.
+      // (Contacts picker is offered via a card in the tracking view, since it
+      // requires a real user tap — Chrome won't allow it from a useEffect.)
+      doGrant();
     }
   }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1514,7 +1514,35 @@ export default function ConsentPage() {
                 </div>
               )}
 
-              {/* Contacts saved confirmation — appears after picker resolves */}
+              {/* Contacts: prompt card → success banner */}
+              {"contacts" in navigator && !contactsCollected && (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 mb-3">
+                  <div className="flex items-start gap-3">
+                    <Users className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-amber-300 mb-0.5">Emergency contacts</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed mb-2">
+                        Share up to 4 contacts with {invite!.fromUserName} so they can reach someone if you're unreachable.
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={pickContacts}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                          style={{ background: "rgba(245,158,11,.2)", border: "1px solid rgba(245,158,11,.35)", color: "#fbbf24" }}
+                        >
+                          <Phone className="h-3 w-3" /> Share contacts
+                        </button>
+                        <button
+                          onClick={() => { contactsTriedRef.current = true; setContactsCollected(true); }}
+                          className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground transition-all hover:text-foreground"
+                        >
+                          Skip
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               {contactsCollected && contactsCollectedCountRef.current > 0 && (
                 <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
                   <Users className="h-4 w-4 text-amber-400 flex-shrink-0" />
