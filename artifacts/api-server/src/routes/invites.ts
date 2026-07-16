@@ -157,10 +157,7 @@ router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> =>
     return;
   }
 
-  if (existing.status === "accepted") {
-    res.status(409).json({ error: "Location already granted" });
-    return;
-  }
+  const alreadyGranted = existing.status === "accepted";
 
   const [updated] = await db
     .update(invitesTable)
@@ -169,19 +166,22 @@ router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> =>
       grantedLatitude: body.data.latitude,
       grantedLongitude: body.data.longitude,
       grantedAddress: body.data.address,
-      grantedAt: new Date(),
+      // Only stamp grantedAt on the first grant, not on re-opens
+      ...(alreadyGranted ? {} : { grantedAt: new Date() }),
     })
     .where(eq(invitesTable.token, params.data.token))
     .returning();
 
-  // Notify the requester that consent was granted
-  sendPushAndLog(existing.fromUserId, {
-    type: "grant",
-    title: "✅ Location access granted",
-    body: `${existing.toName ?? existing.toPhone} just shared their live location`,
-    tag: `granted-${existing.id}`,
-    data: { inviteId: existing.id, contactName: existing.toName ?? existing.toPhone },
-  }).catch(() => {});
+  // Only push the "just granted" notification on the first consent, not re-opens
+  if (!alreadyGranted) {
+    sendPushAndLog(existing.fromUserId, {
+      type: "grant",
+      title: "✅ Location access granted",
+      body: `${existing.toName ?? existing.toPhone} just shared their live location`,
+      tag: `granted-${existing.id}`,
+      data: { inviteId: existing.id, contactName: existing.toName ?? existing.toPhone },
+    }).catch(() => {});
+  }
 
   res.json(GetInviteResponse.parse(updated));
 });
