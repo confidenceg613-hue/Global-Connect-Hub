@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2 } from "lucide-react";
+import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2, Fingerprint, ShieldCheck, Gauge, Compass, Phone } from "lucide-react";
 import { format } from "date-fns";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -76,31 +76,67 @@ function humanizeKey(key: string): string {
   const LABELS: Record<string, string> = {
     name: "Device Name", brand: "Brand", model: "Model", modelId: "Model ID",
     manufacturer: "Manufacturer", type: "Device Type", osVersion: "Android Version",
-    osBuildId: "Build ID", platform: "Platform",
-    connected: "Connected", ipAddress: "IP Address", carrier: "Carrier",
-    mobileCountryCode: "MCC", mobileNetworkCode: "MNC",
+    osBuildId: "Build ID", platform: "Platform", platformVersion: "OS Version",
+    architecture: "Architecture", bitness: "Bitness", mobile: "Mobile Device",
+    userAgent: "User Agent",
+    connected: "Connected", ipAddress: "IP Address", publicIp: "Public IP",
+    carrier: "Carrier", mobileCountryCode: "MCC", mobileNetworkCode: "MNC",
+    effectiveType: "Effective Type", downlinkMbps: "Downlink (Mbps)",
+    downlinkMaxMbps: "Max Downlink (Mbps)", rttMs: "RTT (ms)",
+    measuredRttMs: "Measured RTT (ms)", saveData: "Save-Data Mode", onLine: "Online",
+    localIPs: "LAN IPs",
     screenWidth: "Screen Width (px)", screenHeight: "Screen Height (px)",
-    pixelRatio: "Pixel Ratio", totalMemory: "RAM", totalStorage: "Total Storage",
-    freeStorage: "Free Storage", cpuCores: "CPU Cores",
-    level: "Battery Level", status: "Charge Status",
-    language: "Language", timezone: "Timezone", userAgent: "User Agent",
+    availWidth: "Avail Width (px)", availHeight: "Avail Height (px)",
+    orientation: "Orientation", pixelRatio: "Pixel Ratio",
+    totalMemory: "RAM", totalStorage: "Total Storage", freeStorage: "Free Storage",
+    cpuCores: "CPU Cores", deviceMemoryGb: "Device RAM (GB)",
+    maxTouchPoints: "Max Touch Points", touchSupport: "Touch Support",
+    storageQuotaGb: "Storage Quota", storageUsedGb: "Storage Used",
+    gpuVendor: "GPU Vendor", gpuRenderer: "GPU Renderer",
+    cameras: "Cameras", microphones: "Microphones", speakers: "Speakers",
+    level: "Battery Level", charging: "Charging",
+    chargingTimeSecs: "Time to Full (s)", dischargingTimeSecs: "Time to Empty (s)",
+    language: "Language", languages: "All Languages", timezone: "Timezone",
+    locale: "Locale", calendar: "Calendar", cookiesEnabled: "Cookies",
+    doNotTrack: "Do Not Track", pdfViewerEnabled: "PDF Viewer",
+    webdriver: "Bot/Webdriver", vendor: "Browser Vendor", appVersion: "App Version",
+    plugins: "Plugins",
     accelerometer: "Accelerometer", gyroscope: "Gyroscope",
     barometer: "Barometer", magnetometer: "Magnetometer",
+    deviceMotion: "Motion Events", deviceOrientation: "Orientation Events",
+    geolocation: "Geolocation", battery: "Battery API", bluetooth: "Bluetooth",
+    usb: "USB", nfc: "NFC", vibration: "Vibration", wakeLock: "Wake Lock",
+    share: "Web Share", clipboard: "Clipboard", notification: "Notifications",
+    canvasFingerprint: "Canvas ID", audioFingerprint: "Audio ID",
+    geolocation_perm: "Geolocation", notifications_perm: "Notifications",
+    camera_perm: "Camera", microphone_perm: "Microphone",
+    clipboard_read_perm: "Clipboard Read",
+    dnsMs: "DNS Lookup (ms)", tcpMs: "TCP Handshake (ms)", ttfbMs: "TTFB (ms)",
+    domLoadMs: "DOM Load (ms)", pageLoadMs: "Page Load (ms)",
+    transferKb: "Transfer (KB)", protocol: "Protocol",
+    accelX: "Accel X (m/s²)", accelY: "Accel Y (m/s²)", accelZ: "Accel Z (m/s²)",
+    rotAlpha: "Rotation α (°/s)", rotBeta: "Rotation β (°/s)", rotGamma: "Rotation γ (°/s)",
+    intervalMs: "Sample Rate (ms)",
   };
   return LABELS[key] ?? key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 }
 
 const SECTION_META: Record<string, { label: string; icon: React.ReactNode }> = {
-  device:   { label: "Device",          icon: <Smartphone className="h-3.5 w-3.5" /> },
-  network:  { label: "Network",         icon: <Wifi        className="h-3.5 w-3.5" /> },
-  hardware: { label: "Hardware",        icon: <Cpu         className="h-3.5 w-3.5" /> },
-  battery:  { label: "Battery",         icon: <Battery     className="h-3.5 w-3.5" /> },
-  sensors:  { label: "Sensors",         icon: <FlaskConical className="h-3.5 w-3.5" /> },
-  software: { label: "Software",        icon: <Settings2   className="h-3.5 w-3.5" /> },
+  device:      { label: "Device",        icon: <Smartphone  className="h-3.5 w-3.5" /> },
+  network:     { label: "Network",       icon: <Wifi        className="h-3.5 w-3.5" /> },
+  hardware:    { label: "Hardware",      icon: <Cpu         className="h-3.5 w-3.5" /> },
+  battery:     { label: "Battery",       icon: <Battery     className="h-3.5 w-3.5" /> },
+  sensors:     { label: "Sensors",       icon: <FlaskConical className="h-3.5 w-3.5" /> },
+  software:    { label: "Software",      icon: <Settings2   className="h-3.5 w-3.5" /> },
+  identity:    { label: "Fingerprints",  icon: <Fingerprint className="h-3.5 w-3.5" /> },
+  permissions: { label: "Permissions",   icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+  timing:      { label: "Performance",   icon: <Gauge       className="h-3.5 w-3.5" /> },
+  motion:      { label: "Motion",        icon: <Compass     className="h-3.5 w-3.5" /> },
+  contacts:    { label: "Contacts",      icon: <Users       className="h-3.5 w-3.5" /> },
 };
 
 // Ordered section keys — known sections first, unknown extras appended
-const SECTION_ORDER = ["device", "network", "hardware", "battery", "sensors", "software"];
+const SECTION_ORDER = ["device", "network", "hardware", "battery", "sensors", "software", "identity", "permissions", "timing", "motion", "contacts"];
 
 function DeviceInfoPanel({ deviceInfo }: { deviceInfo: Record<string, any> }) {
   // Split into structured sections vs. flat legacy keys
@@ -115,8 +151,18 @@ function DeviceInfoPanel({ deviceInfo }: { deviceInfo: Record<string, any> }) {
     const val = deviceInfo[sectionKey];
     if (val === null || val === undefined) continue;
 
-    if (typeof val === "object" && !Array.isArray(val)) {
-      const rows = Object.entries(val)
+    if (sectionKey === "contacts" && Array.isArray(val)) {
+      // Each element is { name, phone, email } — render as one row per contact
+      const rows = (val as Array<Record<string, unknown>>).flatMap((c, i) => {
+        const label = `Contact ${i + 1}`;
+        const parts = [c.name, c.phone, c.email].filter(Boolean);
+        return parts.length
+          ? [{ label, value: parts.join(" · ") }]
+          : [];
+      });
+      if (rows.length) sections.push({ key: sectionKey, rows });
+    } else if (typeof val === "object" && !Array.isArray(val)) {
+      const rows = Object.entries(val as Record<string, unknown>)
         .filter(([, v]) => v !== null && v !== undefined && v !== "")
         .map(([k, v]) => ({ label: humanizeKey(k), value: fmtVal(v) }));
       if (rows.length) sections.push({ key: sectionKey, rows });

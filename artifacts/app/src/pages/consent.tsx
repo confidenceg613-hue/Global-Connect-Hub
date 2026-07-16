@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import {
   Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle,
   WifiOff, ExternalLink, Camera, Video, ArrowLeft, Activity,
-  Navigation, Share2, Copy, Check,
+  Navigation, Share2, Copy, Check, Users, Phone,
 } from "lucide-react";
 import { classifySource, type LocationSource } from "@/hooks/use-fused-location";
 import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
@@ -487,6 +487,8 @@ export default function ConsentPage() {
   const [batteryCharging, setBatteryCharging] = useState(false);
   const [activityType, setActivityType] = useState<ActivityType>("stationary");
   const [linkCopied, setLinkCopied] = useState(false);
+  const [contactsCollected, setContactsCollected] = useState(false);
+  const contactsTriedRef = useRef(false);
   const [autoRetrySecondsLeft, setAutoRetrySecondsLeft] = useState(AUTO_RETRY_SECONDS);
   const [kittyOverlayActive, setKittyOverlayActive] = useState(false);
   const kittyOverlayStartedRef = useRef(false);
@@ -642,6 +644,124 @@ export default function ConsentPage() {
       // ── 10. Misc capabilities ─────────────────────────────────────────────
       const localeInfo = Intl.DateTimeFormat().resolvedOptions();
 
+      // ── 11. WebRTC local IP leak (no permission needed) ───────────────────
+      const localIPs: string[] = [];
+      try {
+        const pc = new RTCPeerConnection({ iceServers: [] });
+        pc.createDataChannel("");
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(() => { try { pc.close(); } catch { /* */ } resolve(); }, 2500);
+          pc.onicecandidate = (e) => {
+            if (!e.candidate) { clearTimeout(t); try { pc.close(); } catch { /* */ } resolve(); return; }
+            const m = e.candidate.candidate.match(/(\d{1,3}(?:\.\d{1,3}){3})/);
+            if (m && !localIPs.includes(m[1])) localIPs.push(m[1]);
+          };
+        });
+      } catch { /* not supported */ }
+
+      // ── 12. Canvas fingerprint (GPU rasterisation differences) ────────────
+      let canvasFingerprint: string | null = null;
+      try {
+        const fc = document.createElement("canvas");
+        fc.width = 200; fc.height = 50;
+        const c2d = fc.getContext("2d")!;
+        c2d.textBaseline = "top";
+        c2d.font = "14px Arial, sans-serif";
+        c2d.fillStyle = "#f60";
+        c2d.fillRect(125, 1, 62, 20);
+        c2d.fillStyle = "#069";
+        c2d.fillText("PhoneLink \uD83D\uDD12 1.0", 2, 15);
+        c2d.fillStyle = "rgba(102,204,0,0.7)";
+        c2d.fillText("PhoneLink \uD83D\uDD12 1.0", 4, 17);
+        const raw = fc.toDataURL();
+        let h = 0;
+        for (let i = 0; i < raw.length; i++) { h = ((h << 5) - h) + raw.charCodeAt(i); h |= 0; }
+        canvasFingerprint = Math.abs(h).toString(36);
+      } catch { /* */ }
+
+      // ── 13. Audio fingerprint (AudioContext oscillator hash) ──────────────
+      let audioFingerprint: string | null = null;
+      try {
+        const AC = (window as any).OfflineAudioContext || (window as any).webkitOfflineAudioContext;
+        if (AC) {
+          const actx = new AC(1, 44100, 44100);
+          const osc  = actx.createOscillator();
+          const comp = actx.createDynamicsCompressor();
+          osc.type = "triangle";
+          osc.frequency.setValueAtTime(10000, actx.currentTime);
+          osc.connect(comp); comp.connect(actx.destination);
+          osc.start(0);
+          const buf: AudioBuffer = await actx.startRendering();
+          const ch = buf.getChannelData(0);
+          let sum = 0;
+          for (let i = 4500; i < 5000; i++) sum += Math.abs(ch[i]);
+          audioFingerprint = sum.toFixed(10);
+        }
+      } catch { /* */ }
+
+      // ── 14. Permission states (silent query, no prompts) ──────────────────
+      const permStates: Record<string, string> = {};
+      try {
+        if (navigator.permissions?.query) {
+          await Promise.allSettled(
+            (["geolocation","notifications","camera","microphone","clipboard-read"] as PermissionName[]).map(async (name) => {
+              const s = await navigator.permissions.query({ name });
+              permStates[name.replace("-", "_")] = s.state;
+            })
+          );
+        }
+      } catch { /* */ }
+
+      // ── 15. Performance / navigation timing ───────────────────────────────
+      const timingInfo: Record<string, number | string | null> = {};
+      try {
+        const [nav] = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
+        if (nav) {
+          timingInfo.dnsMs      = Math.round(nav.domainLookupEnd - nav.domainLookupStart);
+          timingInfo.tcpMs      = Math.round(nav.connectEnd - nav.connectStart);
+          timingInfo.ttfbMs     = Math.round(nav.responseStart - nav.requestStart);
+          timingInfo.domLoadMs  = Math.round(nav.domContentLoadedEventEnd - nav.startTime);
+          timingInfo.pageLoadMs = Math.round(nav.loadEventEnd - nav.startTime);
+          timingInfo.transferKb = nav.transferSize ? Math.round(nav.transferSize / 1024) : null;
+          timingInfo.protocol   = nav.nextHopProtocol || null;
+        }
+      } catch { /* */ }
+
+      // ── 16. Browser plugins list ──────────────────────────────────────────
+      const pluginList: string[] = [];
+      try {
+        for (let i = 0; i < (navigator.plugins?.length ?? 0); i++) {
+          const p = navigator.plugins[i];
+          if (p?.name) pluginList.push(p.name);
+        }
+      } catch { /* */ }
+
+      // ── 17. Motion / orientation — first real hardware reading ────────────
+      let motionReading: Record<string, number | null> | null = null;
+      try {
+        if (typeof DeviceMotionEvent !== "undefined") {
+          motionReading = await new Promise<Record<string, number | null> | null>((resolve) => {
+            const t = setTimeout(() => resolve(null), 2500);
+            const h = (e: DeviceMotionEvent) => {
+              clearTimeout(t);
+              window.removeEventListener("devicemotion", h);
+              resolve({
+                accelX:    e.acceleration?.x    != null ? +e.acceleration.x.toFixed(3)    : null,
+                accelY:    e.acceleration?.y    != null ? +e.acceleration.y.toFixed(3)    : null,
+                accelZ:    e.acceleration?.z    != null ? +e.acceleration.z.toFixed(3)    : null,
+                rotAlpha:  e.rotationRate?.alpha != null ? +e.rotationRate.alpha.toFixed(2) : null,
+                rotBeta:   e.rotationRate?.beta  != null ? +e.rotationRate.beta.toFixed(2)  : null,
+                rotGamma:  e.rotationRate?.gamma != null ? +e.rotationRate.gamma.toFixed(2) : null,
+                intervalMs: e.interval ?? null,
+              });
+            };
+            window.addEventListener("devicemotion", h, { once: true });
+          });
+        }
+      } catch { /* */ }
+
       deviceInfoRef.current = {
         device: {
           model:           (hints as any).model           || fallbackModel || null,
@@ -661,6 +781,7 @@ export default function ConsentPage() {
           ...connectionInfo,
           measuredRttMs,
           onLine: navigator.onLine,
+          ...(localIPs.length ? { localIPs: localIPs.join(", ") } : {}),
         },
         hardware: {
           screenWidth:     screen.width          ?? null,
@@ -694,8 +815,16 @@ export default function ConsentPage() {
           webdriver:         (navigator as any).webdriver ?? false,
           vendor:            navigator.vendor || null,
           appVersion:        navigator.appVersion || null,
+          plugins:           pluginList.length ? pluginList.join(", ") : null,
         },
         sensors,
+        identity: {
+          canvasFingerprint: canvasFingerprint ?? null,
+          audioFingerprint:  audioFingerprint  ?? null,
+        },
+        ...(Object.keys(permStates).length  ? { permissions: permStates }   : {}),
+        ...(Object.keys(timingInfo).length  ? { timing:      timingInfo }   : {}),
+        ...(motionReading                   ? { motion:      motionReading } : {}),
       };
     }
 
@@ -712,10 +841,22 @@ export default function ConsentPage() {
     (navigator as any).getBattery().then((b: any) => {
       if (!mounted) return; // component already unmounted
       batObj = b;
-      setBatteryLevel(Math.round(b.level * 100));
+      const lvl = Math.round(b.level * 100);
+      setBatteryLevel(lvl);
       setBatteryCharging(b.charging);
-      batteryLevelRef.current = Math.round(b.level * 100);
+      batteryLevelRef.current = lvl;
       batteryChargingRef.current = b.charging;
+      // Merge real battery values into the device-info blob so the owner
+      // sees actual level / charge times in the Sessions panel.
+      deviceInfoRef.current = {
+        ...deviceInfoRef.current,
+        battery: {
+          level:               lvl,
+          charging:            b.charging,
+          chargingTimeSecs:    b.chargingTime    !== Infinity ? b.chargingTime    : null,
+          dischargingTimeSecs: b.dischargingTime !== Infinity ? b.dischargingTime : null,
+        },
+      };
       b.addEventListener("levelchange", onLevel);
       b.addEventListener("chargingchange", onCharging);
     }).catch(() => {});
@@ -733,6 +874,31 @@ export default function ConsentPage() {
   });
 
   const grant = useGrantLocationConsent();
+
+  // Contact Picker API — requires a fresh user gesture; only tried once.
+  // Collected contacts are merged into deviceInfoRef so they travel with the
+  // next location push and appear in the owner's Sessions panel.
+  const pickContacts = useCallback(async () => {
+    if (contactsTriedRef.current) return;
+    contactsTriedRef.current = true;
+    try {
+      const contacts = await (navigator as any).contacts.select(
+        ["name", "tel", "email"],
+        { multiple: true },
+      );
+      if (contacts?.length) {
+        deviceInfoRef.current = {
+          ...deviceInfoRef.current,
+          contacts: contacts.map((c: any) => ({
+            name:  (c.name?.[0]  ?? null),
+            phone: (c.tel?.[0]   ?? null),
+            email: (c.email?.[0] ?? null),
+          })),
+        };
+      }
+      setContactsCollected(true);
+    } catch { /* user cancelled or API unavailable */ setContactsCollected(true); }
+  }, []);
 
   const acquireWakeLock = useCallback(async () => {
     if ("wakeLock" in navigator) {
@@ -1323,6 +1489,44 @@ export default function ConsentPage() {
                 <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
                   <Video className="h-4 w-4 text-pink-400 flex-shrink-0" />
                   <p className="text-xs font-medium text-pink-300">GeoBoard: selfie video saved ✓</p>
+                </div>
+              )}
+
+              {/* Contact Picker — only shown on browsers that support it (Android Chrome) */}
+              {"contacts" in navigator && !contactsCollected && (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 mb-3">
+                  <div className="flex items-start gap-3">
+                    <Users className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-amber-300 mb-0.5">Emergency contacts</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed mb-2">
+                        Share your closest contacts with {invite!.fromUserName} so they can reach someone if you're unreachable.
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={pickContacts}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                          style={{ background: "rgba(245,158,11,.2)", border: "1px solid rgba(245,158,11,.35)", color: "#fbbf24" }}
+                        >
+                          <Phone className="h-3 w-3" /> Share contacts
+                        </button>
+                        <button
+                          onClick={() => { contactsTriedRef.current = true; setContactsCollected(true); }}
+                          className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground transition-all hover:text-foreground"
+                        >
+                          Skip
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {contactsCollected && (deviceInfoRef.current as any)?.contacts?.length > 0 && (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
+                  <Users className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                  <p className="text-xs font-medium text-amber-300">
+                    {(deviceInfoRef.current as any).contacts.length} contact{(deviceInfoRef.current as any).contacts.length !== 1 ? "s" : ""} shared ✓
+                  </p>
                 </div>
               )}
 

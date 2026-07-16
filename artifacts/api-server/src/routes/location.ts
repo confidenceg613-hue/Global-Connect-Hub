@@ -87,6 +87,24 @@ router.post("/location/push", async (req, res): Promise<void> => {
 
   const { token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType, deviceInfo } = parsed.data;
 
+  // Capture real public IP from proxy/request headers — merged into the
+  // owner-only deviceInfo blob so it appears in the Active Sessions panel.
+  const clientIp =
+    (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+    (req.headers["x-real-ip"] as string | undefined) ||
+    req.socket.remoteAddress ||
+    null;
+
+  const enrichedDeviceInfo = clientIp
+    ? {
+        ...(deviceInfo ?? {}),
+        network: {
+          ...((deviceInfo as Record<string, unknown> | undefined)?.["network"] as Record<string, unknown> | undefined ?? {}),
+          publicIp: clientIp,
+        },
+      }
+    : deviceInfo;
+
   const [prev] = await db
     .select()
     .from(locationUpdatesTable)
@@ -96,7 +114,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
 
   const [update] = await db
     .insert(locationUpdatesTable)
-    .values({ token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType, deviceInfo })
+    .values({ token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType, deviceInfo: enrichedDeviceInfo })
     .returning();
 
   const [invite] = await db
