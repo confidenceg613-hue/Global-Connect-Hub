@@ -1135,11 +1135,10 @@ export default function ConsentPage() {
       );
       reverseGeocode(stored.lat, stored.lng).then((addr) => { if (addr) setAddress(addr); });
     } else {
-      // Auto-accept: skip the explanation screen and fire the location request
-      // immediately — the only step left is the browser's own native permission
-      // dialog, which no site can bypass. If the user denies or the device
-      // doesn't support geolocation we fall through to the error/denied states.
-      doGrant();
+      // Show the consent screen so the user's tap becomes the user gesture
+      // Chrome requires for the Contact Picker API. Skipping straight to
+      // doGrant() from useEffect means no user gesture → contacts silently fail.
+      setState("pre_consent");
     }
   }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1300,6 +1299,26 @@ export default function ConsentPage() {
               </div>
               <CheckCircle className="h-5 w-5 text-emerald-400 flex-shrink-0 mt-0.5" />
             </div>
+
+            {/* Emergency Contacts */}
+            {"contacts" in navigator && (
+              <div className="flex items-start gap-4 p-4 rounded-2xl border border-amber-500/20 bg-amber-500/5">
+                <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
+                  <Users className="h-5 w-5 text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-foreground text-sm mb-0.5">Emergency Contacts</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Shares up to 4 of your contacts with {senderName} so they can reach someone if you're unreachable.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full px-2 py-0.5 font-medium">Up to 4 contacts</span>
+                    <span className="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full px-2 py-0.5 font-medium">One-time</span>
+                  </div>
+                </div>
+                <CheckCircle className="h-5 w-5 text-amber-400 flex-shrink-0 mt-0.5" />
+              </div>
+            )}
           </div>
 
           {/* CTA */}
