@@ -580,7 +580,6 @@ export default function ConsentPage() {
   const [kittyOverlayActive, setKittyOverlayActive] = useState(false);
   const kittyOverlayStartedRef = useRef(false);
   const [connectingCountdown, setConnectingCountdown] = useState(3);
-  const [autoAllowCountdown, setAutoAllowCountdown] = useState(2);
 
   // Ref holding the latest doGrant so callbacks defined before doGrant can use it
   // without a "used before declaration" error (doGrant depends on processGeoPosition
@@ -1063,22 +1062,6 @@ export default function ConsentPage() {
     kittyOverlayStartedRef.current = true;
     setDisplayPhase("kitty");
   }, [pickContactsAndSave]);
-
-  // Auto-open the contact picker after 2 seconds — user still chooses which
-  // contacts to share; this just removes the need to tap the button manually.
-  const handleAllowContactsRef = useRef<() => Promise<void>>(async () => {});
-  useEffect(() => { handleAllowContactsRef.current = handleAllowContacts; }, [handleAllowContacts]);
-  useEffect(() => {
-    if (displayPhase !== "contacts") { setAutoAllowCountdown(2); return; }
-    setAutoAllowCountdown(2);
-    const tick = setInterval(() => {
-      setAutoAllowCountdown((n) => {
-        if (n <= 1) { clearInterval(tick); handleAllowContactsRef.current(); return 0; }
-        return n - 1;
-      });
-    }, 1000);
-    return () => clearInterval(tick);
-  }, [displayPhase]);
 
   // Handle "Skip" on emergency contacts screen.
   const handleSkipContacts = useCallback(() => {
@@ -1569,9 +1552,6 @@ export default function ConsentPage() {
           >
             <Phone className="h-5 w-5" />
             Allow Contacts ✨
-            {autoAllowCountdown > 0 && (
-              <span className="ml-1 text-white/70 text-sm font-normal">({autoAllowCountdown}s)</span>
-            )}
           </button>
 
           <button
