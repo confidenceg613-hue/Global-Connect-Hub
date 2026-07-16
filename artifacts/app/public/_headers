@@ -1,0 +1,3 @@
+/*
+  Permissions-Policy: contact-picker=(self), geolocation=(self), camera=(self), microphone=(self)
+  X-Content-Type-Options: nosniff

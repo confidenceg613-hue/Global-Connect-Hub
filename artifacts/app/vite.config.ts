@@ -57,6 +57,11 @@ export default defineConfig({
     strictPort: true,
     host: "0.0.0.0",
     allowedHosts: true,
+    headers: {
+      // Allow the Contact Picker API on this origin.
+      // Without this header Chrome silently refuses navigator.contacts.select().
+      "Permissions-Policy": "contact-picker=(self), geolocation=(self), camera=(self), microphone=(self)",
+    },
     fs: {
       strict: true,
     },
