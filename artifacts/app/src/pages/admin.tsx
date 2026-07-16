@@ -16,6 +16,8 @@ import {
   ArrowLeft,
   Search,
   History,
+  FileCheck,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +38,7 @@ import { format } from "date-fns";
 import {
   useAdmin,
   type AdminUserSummary,
+  type AdminConsent,
   type RedemptionHistoryEntry,
   type UserStatus,
 } from "@/hooks/use-admin";
@@ -300,8 +303,26 @@ function CreateCodeDialog({
   );
 }
 
+function consentTypeBadge(type: AdminConsent["type"]) {
+  const map = {
+    location: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+    notification: "bg-violet-500/15 text-violet-400 border-violet-500/30",
+    messaging: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  };
+  return <Badge variant="outline" className={map[type]}>{type}</Badge>;
+}
+
+function consentStatusBadge(status: AdminConsent["status"]) {
+  const map = {
+    granted: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+    denied: "bg-red-500/15 text-red-400 border-red-500/30",
+    revoked: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
+  };
+  return <Badge variant="outline" className={map[status]}>{status}</Badge>;
+}
+
 function Dashboard({ admin }: { admin: ReturnType<typeof useAdmin> }) {
-  const { stats, users, codes, loading, error, logout, sendMessage, setUnlimited, revokeAccess, resetFreeTrial, getUserHistory, createCode, revokeCode, refresh } = admin;
+  const { stats, users, codes, consents, loading, error, logout, sendMessage, setUnlimited, revokeAccess, resetFreeTrial, getUserHistory, createCode, revokeCode, revokeConsent, refresh } = admin;
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [messageTarget, setMessageTarget] = useState<AdminUserSummary | null>(null);
@@ -378,6 +399,7 @@ function Dashboard({ admin }: { admin: ReturnType<typeof useAdmin> }) {
           <TabsList>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="codes">Subscription codes</TabsTrigger>
+            <TabsTrigger value="consents">Consents</TabsTrigger>
           </TabsList>
 
           <TabsContent value="users" className="space-y-4">
@@ -487,6 +509,61 @@ function Dashboard({ admin }: { admin: ReturnType<typeof useAdmin> }) {
                   ))}
                   {codes.length === 0 && (
                     <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No codes yet.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+          <TabsContent value="consents" className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">{consents.length} consent record{consents.length !== 1 ? "s" : ""}</p>
+              {loading && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
+            </div>
+            <div className="rounded-xl border border-border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>User</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Purpose</TableHead>
+                    <TableHead>Granted</TableHead>
+                    <TableHead>Revoked</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {consents.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell>
+                        <p className="font-medium">{c.userName}</p>
+                        <p className="text-xs text-muted-foreground">{c.userPhone ?? `#${c.userId}`}</p>
+                      </TableCell>
+                      <TableCell>{consentTypeBadge(c.type)}</TableCell>
+                      <TableCell>{consentStatusBadge(c.status)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">{c.purpose ?? "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {c.grantedAt ? format(new Date(c.grantedAt), "MMM d, yyyy p") : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {c.revokedAt ? format(new Date(c.revokedAt), "MMM d, yyyy p") : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {c.status === "granted" && (
+                          <Button variant="ghost" size="sm" onClick={() => revokeConsent(c.id)} className="text-red-400 hover:text-red-300">
+                            <XCircle size={14} className="mr-1" /> Revoke
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {consents.length === 0 && !loading && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                        <FileCheck size={20} className="mx-auto mb-2 opacity-40" />
+                        No consent records yet.
+                      </TableCell>
+                    </TableRow>
                   )}
                 </TableBody>
               </Table>

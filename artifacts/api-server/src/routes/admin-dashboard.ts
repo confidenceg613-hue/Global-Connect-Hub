@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { z } from "zod";
 import { eq, desc } from "drizzle-orm";
-import { db, usersTable, userAccessTable, codeRedemptionsTable, subscriptionCodesTable } from "@workspace/db";
+import { db, usersTable, userAccessTable, codeRedemptionsTable, subscriptionCodesTable, consentsTable } from "@workspace/db";
 import { requireAdmin } from "../middleware/admin-auth";
 import { evaluateAccess, getOrCreateUserAccess, getTotalRevenueNaira, listCodes } from "../lib/access-control";
 import { sendPushAndLog } from "../lib/notifications";
@@ -184,6 +184,40 @@ router.post("/admin/messages", async (req, res): Promise<void> => {
     pinned: true,
   });
   res.status(201).json({ ok: true });
+});
+
+// GET /admin/consents — all consent records joined with user info
+router.get("/admin/consents", async (_req, res): Promise<void> => {
+  const rows = await db
+    .select({
+      id: consentsTable.id,
+      userId: consentsTable.userId,
+      userName: usersTable.name,
+      userPhone: usersTable.fullPhone,
+      type: consentsTable.type,
+      status: consentsTable.status,
+      purpose: consentsTable.purpose,
+      grantedAt: consentsTable.grantedAt,
+      revokedAt: consentsTable.revokedAt,
+      createdAt: consentsTable.createdAt,
+    })
+    .from(consentsTable)
+    .innerJoin(usersTable, eq(consentsTable.userId, usersTable.id))
+    .orderBy(desc(consentsTable.createdAt));
+  res.json(rows);
+});
+
+// PATCH /admin/consents/:id/revoke — admin-force revoke a consent
+router.patch("/admin/consents/:id/revoke", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [updated] = await db
+    .update(consentsTable)
+    .set({ status: "revoked", revokedAt: new Date() })
+    .where(eq(consentsTable.id, id))
+    .returning();
+  if (!updated) { res.status(404).json({ error: "Consent not found" }); return; }
+  res.json(updated);
 });
 
 export default router;

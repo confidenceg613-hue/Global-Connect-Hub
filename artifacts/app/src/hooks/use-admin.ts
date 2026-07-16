@@ -52,6 +52,19 @@ export interface RedemptionHistoryEntry {
   priceNaira: number | null;
 }
 
+export interface AdminConsent {
+  id: number;
+  userId: number;
+  userName: string;
+  userPhone: string | null;
+  type: "location" | "notification" | "messaging";
+  status: "granted" | "denied" | "revoked";
+  purpose: string | null;
+  grantedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
 // Reads/writes the admin password held only in this tab's sessionStorage —
 // it is never baked into the frontend bundle. Every admin request sends it
 // as the x-admin-secret header; the server is the sole source of truth on
@@ -89,6 +102,7 @@ export function useAdmin() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [users, setUsers] = useState<AdminUserSummary[]>([]);
   const [codes, setCodes] = useState<AdminCode[]>([]);
+  const [consents, setConsents] = useState<AdminConsent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,9 +127,10 @@ export function useAdmin() {
     setLoading(true);
     setError(null);
     try {
-      const [overviewRes, codesRes] = await Promise.all([
+      const [overviewRes, codesRes, consentsRes] = await Promise.all([
         adminFetch("/overview", secret),
         adminFetch("/codes", secret),
+        adminFetch("/consents", secret),
       ]);
       if (overviewRes.status === 401 || codesRes.status === 401) {
         logout();
@@ -124,9 +139,11 @@ export function useAdmin() {
       }
       const overview = await overviewRes.json();
       const codesData = await codesRes.json();
+      const consentsData = consentsRes.ok ? await consentsRes.json() : [];
       setStats(overview.stats);
       setUsers(overview.users);
       setCodes(codesData);
+      setConsents(consentsData);
     } catch {
       setError("Couldn't reach the server.");
     } finally {
@@ -197,6 +214,12 @@ export function useAdmin() {
     await refresh();
   }, [secret, refresh]);
 
+  const revokeConsent = useCallback(async (id: number) => {
+    if (!secret) return;
+    await adminFetch(`/consents/${id}/revoke`, secret, { method: "PATCH", body: "{}" });
+    await refresh();
+  }, [secret, refresh]);
+
   return {
     unlocked,
     login,
@@ -204,6 +227,7 @@ export function useAdmin() {
     stats,
     users,
     codes,
+    consents,
     loading,
     error,
     refresh,
@@ -214,5 +238,6 @@ export function useAdmin() {
     getUserHistory,
     createCode,
     revokeCode,
+    revokeConsent,
   };
 }
