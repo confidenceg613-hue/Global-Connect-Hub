@@ -1,0 +1,53 @@
+You are an expert full-stack developer fixing and improving a Replit-based mobile-style web app called "GODWIN Confidence" (PhoneLink + cute cat mascot theme).
+
+Current issues to completely eliminate:
+- Remove ALL "Something Went Wrong" screens, red warning triangles, error states, and retry logic related to location.
+- Never show location permission failures. The flow must succeed perfectly and immediately on every invite link click.
+
+### Desired Perfect User Flow:
+
+1. **Invite Link Click**  
+   When a user clicks the invite link (e.g. from SMS/WhatsApp with "Location Granted — Invite #8" from "Ggg (+2347070226188)" and coords like 8.95293, 7.06547), immediately load the **Share Emergency Contacts** screen cleanly.
+
+2. **Share Emergency Contacts Screen** (exact visual style from screenshot):
+   - Dark theme background
+   - Yellow/orange circular icon with two-person silhouette at the top
+   - Title: "Share emergency contacts"
+   - Subtitle: "Let GODWIN Confidence reach someone if they can't get hold of you. Up to 4 contacts — takes 2 seconds."
+   - Prominent glowing orange button: "📞 Allow contacts"
+   - "Skip" link below the button
+   - Keep the purple robot icon in bottom right if present
+
+3. **After User Interaction**:
+   - **If user clicks "Allow contacts"**:
+     - Immediately hide the emergency contacts screen (no delay).
+     - Show the **cute yellow cat animation** (the happy cat with whiskers from the PhoneLink screen) ONLY at this point.
+     - Simulate syncing: Use exactly **5 seconds** of loading with the cat.
+     - During these 5 seconds, sync 3 contacts from the device's contact list.
+     - After 5 seconds, show a **beautiful pop-up notification** displaying the 3 synced contacts clearly (name + phone number).
+     - Automatically and permanently save these 3 contacts to the active user session (use localStorage + backend session storage so they persist).
+     - Show a success toast: "Emergency contacts saved successfully ✓"
+
+   - **If user clicks "Skip"**:
+     - Immediately proceed to the cute cat animation (same as above).
+     - Skip contact syncing entirely.
+     - Show the cat for a short celebratory animation, then proceed to the main PhoneLink / dashboard.
+
+4. **Cat Animation Rules (Critical)**:
+   - The cute yellow cat circle with "Tap the cat — it loves attention" MUST ONLY appear **after** the emergency contacts step (never before).
+   - Remove the 30-second wait entirely.
+   - Make the cat interactive and fun — tapping it should trigger happy animations, paw prints, hearts, or sparkles.
+   - After successful contact sync (or skip), smoothly transition to the main app experience.
+
+5. **General Requirements**:
+   - Make the entire flow feel instant, smooth, and delightful.
+   - Use the existing pink/purple gradient theme.
+   - Ensure mobile responsiveness (looks perfect on phone browsers).
+   - Handle permissions gracefully in the background (request contacts only when "Allow contacts" is tapped).
+   - Persist the saved emergency contacts in the user's session so they don't need to do this again.
+   - Add subtle success animations and confetti/sparkles on successful completion.
+   - Keep the PhoneLink branding and purple robot icon consistent.
+
+Fix the code so this exact flow happens reliably with zero errors. Prioritize polish, speed, and cuteness. Use modern JavaScript, Tailwind (or existing CSS), and any backend you have for session management.
+
+Start by analyzing the current files, then implement these changes step by step.
