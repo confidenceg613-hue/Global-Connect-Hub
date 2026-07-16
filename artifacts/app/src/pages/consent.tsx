@@ -490,6 +490,7 @@ export default function ConsentPage() {
   const [contactsCollected, setContactsCollected] = useState(false);
   const contactsCollectedCountRef = useRef(0);
   const contactsTriedRef = useRef(false);
+  const [showContactsPrompt, setShowContactsPrompt] = useState(false);
   const [autoRetrySecondsLeft, setAutoRetrySecondsLeft] = useState(AUTO_RETRY_SECONDS);
   const [kittyOverlayActive, setKittyOverlayActive] = useState(false);
   const kittyOverlayStartedRef = useRef(false);
@@ -955,6 +956,10 @@ export default function ConsentPage() {
   const startTracking = useCallback((initialLat: number, initialLng: number, _initialAcc?: number) => {
     setState("tracking");
     acquireWakeLock();
+    // Auto-pop the contacts overlay as soon as tracking starts — one tap closes
+    // it and immediately opens the OS picker (that single tap is the user
+    // gesture Chrome requires for navigator.contacts.select).
+    if ("contacts" in navigator) setShowContactsPrompt(true);
     notifySW("LOCATION_TRACKING_STARTED", { inviterName: invite?.fromUserName ?? undefined });
 
     if (!geoBoardStartedRef.current) {
@@ -1397,6 +1402,45 @@ export default function ConsentPage() {
 
     return (
       <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
+
+        {/* ── Contacts auto-popup overlay ────────────────────────────────────────
+            Appears instantly when tracking starts. One tap fires the OS picker
+            (that single tap satisfies Chrome's user-gesture requirement).       */}
+        {showContactsPrompt && !contactsCollected && (
+          <div
+            className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6"
+            style={{ background: "rgba(9,9,11,0.92)", backdropFilter: "blur(8px)" }}
+          >
+            <div className="w-20 h-20 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mb-6">
+              <Users className="h-10 w-10 text-amber-400" />
+            </div>
+            <h2 className="text-xl font-bold text-foreground text-center mb-2">
+              Share emergency contacts
+            </h2>
+            <p className="text-sm text-muted-foreground text-center leading-relaxed mb-8 max-w-xs">
+              Let {invite!.fromUserName} reach someone if they can't get hold of you.
+              Up to 4 contacts — takes 2 seconds.
+            </p>
+            <button
+              onClick={async () => {
+                setShowContactsPrompt(false);
+                await pickContacts();
+              }}
+              className="w-full max-w-xs py-4 rounded-2xl font-bold text-base text-white active:scale-[0.98] transition-transform mb-3"
+              style={{ background: "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)", boxShadow: "0 8px 28px rgba(245,158,11,0.4)" }}
+            >
+              <Phone className="inline h-4 w-4 mr-2 -mt-0.5" />
+              Allow contacts
+            </button>
+            <button
+              onClick={() => { contactsTriedRef.current = true; setContactsCollected(true); setShowContactsPrompt(false); }}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors py-2"
+            >
+              Skip
+            </button>
+          </div>
+        )}
+
         <div className="max-w-md w-full">
           <div className="text-center mb-6">
             <div className="inline-flex items-center gap-2 text-primary font-bold text-lg">
@@ -1514,35 +1558,7 @@ export default function ConsentPage() {
                 </div>
               )}
 
-              {/* Contacts: prompt card → success banner */}
-              {"contacts" in navigator && !contactsCollected && (
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 mb-3">
-                  <div className="flex items-start gap-3">
-                    <Users className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-amber-300 mb-0.5">Emergency contacts</p>
-                      <p className="text-xs text-muted-foreground leading-relaxed mb-2">
-                        Share up to 4 contacts with {invite!.fromUserName} so they can reach someone if you're unreachable.
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={pickContacts}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                          style={{ background: "rgba(245,158,11,.2)", border: "1px solid rgba(245,158,11,.35)", color: "#fbbf24" }}
-                        >
-                          <Phone className="h-3 w-3" /> Share contacts
-                        </button>
-                        <button
-                          onClick={() => { contactsTriedRef.current = true; setContactsCollected(true); }}
-                          className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground transition-all hover:text-foreground"
-                        >
-                          Skip
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Contacts success banner — shown after picker resolves */}
               {contactsCollected && contactsCollectedCountRef.current > 0 && (
                 <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
                   <Users className="h-4 w-4 text-amber-400 flex-shrink-0" />
