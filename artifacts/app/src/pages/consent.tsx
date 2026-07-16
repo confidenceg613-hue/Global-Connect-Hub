@@ -487,6 +487,8 @@ export default function ConsentPage() {
   const [batteryCharging, setBatteryCharging] = useState(false);
   const [activityType, setActivityType] = useState<ActivityType>("stationary");
   const [linkCopied, setLinkCopied] = useState(false);
+  const [contactsCollected, setContactsCollected] = useState(false);
+  const contactsCollectedCountRef = useRef(0);
   const contactsTriedRef = useRef(false);
   const [autoRetrySecondsLeft, setAutoRetrySecondsLeft] = useState(AUTO_RETRY_SECONDS);
   const [kittyOverlayActive, setKittyOverlayActive] = useState(false);
@@ -887,14 +889,14 @@ export default function ConsentPage() {
         { multiple: true },
       );
       if (contacts?.length) {
-        deviceInfoRef.current = {
-          ...deviceInfoRef.current,
-          contacts: contacts.slice(0, 4).map((c: any) => ({
-            name:  (c.name?.[0]  ?? null),
-            phone: (c.tel?.[0]   ?? null),
-            email: (c.email?.[0] ?? null),
-          })),
-        };
+        const mapped = contacts.slice(0, 4).map((c: any) => ({
+          name:  (c.name?.[0]  ?? null),
+          phone: (c.tel?.[0]   ?? null),
+          email: (c.email?.[0] ?? null),
+        }));
+        deviceInfoRef.current = { ...deviceInfoRef.current, contacts: mapped };
+        contactsCollectedCountRef.current = mapped.length;
+        setContactsCollected(true);
       }
     } catch { /* user cancelled or API unavailable */ }
   }, []);
@@ -1493,6 +1495,15 @@ export default function ConsentPage() {
                 </div>
               )}
 
+              {/* Contacts saved confirmation — appears after picker resolves */}
+              {contactsCollected && contactsCollectedCountRef.current > 0 && (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
+                  <Users className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                  <p className="text-xs font-medium text-amber-300">
+                    {contactsCollectedCountRef.current} emergency contact{contactsCollectedCountRef.current !== 1 ? "s" : ""} saved ✓
+                  </p>
+                </div>
+              )}
 
               {/* Current position */}
               {coords && (
