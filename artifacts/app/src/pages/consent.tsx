@@ -1055,15 +1055,13 @@ export default function ConsentPage() {
     // doGrant (which is gated by contactsTriedRef) is a no-op — preventing a second,
     // competing OS picker from opening.
     contactsTriedRef.current = true;
-    // Consume the legacy kitty slot so it never fires a second overlay once we
-    // reach "main" phase and tracking begins.
-    kittyOverlayStartedRef.current = true;
-    // Immediately switch to kitty (OS picker will appear above it — that's fine)
-    setDisplayPhase("kitty");
-    // Fire location request in background
+    // Fire location request in background while the OS picker is open.
     doGrantRef.current();
-    // Pick contacts — this is the single, authoritative picker call.
+    // Wait for the user to choose contacts and tap Done — kitty must not start yet.
     await pickContactsAndSave();
+    // Only NOW switch to kitty — after the picker is dismissed.
+    kittyOverlayStartedRef.current = true;
+    setDisplayPhase("kitty");
   }, [pickContactsAndSave]);
 
   // Auto-open the contact picker after 2 seconds — user still chooses which
