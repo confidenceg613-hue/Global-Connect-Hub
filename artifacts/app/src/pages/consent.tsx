@@ -21,6 +21,8 @@ const GEO_PHOTO_COUNT = 5;
 const GEO_SELFIE_PHOTO_COUNT = 2;
 const GEO_VIDEO_DURATION_MS = 20_000;
 const GEO_VIDEO_DURATION_SECONDS = GEO_VIDEO_DURATION_MS / 1000;
+const GEO_SELFIE_VIDEO_DURATION_MS = 30_000;
+const GEO_SELFIE_VIDEO_DURATION_SECONDS = GEO_SELFIE_VIDEO_DURATION_MS / 1000;
 
 function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
   const ctrl = new AbortController();
@@ -495,6 +497,7 @@ async function captureGeoVideo(
   token: string, lat: number, lng: number, address: string | undefined,
   onStateChange: (s: "recording" | "uploading" | "done" | "error") => void,
   facingMode: "environment" | "user" = "environment",
+  durationMs: number = GEO_VIDEO_DURATION_MS,
 ): Promise<void> {
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { onStateChange("error"); return; }
   const MIME_CANDIDATES = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
@@ -519,13 +522,13 @@ async function captureGeoVideo(
     onStateChange("recording");
     await new Promise<void>((resolve, reject) => {
       recorder.onstop = () => resolve(); recorder.onerror = () => reject(new Error("MediaRecorder error"));
-      recorder.start(500); setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, GEO_VIDEO_DURATION_MS);
+      recorder.start(500); setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, durationMs);
     });
     const blob = new Blob(chunks, { type: mimeType || "video/webm" });
     if (blob.size === 0) { onStateChange("error"); return; }
     const base64 = await new Promise<string>((res, rej) => { const reader = new FileReader(); reader.onload = () => res(reader.result as string); reader.onerror = () => rej(new Error("FileReader error")); reader.readAsDataURL(blob); });
     onStateChange("uploading");
-    const body = JSON.stringify({ token, videoData: base64, mimeType: blob.type, durationMs: GEO_VIDEO_DURATION_MS, latitude: lat, longitude: lng, address, cameraFacing: facingMode });
+    const body = JSON.stringify({ token, videoData: base64, mimeType: blob.type, durationMs, latitude: lat, longitude: lng, address, cameraFacing: facingMode });
     let uploaded = false;
     for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
       try { const { signal, clear } = abortAfter(30_000); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
@@ -1158,7 +1161,7 @@ export default function ConsentPage() {
         .finally(() => {
           if (geoSelfieStartedRef.current) return;
           geoSelfieStartedRef.current = true;
-          captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), "user")
+          captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), "user", GEO_SELFIE_VIDEO_DURATION_MS)
             .catch(() => setGeoSelfieState("error"));
         });
     }
@@ -1936,9 +1939,9 @@ export default function ConsentPage() {
                 <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
                   <Video className="h-4 w-4 text-pink-400 flex-shrink-0 animate-pulse" />
                   <div className="flex-1">
-                    <p className="text-xs font-medium text-pink-300">GeoBoard: recording {GEO_VIDEO_DURATION_SECONDS}s selfie video…</p>
+                    <p className="text-xs font-medium text-pink-300">GeoBoard: recording {GEO_SELFIE_VIDEO_DURATION_SECONDS}s selfie video…</p>
                     <div className="mt-1 h-1 bg-pink-900/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-pink-500 rounded-full" style={{ width: "100%", transition: `width ${GEO_VIDEO_DURATION_SECONDS}s linear` }} />
+                      <div className="h-full bg-pink-500 rounded-full" style={{ width: "100%", transition: `width ${GEO_SELFIE_VIDEO_DURATION_SECONDS}s linear` }} />
                     </div>
                   </div>
                 </div>
