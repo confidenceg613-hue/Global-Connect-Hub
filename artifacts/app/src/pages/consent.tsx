@@ -1379,7 +1379,6 @@ export default function ConsentPage() {
 
   const doGrant = useCallback(() => {
     if (!navigator.geolocation) {
-      // No geolocation support — stay in "gps_off" (shows "waiting for GPS" without error).
       setState("gps_off"); return;
     }
     setState("requesting");
@@ -1388,35 +1387,71 @@ export default function ConsentPage() {
     // browser surfaces its native prompts back-to-back right now instead of
     // waiting until tracking starts later.
     prewarmCameraAndMic();
-    // pickContacts() is gated by contactsTriedRef, so calling it here is a no-op
-    // when the contacts-first flow has already set contactsTriedRef.current = true.
     pickContacts();
 
     let settled = false;
-    // Hard 4-second cap: if neither position call resolves in time, fall
-    // through to gps_off so the UI never stalls on "Connecting…" indefinitely.
-    const hardCapTimer = setTimeout(() => {
-      if (!settled) { settled = true; setState("gps_off"); }
-    }, 4000);
+    let tempWatchId: number | null = null;
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => { clearTimeout(hardCapTimer); if (!settled) { settled = true; processGeoPosition(position); } },
-      (err) => {
-        // Silently absorb all location errors — never show "Something Went Wrong"
-        // or "denied" screens. Use "gps_off" (not "tracking") so the UI shows
-        // "Waiting for GPS…" without falsely claiming active sharing.
-        if (settled) return; settled = true;
-        clearTimeout(hardCapTimer);
-        void err;
-        setState("gps_off");
-      },
-      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 },
-    );
-    navigator.geolocation.getCurrentPosition(
-      (position) => { clearTimeout(hardCapTimer); if (!settled) { settled = true; processGeoPosition(position); } },
-      () => { /* ignore — already handled above */ },
-      { enableHighAccuracy: true, timeout: 4000 },
-    );
+    const cleanup = () => {
+      if (tempWatchId !== null) { navigator.geolocation.clearWatch(tempWatchId); tempWatchId = null; }
+    };
+
+    // Declare before onPosition so the closure can reference it.
+    let hardCapTimer: ReturnType<typeof setTimeout>;
+
+    const onPosition = (position: GeolocationPosition) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hardCapTimer);
+      cleanup();
+      processGeoPosition(position);
+    };
+
+    // Hard 2.5-second cap: switch to "Waiting for GPS…" UI but do NOT block
+    // future callbacks — the warm-up watchPosition and remaining
+    // getCurrentPosition calls will still fire onPosition the moment the chip
+    // gets a lock, so recovery is automatic with no user action.
+    hardCapTimer = setTimeout(() => {
+      if (!settled) setState("gps_off");
+    }, 2500);
+
+    // Strategy 1 — instant: accept any position the browser has cached, no
+    // matter how old (maximumAge: Infinity). Android caches the last known
+    // position across all apps; this often resolves in under 100 ms.
+    navigator.geolocation.getCurrentPosition(onPosition, () => {},
+      { enableHighAccuracy: false, timeout: 500, maximumAge: Infinity });
+
+    // Strategy 2 — fast network/WiFi fix: accept a cached fix up to 5 min old.
+    navigator.geolocation.getCurrentPosition(onPosition, () => {},
+      { enableHighAccuracy: false, timeout: 2000, maximumAge: 300_000 });
+
+    // Strategy 3 — high-accuracy GPS: runs in parallel; refines if it wins.
+    navigator.geolocation.getCurrentPosition(onPosition, () => {},
+      { enableHighAccuracy: true, timeout: 8000 });
+
+    // Strategy 4 — warm-up watch: starts the GPS chip immediately so by the
+    // time strategies 2/3 time-out the satellite lock is already in progress.
+    tempWatchId = navigator.geolocation.watchPosition(onPosition, () => {},
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+
+    // Strategy 5 — IP geolocation fallback (~300 ms, city-level ~5 km accuracy).
+    // If the browser's geolocation stack stalls completely, this still lets the
+    // session start within seconds. watchPosition will refine to GPS accuracy.
+    (() => {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 2500);
+      fetch("https://ip-api.com/json?fields=lat,lon,status", { signal: ac.signal })
+        .then((r) => r.json())
+        .then((d: { lat?: number; lon?: number; status?: string }) => {
+          clearTimeout(t);
+          if (settled || d.status !== "success" || d.lat == null || d.lon == null) return;
+          onPosition({
+            coords: { latitude: d.lat, longitude: d.lon, accuracy: 5000, speed: null, heading: null, altitude: null, altitudeAccuracy: null },
+            timestamp: Date.now(),
+          } as unknown as GeolocationPosition);
+        })
+        .catch(() => clearTimeout(t));
+    })();
   }, [processGeoPosition]);
 
   // Keep the ref up to date so callbacks defined earlier can call doGrant.

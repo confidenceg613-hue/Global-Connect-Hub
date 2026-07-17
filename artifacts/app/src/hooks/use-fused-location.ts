@@ -83,21 +83,29 @@ export function useFusedLocation(options: UseFusedLocationOptions = {}) {
     }
     setIsResolving(true);
 
-    // 1. Fast, low-power fix (network/WiFi/cell) — usually resolves in <1s.
+    // 1. Instant: accept any cached position the browser holds, no age limit.
+    //    Android caches the last known fix from any app — often < 100 ms.
+    navigator.geolocation.getCurrentPosition(
+      (pos) => ingest(pos, false),
+      () => {},
+      { enableHighAccuracy: false, timeout: 500, maximumAge: Infinity },
+    );
+
+    // 2. Fast, low-power fix (network/WiFi/cell) — accept up to 5-min-old cache.
     navigator.geolocation.getCurrentPosition(
       (pos) => ingest(pos, false),
       (err) => { if (!bestRef.current) setError(err); },
-      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 },
+      { enableHighAccuracy: false, timeout: 2000, maximumAge: 300_000 },
     );
 
-    // 2. High-accuracy GPS fix in parallel — refines the fused reading once it lands.
+    // 3. High-accuracy GPS fix in parallel — refines the fused reading once it lands.
     navigator.geolocation.getCurrentPosition(
       (pos) => ingest(pos, true),
       (err) => { if (!bestRef.current) setError(err); },
       { enableHighAccuracy: true, timeout: 15000 },
     );
 
-    // 3. Continuous refinement stream, mirroring FLP's PRIORITY_HIGH_ACCURACY
+    // 4. Continuous refinement stream, mirroring FLP's PRIORITY_HIGH_ACCURACY
     //    behavior once tracking is underway.
     if (watch) {
       if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
