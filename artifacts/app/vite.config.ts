@@ -1,7 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import legacy from "@vitejs/plugin-legacy";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
@@ -26,11 +25,6 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    // Legacy browser support — transpiles for Chrome 60+, older Android WebView, etc.
-    legacy({
-      targets: ["chrome >= 60", "android >= 7"],
-      modernPolyfills: true,
-    }),
     // Only load Replit dev tools inside the Replit environment — never for external visitors
     ...(process.env.REPL_ID !== undefined
       ? [
