@@ -579,7 +579,6 @@ export default function ConsentPage() {
   const [autoRetrySecondsLeft, setAutoRetrySecondsLeft] = useState(AUTO_RETRY_SECONDS);
   const [kittyOverlayActive, setKittyOverlayActive] = useState(false);
   const kittyOverlayStartedRef = useRef(false);
-  const [connectingCountdown, setConnectingCountdown] = useState(3);
 
   // Ref holding the latest doGrant so callbacks defined before doGrant can use it
   // without a "used before declaration" error (doGrant depends on processGeoPosition
@@ -1371,33 +1370,23 @@ export default function ConsentPage() {
     }
   }, [state, displayPhase]);
 
-  // 3-second countdown shown on the "Connecting…" fallback screen.
-  // When it reaches 0 force into tracking with whatever coords we have so the
-  // live-sharing page always appears within 3 seconds.
+  // When displayPhase reaches "main" but GPS hasn't resolved yet, push forward
+  // immediately — no intermediate connecting screen shown.
   useEffect(() => {
     const isConnecting = displayPhase === "main" && (state === "granting" || state === "requesting");
-    if (!isConnecting) { setConnectingCountdown(3); return; }
+    if (!isConnecting) return;
 
-    setConnectingCountdown(3);
-    const interval = setInterval(() => {
-      setConnectingCountdown((n) => {
-        if (n <= 1) {
-          clearInterval(interval);
-          // Force into live sharing with best available coords.
-          const c = coordsRef.current;
-          if (c) {
-            startTracking(c.lat, c.lng, c.accuracy ?? undefined);
-          } else {
-            const stored = loadStoredGps();
-            if (stored) startTracking(stored.lat, stored.lng, stored.accuracy);
-            else setState("gps_off");
-          }
-          return 0;
-        }
-        return n - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
+    const t = setTimeout(() => {
+      const c = coordsRef.current;
+      if (c) {
+        startTracking(c.lat, c.lng, c.accuracy ?? undefined);
+      } else {
+        const stored = loadStoredGps();
+        if (stored) startTracking(stored.lat, stored.lng, stored.accuracy);
+        else setState("gps_off");
+      }
+    }, 800); // short grace period for GPS to settle, then move on silently
+    return () => clearTimeout(t);
   }, [displayPhase, state, startTracking]);
 
   // ── WebView blocked ────────────────────────────────────────────────────────────
@@ -2066,60 +2055,7 @@ export default function ConsentPage() {
     return <div className="bg-background" style={fullHeight} />;
   }
 
-  // ── Fallback dashboard (main phase, location not yet active) ──────────────────
-  //
-  // This is only reached when displayPhase === "main" AND state is NOT "tracking"
-  // (the tracking view at step 10 already handles state === "tracking").
-  // TypeScript correctly tells us state can only be: requesting / granting /
-  // gps_off / denied / error / idle here. NEVER claim "LIVE SHARING" in this branch.
-
-  return (
-    <div className="bg-background flex items-center justify-center p-4" style={fullHeight}>
-      <div className="max-w-md w-full">
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-2 text-primary font-bold text-lg">
-            <Shield className="h-5 w-5" /> PhoneLink
-          </div>
-        </div>
-        <Card className="shadow-xl border-border">
-          <CardContent className="pt-8 pb-8 px-6 flex flex-col items-center">
-
-            {/* 3-second countdown */}
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={connectingCountdown}
-                initial={{ scale: 1.6, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.5, opacity: 0 }}
-                transition={{ duration: 0.35, ease: "easeOut" }}
-                className="w-20 h-20 rounded-full border-4 border-primary flex items-center justify-center mb-5"
-                style={{ boxShadow: "0 0 24px rgba(99,102,241,0.35)" }}
-              >
-                <span className="text-4xl font-extrabold text-primary">{connectingCountdown > 0 ? connectingCountdown : "🚀"}</span>
-              </motion.div>
-            </AnimatePresence>
-
-            {/* Connecting badge — never claims LIVE SHARING (tracking handles that) */}
-            <div className="flex items-center gap-2 mb-3">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary flex-shrink-0" />
-              <span className="text-primary font-medium text-sm">Connecting…</span>
-            </div>
-
-            <p className="text-center text-muted-foreground text-sm mb-4">
-              Setting up live sharing with{" "}
-              <span className="font-semibold text-foreground">{invite?.fromUserName ?? "your contact"}</span>…
-            </p>
-
-            {coords && (
-              <div className="bg-muted rounded-xl p-4 mb-4 w-full">
-                <p className="text-sm font-mono font-bold text-foreground">{formatDMS(coords.lat, coords.lng)}</p>
-                <p className="text-xs font-mono text-muted-foreground mt-0.5">{coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}</p>
-              </div>
-            )}
-
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
+  // Fallback: displayPhase === "main" but GPS not yet resolved.
+  // Show nothing — the useEffect above will push forward within 800 ms.
+  return <div className="bg-background" style={fullHeight} />;
 }
