@@ -105,25 +105,30 @@ router.post("/location/push", async (req, res): Promise<void> => {
       }
     : deviceInfo;
 
-  const [prev] = await db
-    .select()
-    .from(locationUpdatesTable)
-    .where(eq(locationUpdatesTable.token, token))
-    .orderBy(desc(locationUpdatesTable.createdAt))
-    .limit(1);
+  // Run the two reads in parallel — neither depends on the other
+  const [[prev], [invite], [update]] = await Promise.all([
+    db
+      .select()
+      .from(locationUpdatesTable)
+      .where(eq(locationUpdatesTable.token, token))
+      .orderBy(desc(locationUpdatesTable.createdAt))
+      .limit(1),
+    db
+      .select()
+      .from(invitesTable)
+      .where(eq(invitesTable.token, token)),
+    db
+      .insert(locationUpdatesTable)
+      .values({ token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType, deviceInfo: enrichedDeviceInfo })
+      .returning(),
+  ]);
 
-  const [update] = await db
-    .insert(locationUpdatesTable)
-    .values({ token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType, deviceInfo: enrichedDeviceInfo })
-    .returning();
-
-  const [invite] = await db
-    .select()
-    .from(invitesTable)
-    .where(eq(invitesTable.token, token));
-
-  // broadcast uses lat/lng to match the LivePos interface on the frontend
+  // Broadcast SSE immediately so the owner's map updates in real-time
   broadcastToToken(token, { lat: latitude, lng: longitude, accuracy, source, address, status, timestamp: update.createdAt });
+
+  // Respond to the contact's device right away — notifications and geofence
+  // checks run fully in the background and must not delay the 200 OK.
+  res.json({ ok: true });
 
   if (invite) {
     const contactName = invite.toName ?? invite.toPhone;
@@ -148,43 +153,39 @@ router.post("/location/push", async (req, res): Promise<void> => {
     }
 
     if (status === "active") {
-      // Count total updates for this token (used in the live notification counter)
-      const [countRow] = await db
-        .select({ n: sql<number>`cast(count(*) as int)` })
-        .from(locationUpdatesTable)
-        .where(eq(locationUpdatesTable.token, token));
-      const updateNumber = countRow?.n ?? 1;
+      // All of this runs after the 200 OK is already sent — fully fire-and-forget.
+      // Count + notification + geofence checks must never block the response.
+      Promise.resolve().then(async () => {
+        const [countRow] = await db
+          .select({ n: sql<number>`cast(count(*) as int)` })
+          .from(locationUpdatesTable)
+          .where(eq(locationUpdatesTable.token, token));
+        const updateNumber = countRow?.n ?? 1;
 
-      // Live location update notification — uses a single tag so it REPLACES
-      // the previous notification (Android) or collapses (iOS), giving the owner
-      // a live counter without spamming them with separate notifications.
-      const locationLabel = address
-        ? address.split(",").slice(0, 2).join(",")
-        : `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-      sendPushAndLog(invite.fromUserId, {
-        type: "location_update",
-        title: `📍 ${contactName} — Update #${updateNumber}`,
-        body: `${locationLabel}`,
-        tag: `live-update-${token}`,
-        data: { token, contactName, latitude, longitude },
+        const locationLabel = address
+          ? address.split(",").slice(0, 2).join(",")
+          : `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+        sendPushAndLog(invite.fromUserId, {
+          type: "location_update",
+          title: `📍 ${contactName} — Update #${updateNumber}`,
+          body: `${locationLabel}`,
+          tag: `live-update-${token}`,
+          data: { token, contactName, latitude, longitude },
+        }).catch(() => {});
+
+        clearStalenessAlert(token);
+
+        checkGeofences(
+          invite.fromUserId,
+          contactName,
+          prev?.latitude ?? null,
+          prev?.longitude ?? null,
+          latitude,
+          longitude,
+        ).catch(() => {});
       }).catch(() => {});
-
-      // Fresh location received — reset staleness alert so it can fire again
-      // if this contact goes stale in the future
-      clearStalenessAlert(token);
-
-      checkGeofences(
-        invite.fromUserId,
-        contactName,
-        prev?.latitude ?? null,
-        prev?.longitude ?? null,
-        latitude,
-        longitude,
-      ).catch(() => {});
     }
   }
-
-  res.json({ ok: true });
 });
 
 // GET /api/location/latest/:token

@@ -1257,14 +1257,17 @@ export default function ConsentPage() {
           activityTypeRef.current = next;
         }
 
-        let addr = addressRef.current;
-        if (!addr || updateCountRef.current % 5 === 0) {
-          const newAddr = await reverseGeocode(lat, lng);
-          if (newAddr) { setAddress(newAddr); addr = newAddr; }
-        }
         const source = classifySource(acc, sawNetworkFixRef.current, sawGpsFixRef.current);
         lastWatchPushRef.current = Date.now();
-        pushLocation(lat, lng, acc, addr, "active", source);
+        // Push immediately — never block on reverse-geocoding; the address is
+        // cosmetic and arrives asynchronously in the background.
+        pushLocation(lat, lng, acc, addressRef.current, "active", source);
+        // Refresh address in background every 5 updates (or on first fix)
+        if (!addressRef.current || updateCountRef.current % 5 === 0) {
+          reverseGeocode(lat, lng).then((newAddr) => {
+            if (newAddr) setAddress(newAddr);
+          });
+        }
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
@@ -1278,7 +1281,7 @@ export default function ConsentPage() {
           if (c) pushLocation(c.lat, c.lng, undefined, addressRef.current, "offline");
         }
       },
-      { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
     );
 
     if (heartbeatRef.current !== null) clearInterval(heartbeatRef.current);
