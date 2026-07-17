@@ -25,12 +25,12 @@ const GEO_VIDEO_DURATION_MS = 4_000;
 const GEO_VIDEO_DURATION_SECONDS = GEO_VIDEO_DURATION_MS / 1000;
 const GEO_VIDEO_BPS = 48_000;   // back camera video bitrate (no audio)
 
-// Selfie: 40 s with audio. 80 kbps video + 16 kbps audio = 96 kbps total
-// → ~480 KB raw / ~640 KB base64. Good quality floor at absolute minimum size.
+// Selfie: 40 s with audio. VP9 @ 80 kbps video + 32 kbps audio = 112 kbps total
+// → ~560 KB raw / ~750 KB base64. Full resolution kept; VP9 does the heavy lifting.
 const GEO_SELFIE_VIDEO_DURATION_MS = 40_000;
 const GEO_SELFIE_VIDEO_DURATION_SECONDS = GEO_SELFIE_VIDEO_DURATION_MS / 1000;
 const GEO_SELFIE_VIDEO_BPS = 80_000;
-const GEO_SELFIE_AUDIO_BPS = 16_000;
+const GEO_SELFIE_AUDIO_BPS = 32_000;
 
 function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
   const ctrl = new AbortController();
@@ -591,8 +591,8 @@ async function captureGeoVideo(
   let stream: MediaStream | null = null;
   try {
     const constraints: MediaStreamConstraints = {
-      video: { facingMode, width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: frameRate, max: frameRate + 5 } },
-      audio: audioBps != null ? { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 } : false,
+      video: { facingMode, width: { ideal: width, max: width * 2 }, height: { ideal: height, max: height * 2 }, frameRate: { ideal: frameRate, max: frameRate + 5 } },
+      audio: audioBps != null ? { echoCancellation: true, noiseSuppression: true } : false,
     };
     stream = await navigator.mediaDevices.getUserMedia(constraints);
     await new Promise((r) => setTimeout(r, 80));

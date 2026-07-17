@@ -108,7 +108,10 @@ export default function Landing() {
           toast({ title: isReturning ? `Welcome back, ${user.name}!` : "Account created successfully" });
           setLocation("/dashboard");
         },
-        onError: () => toast({ title: "Failed to sign in. Please try again.", variant: "destructive" }),
+        onError: (err: unknown) => {
+          const msg = err instanceof Error ? err.message : undefined;
+          toast({ title: "Failed to sign in. Please try again.", description: msg, variant: "destructive" });
+        },
       }
     );
   };
