@@ -1809,8 +1809,11 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Active tracking ────────────────────────────────────────────────────────────
-  if (state === "tracking") {
+  // ── Active tracking / main phase ──────────────────────────────────────────────
+  // Show the live-sharing page whenever displayPhase is "main" (contacts-first
+  // flow) OR state is "tracking" (already-accepted invite flow).  Without this,
+  // any state other than "tracking" in main phase returns nothing → black screen.
+  if (state === "tracking" || displayPhase === "main") {
     const sharingLink = typeof window !== "undefined" ? window.location.href : "";
     const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
 
@@ -1906,11 +1909,30 @@ export default function ConsentPage() {
           {/* ── LIVE SHARING header ───────────────────────────────────────────── */}
           <div className="flex items-center gap-2.5">
             <div className="relative flex-shrink-0">
-              <div className="w-3 h-3 rounded-full bg-emerald-400" />
-              <div className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-70" />
+              {state === "tracking" ? (
+                <>
+                  <div className="w-3 h-3 rounded-full bg-emerald-400" />
+                  <div className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-70" />
+                </>
+              ) : (
+                <div className="w-3 h-3 rounded-full bg-amber-400 animate-pulse" />
+              )}
             </div>
-            <span className="text-emerald-400 font-extrabold text-base tracking-widest uppercase">Live Sharing</span>
+            <span className={`font-extrabold text-base tracking-widest uppercase ${state === "tracking" ? "text-emerald-400" : "text-amber-400"}`}>
+              {state === "tracking" ? "Live Sharing" : "Connecting…"}
+            </span>
           </div>
+
+          {/* Connecting status — shown while GPS is still settling */}
+          {state !== "tracking" && (
+            <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+              style={{ background: "rgba(217,119,6,0.12)", border: "1px solid rgba(217,119,6,0.3)" }}>
+              <Loader2 className="h-4 w-4 text-amber-400 flex-shrink-0 animate-spin" />
+              <p className="text-[13px] font-semibold text-amber-200">
+                {state === "gps_off" ? "Waiting for GPS signal…" : "Starting live location…"}
+              </p>
+            </div>
+          )}
 
           {/* Sharing-with blurb */}
           <p className="text-[15px] text-white/75 leading-relaxed">
