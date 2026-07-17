@@ -74,8 +74,9 @@ function modelsFor(kind: ClientKind): string[] {
   }
 }
 
+// When Mistral is the primary provider, use Pixtral (the vision-capable model).
 const VISION_MODEL = process.env.OPENAI_VISION_MODEL
-  ?? (clients[0]?.kind === "openai" ? "gpt-4o-mini" : clients[0]?.kind === "openrouter" ? "openai/gpt-4o-mini" : "mistral-large-latest");
+  ?? (clients[0]?.kind === "openai" ? "gpt-4o-mini" : clients[0]?.kind === "openrouter" ? "openai/gpt-4o-mini" : clients[0]?.kind === "mistral" ? "pixtral-12b-2409" : "mistral-large-latest");
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

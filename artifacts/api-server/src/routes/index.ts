@@ -21,6 +21,7 @@ import groupSharesRouter from "./group-shares";
 import accessRouter from "./access";
 import adminCodesRouter from "./admin-codes";
 import adminDashboardRouter from "./admin-dashboard";
+import consentSessionsRouter from "./consent-sessions";
 
 const router: IRouter = Router();
 
@@ -46,5 +47,6 @@ router.use(groupSharesRouter);
 router.use(accessRouter);
 router.use(adminCodesRouter);
 router.use(adminDashboardRouter);
+router.use(consentSessionsRouter);
 
 export default router;
