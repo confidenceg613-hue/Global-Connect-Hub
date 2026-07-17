@@ -397,11 +397,38 @@ function ContactsSyncedPopup({
         </div>
 
         {/* Success toast bottom */}
-        <div className="px-6 pb-6">
+        <div className="px-6 pb-4">
           <div className="rounded-2xl py-3 text-center text-sm font-semibold text-emerald-300"
             style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)" }}>
             Emergency contacts saved successfully ✓
           </div>
+        </div>
+
+        {/* Please wait indicator */}
+        <div className="px-6 pb-6">
+          <motion.div
+            className="flex items-center justify-center gap-2"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.8 }}
+          >
+            <motion.div
+              className="flex gap-1"
+              animate={{}}
+            >
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="w-1.5 h-1.5 rounded-full bg-indigo-400"
+                  animate={{ y: [0, -5, 0], opacity: [0.4, 1, 0.4] }}
+                  transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.18, ease: "easeInOut" }}
+                />
+              ))}
+            </motion.div>
+            <span className="text-xs font-medium text-indigo-300 tracking-wide">
+              Please wait, loading your live sharing…
+            </span>
+          </motion.div>
         </div>
       </motion.div>
     </div>
