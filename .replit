@@ -3,6 +3,8 @@ modules = ["nodejs-20", "web", "bash", "postgresql-16"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+run = ["bash", "-c", "PORT=8080 node --enable-source-maps ./artifacts/api-server/dist/index.mjs & node ./scripts/serve-app.mjs"]
+build = ["bash", "-c", "pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/app run build"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
