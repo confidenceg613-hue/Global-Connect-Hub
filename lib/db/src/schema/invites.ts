@@ -5,6 +5,7 @@ import {
   text,
   timestamp,
   doublePrecision,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -27,7 +28,7 @@ export const invitesTable = pgTable("invites", {
   consentType: text("consent_type", {
     enum: ["location", "notification", "messaging"],
   }),
-  token: text("token").notNull(),
+  token: text("token").notNull().unique(),
   consentPageUrl: text("consent_page_url"),
   grantedLatitude: doublePrecision("granted_latitude"),
   grantedLongitude: doublePrecision("granted_longitude"),
