@@ -51,6 +51,10 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // Transpile down to Chrome 64 / Safari 12 / iOS 12 so that Android 7+
+    // users (Chrome 60-79) get ES2015 syntax instead of optional-chaining /
+    // nullish-coalescing which those engines cannot parse.
+    target: ["chrome64", "firefox67", "safari12", "ios12", "edge79"],
     // Keep chunks small so older devices don't stall parsing one giant bundle.
     chunkSizeWarningLimit: 600,
     rollupOptions: {

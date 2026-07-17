@@ -289,7 +289,7 @@ export default function GroupJoinPage() {
 
   return (
     <div
-      className="relative flex flex-col items-center justify-center min-h-[100svh] p-6 overflow-hidden"
+      className="relative flex flex-col items-center justify-center min-h-screen min-h-[100svh] p-6 overflow-hidden"
       style={{ background: "radial-gradient(circle at 50% 20%, #1e1b4b 0%, #0f0f1a 60%, #000 100%)" }}
     >
       <FloatingParticles />

