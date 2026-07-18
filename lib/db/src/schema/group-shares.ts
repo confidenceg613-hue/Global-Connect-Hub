@@ -28,7 +28,10 @@ export const groupShareMembersTable = pgTable("group_share_members", {
   groupShareId: integer("group_share_id")
     .notNull()
     .references(() => groupSharesTable.id, { onDelete: "cascade" }),
-  memberToken: text("member_token").notNull(), // unique per-member push token
+  memberToken: text("member_token").notNull(), // unique per-member identity token (stored in member's localStorage)
+  // inviteToken: the real invite record token used to push location to /api/location/push.
+  // Null for legacy members created before this column was added.
+  inviteToken: text("invite_token"),
   displayName: text("display_name"),
   joinedAt: timestamp("joined_at").defaultNow().notNull(),
   lastLat: doublePrecision("last_lat"),

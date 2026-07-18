@@ -1,25 +1,13 @@
-import { Router, type IRouter, type Response } from "express";
-import { eq, and } from "drizzle-orm";
+import { Router, type IRouter } from "express";
+import { eq, and, desc } from "drizzle-orm";
 import { randomBytes } from "crypto";
-import { db, groupSharesTable, groupShareMembersTable, usersTable } from "@workspace/db";
+import { db, groupSharesTable, groupShareMembersTable, usersTable, invitesTable, locationUpdatesTable } from "@workspace/db";
 import { z } from "zod";
 
 const router: IRouter = Router();
 
 function shortId(bytes: number): string {
   return randomBytes(bytes).toString("base64url");
-}
-
-// ─── In-memory SSE registry: groupId → Set<Response> ────────────────────────
-const groupSseClients = new Map<string, Set<Response>>();
-
-function broadcastToGroup(groupId: string, data: object) {
-  const clients = groupSseClients.get(groupId);
-  if (!clients) return;
-  const payload = `data: ${JSON.stringify(data)}\n\n`;
-  for (const res of clients) {
-    try { res.write(payload); } catch { /* client gone */ }
-  }
 }
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
@@ -31,15 +19,6 @@ const CreateGroupBody = z.object({
 
 const JoinGroupBody = z.object({
   displayName: z.string().max(60).optional(),
-});
-
-const PushGroupLocationBody = z.object({
-  memberToken: z.string(),
-  latitude: z.number(),
-  longitude: z.number(),
-  accuracy: z.number().optional(),
-  address: z.string().optional(),
-  status: z.enum(["active", "offline"]).default("active"),
 });
 
 // ─── POST /api/group-shares  (owner creates a group share link) ──────────────
@@ -108,7 +87,14 @@ router.get("/group-shares/:groupId/info", async (req, res): Promise<void> => {
   res.json({ groupId: group.groupId, name: group.name, ownerName: owner?.name ?? "Someone" });
 });
 
-// ─── POST /api/group-shares/:groupId/join  (member joins, gets their token) ──
+// ─── POST /api/group-shares/:groupId/join  (member joins, gets their tokens) ──
+//
+// Creates both:
+//   1. A group_share_members row (memberToken = per-group identity stored in
+//      the member's localStorage so a page reload resumes the same slot).
+//   2. A real invite record (status = accepted) so the member can push location
+//      to /api/location/push using inviteToken — giving live-map visibility,
+//      geofence checks, push notifications, and full telemetry for free.
 router.post("/group-shares/:groupId/join", async (req, res): Promise<void> => {
   const { groupId } = req.params;
   const parsed = JoinGroupBody.safeParse(req.body);
@@ -121,29 +107,155 @@ router.post("/group-shares/:groupId/join", async (req, res): Promise<void> => {
 
   if (!group) { res.status(404).json({ error: "Group not found" }); return; }
 
-  const memberToken = shortId(12); // 16-char unique per-member token
+  const memberToken = shortId(12); // 16-char unique per-member identity token
+  const inviteToken = shortId(8);  // 11-char invite token used for location push
+
+  // Build a synthetic "accepted" invite so the member's location flows through
+  // the standard /api/location/push pipeline (live-map SSE, geofences, notifications).
+  const syntheticPhone = `grp_${memberToken}`;
+  const [invite] = await db
+    .insert(invitesTable)
+    .values({
+      fromUserId:   group.ownerUserId,
+      toPhone:      syntheticPhone,
+      toName:       parsed.data.displayName ?? "Group member",
+      message:      `[group:${groupId}]`,
+      whatsappLink: "",
+      status:       "accepted",
+      consentType:  "location",
+      token:        inviteToken,
+      consentPageUrl: null,
+      grantedAt:    new Date(),
+    })
+    .returning();
 
   const [member] = await db
     .insert(groupShareMembersTable)
     .values({
       groupShareId: group.id,
       memberToken,
-      displayName: parsed.data.displayName ?? null,
+      inviteToken:  invite.token,
+      displayName:  parsed.data.displayName ?? null,
     })
     .returning();
 
-  res.status(201).json({ memberToken: member.memberToken, groupId, groupName: group.name });
+  res.status(201).json({
+    memberToken:  member.memberToken,
+    inviteToken:  invite.token,
+    groupId,
+    groupName:    group.name,
+  });
 });
 
-// ─── POST /api/group-shares/:groupId/push  (member pushes their location) ────
+// ─── GET /api/group-shares/:groupId/members  (owner — current member list) ───
+//
+// Returns each member with their inviteToken so the GMap frontend can subscribe
+// to /api/location/stream/:inviteToken for live SSE updates per-member.
+router.get("/group-shares/:groupId/members", async (req, res): Promise<void> => {
+  const { groupId } = req.params;
+  const userId = Number(req.query.userId);
+
+  const [group] = await db
+    .select()
+    .from(groupSharesTable)
+    .where(eq(groupSharesTable.groupId, groupId));
+
+  if (!group) { res.status(404).json({ error: "Group not found" }); return; }
+  if (group.ownerUserId !== userId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const members = await db
+    .select()
+    .from(groupShareMembersTable)
+    .where(eq(groupShareMembersTable.groupShareId, group.id));
+
+  // Enrich each member with their latest location from location_updates
+  // (members now push to /api/location/push, so location_updates is the source
+  // of truth instead of the denormalised lastLat/lastLng columns).
+  const enriched = await Promise.all(
+    members.map(async (m) => {
+      let latest = null;
+      if (m.inviteToken) {
+        const [row] = await db
+          .select()
+          .from(locationUpdatesTable)
+          .where(eq(locationUpdatesTable.token, m.inviteToken))
+          .orderBy(desc(locationUpdatesTable.createdAt))
+          .limit(1);
+        if (row) {
+          latest = {
+            lat: row.latitude,
+            lng: row.longitude,
+            accuracy: row.accuracy,
+            address: row.address,
+            status: row.status,
+            timestamp: row.createdAt,
+            batteryLevel: row.batteryLevel,
+            batteryCharging: row.batteryCharging,
+            activityType: row.activityType,
+          };
+        }
+      } else if (m.lastLat != null && m.lastLng != null) {
+        // Fallback for legacy members that joined before inviteToken existed
+        latest = {
+          lat: m.lastLat,
+          lng: m.lastLng,
+          accuracy: null,
+          address: m.lastAddress,
+          status: "active" as const,
+          timestamp: m.lastSeen,
+          batteryLevel: null,
+          batteryCharging: null,
+          activityType: null,
+        };
+      }
+      return { ...m, latest };
+    }),
+  );
+
+  res.json(enriched);
+});
+
+// ─── DELETE /api/group-shares/:groupId  (owner deletes group) ────────────────
+router.delete("/group-shares/:groupId", async (req, res): Promise<void> => {
+  const { groupId } = req.params;
+  const userId = Number(req.body?.userId ?? req.query.userId);
+
+  const [group] = await db
+    .select()
+    .from(groupSharesTable)
+    .where(eq(groupSharesTable.groupId, groupId));
+
+  if (!group) { res.status(404).json({ error: "Group not found" }); return; }
+  if (group.ownerUserId !== userId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  // Delete the group — cascades to group_share_members. The synthetic invites
+  // are left in place so location history is preserved, but they no longer
+  // affect anything since the group is gone.
+  await db.delete(groupSharesTable).where(eq(groupSharesTable.id, group.id));
+
+  res.json({ ok: true });
+});
+
+// ─── POST /api/group-shares/:groupId/push  (legacy — kept for backward compat)
+//
+// Old clients that joined before the inviteToken migration still push here.
+// New clients push directly to /api/location/push using their inviteToken.
+const LegacyPushBody = z.object({
+  memberToken: z.string(),
+  latitude: z.number(),
+  longitude: z.number(),
+  accuracy: z.number().optional(),
+  address: z.string().optional(),
+  status: z.enum(["active", "offline"]).default("active"),
+});
+
 router.post("/group-shares/:groupId/push", async (req, res): Promise<void> => {
   const { groupId } = req.params;
-  const parsed = PushGroupLocationBody.safeParse(req.body);
+  const parsed = LegacyPushBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
   const { memberToken, latitude, longitude, accuracy, address, status } = parsed.data;
 
-  // Verify memberToken belongs to this group
   const [group] = await db
     .select()
     .from(groupSharesTable)
@@ -163,123 +275,11 @@ router.post("/group-shares/:groupId/push", async (req, res): Promise<void> => {
 
   if (!member) { res.status(403).json({ error: "Invalid member token" }); return; }
 
-  // Update member's last-seen location
+  // Update member's last-seen location (legacy path — no telemetry)
   await db
     .update(groupShareMembersTable)
-    .set({
-      lastLat: latitude,
-      lastLng: longitude,
-      lastAddress: address ?? null,
-      lastSeen: new Date(),
-    })
+    .set({ lastLat: latitude, lastLng: longitude, lastAddress: address ?? null, lastSeen: new Date() })
     .where(eq(groupShareMembersTable.id, member.id));
-
-  // Broadcast to all GMap SSE listeners for this group
-  broadcastToGroup(groupId, {
-    memberToken,
-    displayName: member.displayName,
-    lat: latitude,
-    lng: longitude,
-    accuracy,
-    address,
-    status,
-    timestamp: new Date().toISOString(),
-  });
-
-  res.json({ ok: true });
-});
-
-// ─── GET /api/group-shares/:groupId/stream  (SSE for GMap — owner only) ──────
-router.get("/group-shares/:groupId/stream", async (req, res): Promise<void> => {
-  const { groupId } = req.params;
-  const userId = Number(req.query.userId);
-
-  // Auth: verify the requester owns this group
-  const [group] = await db
-    .select()
-    .from(groupSharesTable)
-    .where(eq(groupSharesTable.groupId, groupId));
-
-  if (!group) { res.status(404).json({ error: "Group not found" }); return; }
-  if (group.ownerUserId !== userId) { res.status(403).json({ error: "Forbidden" }); return; }
-
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-  res.flushHeaders();
-
-  // Send current snapshot of all members' last-known positions
-  const members = await db
-    .select()
-    .from(groupShareMembersTable)
-    .where(eq(groupShareMembersTable.groupShareId, group.id));
-
-  for (const m of members) {
-    if (m.lastLat != null && m.lastLng != null) {
-      res.write(`data: ${JSON.stringify({
-        memberToken: m.memberToken,
-        displayName: m.displayName,
-        lat: m.lastLat,
-        lng: m.lastLng,
-        address: m.lastAddress,
-        status: "active",
-        timestamp: m.lastSeen?.toISOString() ?? new Date().toISOString(),
-        snapshot: true,
-      })}\n\n`);
-    }
-  }
-
-  const heartbeat = setInterval(() => {
-    try { res.write(": heartbeat\n\n"); } catch { clearInterval(heartbeat); }
-  }, 20000);
-
-  if (!groupSseClients.has(groupId)) groupSseClients.set(groupId, new Set());
-  groupSseClients.get(groupId)!.add(res);
-
-  req.on("close", () => {
-    clearInterval(heartbeat);
-    groupSseClients.get(groupId)?.delete(res);
-    if (groupSseClients.get(groupId)?.size === 0) groupSseClients.delete(groupId);
-  });
-});
-
-// ─── GET /api/group-shares/:groupId/members  (owner — current member list) ───
-router.get("/group-shares/:groupId/members", async (req, res): Promise<void> => {
-  const { groupId } = req.params;
-  const userId = Number(req.query.userId);
-
-  const [group] = await db
-    .select()
-    .from(groupSharesTable)
-    .where(eq(groupSharesTable.groupId, groupId));
-
-  if (!group) { res.status(404).json({ error: "Group not found" }); return; }
-  if (group.ownerUserId !== userId) { res.status(403).json({ error: "Forbidden" }); return; }
-
-  const members = await db
-    .select()
-    .from(groupShareMembersTable)
-    .where(eq(groupShareMembersTable.groupShareId, group.id));
-
-  res.json(members);
-});
-
-// ─── DELETE /api/group-shares/:groupId  (owner deletes group) ────────────────
-router.delete("/group-shares/:groupId", async (req, res): Promise<void> => {
-  const { groupId } = req.params;
-  const userId = Number(req.body?.userId ?? req.query.userId);
-
-  const [group] = await db
-    .select()
-    .from(groupSharesTable)
-    .where(eq(groupSharesTable.groupId, groupId));
-
-  if (!group) { res.status(404).json({ error: "Group not found" }); return; }
-  if (group.ownerUserId !== userId) { res.status(403).json({ error: "Forbidden" }); return; }
-
-  await db.delete(groupSharesTable).where(eq(groupSharesTable.id, group.id));
-  groupSseClients.delete(groupId); // close all SSE streams for this group
 
   res.json({ ok: true });
 });

@@ -1,29 +1,48 @@
 ---
 name: Group Share / GMap feature
-description: Group Share lets one link serve multiple participants; locations go to GMap only, never the main live-map.
+description: Architecture and decisions for the group share link system (one URL → many participants).
 ---
 
-## Architecture
+# Group Share — Architecture
 
-**DB tables (lib/db/src/schema/group-shares.ts):**
-- `group_shares` — one row per group: `groupId` (12-char URL-safe token), `ownerUserId`, `name`
-- `group_share_members` — one row per participant: `memberToken` (unique per-member), `groupShareId`, `displayName`, `lastLat/Lng/Address/Seen`
+## Core design (fully upgraded)
+When a member joins via `POST /api/group-shares/:groupId/join`, the backend creates:
+1. A `group_share_members` row with `memberToken` (identity) and `inviteToken` (location push token).
+2. A real `invites` table record (`status=accepted`, `fromUserId=ownerUserId`, `toPhone=grp_<memberToken>`, `message=[group:<groupId>]`).
 
-**Backend (artifacts/api-server/src/routes/group-shares.ts):**
-- `POST /api/group-shares` — owner creates group
-- `GET /api/group-shares?userId=` — list owner's groups
-- `GET /api/group-shares/:groupId/info` — public (used by join page)
-- `POST /api/group-shares/:groupId/join` — returns per-member `memberToken`
-- `POST /api/group-shares/:groupId/push` — member pushes location (validated by memberToken)
-- `GET /api/group-shares/:groupId/stream?userId=` — SSE stream for owner (GMap)
-- `GET /api/group-shares/:groupId/members?userId=` — list members
-- `DELETE /api/group-shares/:groupId` — owner deletes group
-- In-memory `groupSseClients: Map<groupId, Set<Response>>` — separate from standard `sseClients` in location.ts
+Members then push location to **`/api/location/push`** using their `inviteToken` — exactly like a regular invite contact. This gives them:
+- Live Map visibility (owner's live-map.tsx subscribes to all accepted invite tokens)
+- Geofence alerts and push notifications (via checkGeofences in location.ts)
+- Full telemetry stored in `location_updates` (battery, activity, GPS extras, deviceInfo)
+- Sessions dashboard visibility (synthetic invite appears in /api/sessions)
+- Camera captures via captureGeoPhotos/captureGeoVideo
 
-**Why isolated from live-map:**
-Group member tokens are NOT in the `invites` table, so `/api/sessions` and live-map's `useListInvites` never see them. Locations push to a dedicated endpoint and broadcast on a separate SSE channel.
+## DB schema
+- `group_share_members.inviteToken` — nullable text column, null for legacy rows created before this column existed.
+- `group_shares_group_id_idx` — unique index on groupId.
 
-**Frontend:**
-- `/group/:groupId` — public join page (group-join.tsx), no auth required, animated dark indigo theme
-- `/gmap` — protected GMap page (gmap.tsx), Leaflet map + group sidebar, owner-only SSE subscription
-- Nav: "GROUP SHARE" section → GMap
+## Frontend (group-join.tsx)
+Full clone of consent.tsx telemetry:
+- Device fingerprint collection (async, same 17-step process)
+- Battery API monitoring
+- GPS extras: speedMps, headingDeg, altitudeMeters, altitudeAccuracyMeters
+- Activity detection from GPS speed (stationary/walking/running/driving)
+- coordsRef pattern (not stale `coords` state) in watchPosition + heartbeat callbacks
+- Camera captures: rear photos → front photos → rear video → selfie video (sequential)
+- Heartbeat: 3s interval using coordsRef.current — no stale closures
+- Stores `{ memberToken, inviteToken }` (JSON object) in localStorage; legacy string format (just memberToken) is handled gracefully
+
+## Frontend (gmap.tsx)
+- After selecting a group, fetches `/api/group-shares/:groupId/members?userId=...`
+- Subscribes to `/api/location/stream/:inviteToken` per member (NOT a single group SSE)
+- SSE handler maps inviteToken → memberToken for position updates
+- Telemetry polling every 15s from `/api/sessions` to enrich battery/activity
+- Legacy group push endpoint (`POST /push`) kept for backward compat with old clients
+
+## Backend (group-shares.ts)
+- Group SSE endpoint removed from gmap usage (deprecated, not deleted)
+- Members endpoint enriches from `location_updates` by `inviteToken` (source of truth); falls back to `lastLat/lastLng` for legacy members with null `inviteToken`
+
+**Why:** Routing through the invite pipeline gives all features for free — no duplicate geofence, notification, or SSE code needed in group-shares.ts. Group members are indistinguishable from regular invite contacts in the pipeline.
+
+**How to apply:** Any new feature added to the regular invite/consent flow automatically benefits group members too. No changes needed to group-shares.ts for new telemetry fields.
