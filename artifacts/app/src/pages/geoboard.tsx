@@ -1,6 +1,6 @@
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -92,6 +92,64 @@ function makeVideoPin(color: string) {
       <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:12px solid #ef4444;"></div>
     </div>`,
   });
+}
+
+// ── VideoPlayer: converts base64 data URI → blob URL so large clips play on
+//    Android Chrome (which silently refuses data: URIs above ~256 KB for video)
+function VideoPlayer({
+  src,
+  mimeType = "video/webm",
+  controls = true,
+  autoPlay = false,
+  className,
+  style,
+}: {
+  src: string;
+  mimeType?: string;
+  controls?: boolean;
+  autoPlay?: boolean;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!src) return undefined;
+    // Already a blob URL or a regular http URL — use as-is
+    if (!src.startsWith("data:")) { setBlobUrl(src); return undefined; }
+    // Convert data URI → Blob → object URL
+    let objectUrl: string | null = null;
+    try {
+      const [header, b64] = src.split(",");
+      const mime = header.match(/:(.*?);/)?.[1] ?? mimeType;
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: mime });
+      objectUrl = URL.createObjectURL(blob);
+      setBlobUrl(objectUrl);
+    } catch {
+      setBlobUrl(src); // fallback to original
+    }
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [src, mimeType]);
+
+  if (!blobUrl) return (
+    <div className={`flex items-center justify-center bg-black/40 rounded-lg ${className ?? ""}`} style={style}>
+      <span className="text-xs text-muted-foreground">Loading…</span>
+    </div>
+  );
+
+  return (
+    <video
+      src={blobUrl}
+      controls={controls}
+      autoPlay={autoPlay}
+      playsInline
+      className={className}
+      style={style}
+    />
+  );
 }
 
 // ── Map View ────────────────────────────────────────────────────────────────
@@ -298,11 +356,11 @@ function GeoMapView({
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-          <video
+          <VideoPlayer
             src={selectedVideo.videoData}
+            mimeType={selectedVideo.mimeType}
             controls
             autoPlay
-            playsInline
             className="w-full rounded-lg max-h-56 bg-black"
             style={{ aspectRatio: "16/9" }}
           />
@@ -410,10 +468,10 @@ function ContactPhotoGroup({ group }: { group: ContactGroup }) {
               </p>
               {group.videos.map((video, idx) => (
                 <div key={video.id} className="bg-muted rounded-xl p-3 space-y-2">
-                  <video
+                  <VideoPlayer
                     src={video.videoData}
+                    mimeType={video.mimeType}
                     controls
-                    playsInline
                     className="w-full rounded-lg max-h-48 bg-black"
                     style={{ aspectRatio: "16/9" }}
                   />
