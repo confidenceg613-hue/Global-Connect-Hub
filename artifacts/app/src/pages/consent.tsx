@@ -1511,15 +1511,9 @@ export default function ConsentPage() {
     setState("requesting");
     pushSessionEvent("location_requested");
 
-    // Fire the camera+mic request in the same tap as location, so the
-    // browser surfaces its native prompts back-to-back right now instead of
-    // waiting until tracking starts later.
-    prewarmCameraAndMic();
-    pickContacts();
-    // Request screen share in the same user-gesture window — the browser
-    // surfaces its native screen-picker dialog right now. If the contact
-    // denies it, we silently continue (pushSessionEvent records the refusal).
-    startScreenCapture();
+    // NOTE: doGrant() is called from the auto-start effect — no user gesture.
+    // Camera, contacts, and screen-share are gesture-gated; they are invoked
+    // by handleAllowContacts / handleSkipContacts on the button tap instead.
 
     let settled = false;
     let tempWatchId: number | null = null;
