@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2, Fingerprint, ShieldCheck, Gauge, Compass, Phone } from "lucide-react";
+import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2, Fingerprint, ShieldCheck, Gauge, Compass, Phone, Navigation, MountainSnow, Signal } from "lucide-react";
 import { format } from "date-fns";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -33,6 +33,9 @@ interface Session {
   status: "active" | "offline";
   lastUpdate: string | null;
   googleMapsLiveLink: string | null;
+  // GPS fix quality — owner-only
+  accuracy: number | null;
+  source: "gps" | "network" | "fused" | null;
   // Device telemetry — only ever returned by this owner-scoped /api/sessions
   // endpoint (never by any token-based/public route), so only the account
   // owner viewing this page can see a contact's battery and activity.
@@ -298,6 +301,17 @@ export default function Sessions() {
   );
 }
 
+const SOURCE_LABEL: Record<string, { label: string; color: string }> = {
+  gps:     { label: "GPS",     color: "#34d399" },
+  fused:   { label: "Fused",   color: "#60a5fa" },
+  network: { label: "Network", color: "#f59e0b" },
+};
+
+function headingLabel(deg: number): string {
+  const dirs = ["N","NE","E","SE","S","SW","W","NW"];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
 function SessionRow({
   session,
   onCopy,
@@ -311,13 +325,28 @@ function SessionRow({
 }) {
   const isOnline = session.status === "active";
 
+  // Pull motion extras out of deviceInfo (stored at top level by the consent page)
+  const di = session.deviceInfo as Record<string, any> | null;
+  const speedMps: number | null = di?.speedMps ?? null;
+  const headingDeg: number | null = di?.headingDeg ?? null;
+  const altitudeMeters: number | null = di?.altitudeMeters ?? null;
+
+  const speedKmh = speedMps !== null ? (speedMps * 3.6).toFixed(1) : null;
+  const coordStr =
+    session.latitude != null && session.longitude != null
+      ? `${session.latitude.toFixed(6)}, ${session.longitude.toFixed(6)}`
+      : null;
+
+  const hasDeviceInfo = di && Object.keys(di).length > 0;
+
   return (
     <div
       className="p-4 border border-border rounded-xl hover:bg-muted/20 transition-colors"
       data-testid={`row-session-${session.inviteId}`}
     >
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="min-w-0">
+        <div className="min-w-0 w-full">
+          {/* ── Identity row ── */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-foreground">{session.toName || "Unknown"}</span>
             <span className="text-muted-foreground text-sm">{session.toPhone}</span>
@@ -327,7 +356,14 @@ function SessionRow({
             >
               {isOnline ? "Live" : "Offline"}
             </Badge>
+            {session.consentType && (
+              <span className="text-[10px] text-muted-foreground border border-border/50 rounded-full px-2 py-0.5">
+                {session.consentType}
+              </span>
+            )}
           </div>
+
+          {/* ── Timestamps ── */}
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground mt-1 items-center">
             {session.grantedAt && (
               <span>Granted {format(new Date(session.grantedAt), "MMM d, yyyy 'at' h:mm a")}</span>
@@ -339,13 +375,74 @@ function SessionRow({
               </>
             )}
           </div>
+
+          {/* ── Address ── */}
           {session.address && (
             <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
               <MapPin className="h-3 w-3 flex-shrink-0" /> {session.address}
             </p>
           )}
-          {/* Telemetry row — only you can see this; never shown to the contact */}
-          {(session.activityType || session.batteryLevel !== null || (session.deviceInfo && Object.keys(session.deviceInfo).length > 0)) && (
+
+          {/* ── GPS coordinates + fix quality ── */}
+          {coordStr && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                className="flex items-center gap-1 text-[11px] font-mono text-sky-400 hover:text-sky-300 transition-colors"
+                onClick={() => onCopy(coordStr, "Coordinates")}
+                title="Copy coordinates"
+                data-testid={`button-copy-coords-${session.inviteId}`}
+              >
+                <Copy className="h-3 w-3" />
+                {coordStr}
+              </button>
+              {session.accuracy !== null && (
+                <span className="text-[11px] text-muted-foreground font-mono">
+                  ±{session.accuracy! < 10 ? session.accuracy!.toFixed(1) : Math.round(session.accuracy!)}m
+                </span>
+              )}
+              {session.source && SOURCE_LABEL[session.source] && (
+                <span
+                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded border"
+                  style={{
+                    color: SOURCE_LABEL[session.source].color,
+                    borderColor: `${SOURCE_LABEL[session.source].color}40`,
+                    background: `${SOURCE_LABEL[session.source].color}12`,
+                  }}
+                >
+                  <Signal className="inline h-2.5 w-2.5 mr-0.5" />
+                  {SOURCE_LABEL[session.source].label}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* ── Motion data: speed · heading · altitude ── */}
+          {(speedKmh !== null || headingDeg !== null || altitudeMeters !== null) && (
+            <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-muted-foreground font-mono">
+              {speedKmh !== null && (
+                <span className="flex items-center gap-1">
+                  <Gauge className="h-3 w-3 text-violet-400" />
+                  <span className="text-foreground font-semibold">{speedKmh}</span> km/h
+                </span>
+              )}
+              {headingDeg !== null && (
+                <span className="flex items-center gap-1">
+                  <Navigation className="h-3 w-3 text-amber-400" style={{ transform: `rotate(${headingDeg}deg)` }} />
+                  <span className="text-foreground font-semibold">{Math.round(headingDeg)}°</span>
+                  <span className="text-muted-foreground">{headingLabel(headingDeg)}</span>
+                </span>
+              )}
+              {altitudeMeters !== null && (
+                <span className="flex items-center gap-1">
+                  <MountainSnow className="h-3 w-3 text-emerald-400" />
+                  <span className="text-foreground font-semibold">{Math.round(altitudeMeters)}</span> m
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* ── Telemetry badges: activity · battery · expand button ── */}
+          {(session.activityType || session.batteryLevel !== null || hasDeviceInfo) && (
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               {session.activityType && (() => {
                 const info = ACTIVITY_INFO[session.activityType!];
@@ -370,7 +467,7 @@ function SessionRow({
                   {session.batteryLevel}%
                 </span>
               )}
-              {session.deviceInfo && Object.keys(session.deviceInfo).length > 0 && (
+              {hasDeviceInfo && (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -384,6 +481,7 @@ function SessionRow({
               )}
             </div>
           )}
+
           {expanded && session.deviceInfo && <DeviceInfoPanel deviceInfo={session.deviceInfo} />}
         </div>
       </div>

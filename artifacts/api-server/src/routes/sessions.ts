@@ -48,6 +48,9 @@ router.get("/sessions", async (req, res): Promise<void> => {
         address: latest?.address ?? invite.grantedAddress ?? null,
         status: latest?.status ?? "active",
         lastUpdate: latest?.createdAt ?? invite.grantedAt,
+        // GPS fix quality — owner-only, same visibility rule as telemetry below
+        accuracy: latest?.accuracy ?? null,
+        source: latest?.source ?? null,
         // Device telemetry — only ever returned here, on this owner-scoped
         // (userId-filtered) route. Never expose these on any token-based
         // public route, since the contact/anyone with the share link must
