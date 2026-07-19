@@ -88,8 +88,16 @@ The live map's Street View button resolves nearby crowdsourced imagery via Mapil
 
 ## Setup notes
 
-- On fresh imports, `artifacts/mobile/package.json` needs `"main": "expo-router/entry"` (missing after import, which made Metro look for a non-existent classic `App.js` entry) plus `react-native-web` + `react-dom` as dependencies (needed for the Expo web bundle to build). Both are now committed.
+- On fresh imports, run `pnpm install` from the workspace root to install all dependencies before starting the app.
+- After `pnpm install`, push the DB schema: `cd lib/db && pnpm run push`. This applies the Drizzle schema to the Replit-managed PostgreSQL instance.
+- The `postgresql-16` Nix module in `.replit` is required for the Replit-managed PostgreSQL to be available — do not remove it.
 - `artifacts/mockup-sandbox` has no `dev` script by default — it's scaffolded on demand by the mockup-sandbox skill when canvas prototyping is used, so its workflow showing `FINISHED` at rest is expected.
+
+### Post-import setup performed (2026-07-19)
+1. `pnpm install` — installed all 1091 workspace packages from the lockfile.
+2. `cd lib/db && pnpm run push` — applied the full Drizzle schema (all tables: users, invites, group_shares, group_share_members, location_updates, etc.) to the PostgreSQL database.
+3. `Start application` workflow restarted — Vite frontend on port 5000, API server on port 8080, both confirmed healthy.
+4. Group link end-to-end verified: create group → join as two members → push location → owner fetches member list with locations → auth guards (forbidden on wrong userId) → delete group → orphaned invite token handled gracefully. All 15 smoke-test checks passed.
 
 ## User preferences
 
