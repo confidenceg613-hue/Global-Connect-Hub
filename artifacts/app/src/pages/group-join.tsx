@@ -458,11 +458,17 @@ export default function GroupJoinPage() {
     if (!groupId) return;
     setState("joining");
     try {
+      // Send any previously stored memberToken so the server can return the
+      // same slot instead of creating a duplicate member row.
+      const storedForRejoin = loadStored(groupId);
       const { signal, clear } = abortAfter(10000);
       const r = await fetch(`${API_BASE}/api/group-shares/${groupId}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName: displayName.trim() || undefined }),
+        body: JSON.stringify({
+          displayName: displayName.trim() || undefined,
+          existingMemberToken: storedForRejoin?.memberToken,
+        }),
         signal,
       }).finally(clear);
       if (!r.ok) throw new Error("Join failed");

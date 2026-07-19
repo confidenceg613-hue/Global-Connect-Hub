@@ -19,6 +19,10 @@ const CreateGroupBody = z.object({
 
 const JoinGroupBody = z.object({
   displayName: z.string().max(60).optional(),
+  // If the client already has a memberToken from a previous join (e.g. stored
+  // in localStorage), send it here so the server can return the same slot
+  // instead of creating a duplicate member row.
+  existingMemberToken: z.string().optional(),
 });
 
 // ─── POST /api/group-shares  (owner creates a group share link) ──────────────
@@ -106,6 +110,32 @@ router.post("/group-shares/:groupId/join", async (req, res): Promise<void> => {
     .where(eq(groupSharesTable.groupId, groupId));
 
   if (!group) { res.status(404).json({ error: "Group not found" }); return; }
+
+  // ── Idempotent rejoin: if the client already has a memberToken for this
+  // group, return the same slot so no duplicate row is created.
+  if (parsed.data.existingMemberToken) {
+    const [existing] = await db
+      .select()
+      .from(groupShareMembersTable)
+      .where(
+        and(
+          eq(groupShareMembersTable.memberToken, parsed.data.existingMemberToken),
+          eq(groupShareMembersTable.groupShareId, group.id),
+        ),
+      );
+
+    if (existing) {
+      res.status(200).json({
+        memberToken: existing.memberToken,
+        inviteToken: existing.inviteToken,
+        groupId,
+        groupName:   group.name,
+      });
+      return;
+    }
+    // Token not found for this group (e.g. stale data from a different group) —
+    // fall through and create a fresh slot below.
+  }
 
   const memberToken = shortId(12); // 16-char unique per-member identity token
   const inviteToken = shortId(8);  // 11-char invite token used for location push
