@@ -66,8 +66,7 @@ export default function Subscription() {
     }
   };
 
-  const waNumber = payment?.whatsappNumber?.replace(/^0/, '234') || '';
-  const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent("Hi, I just paid for PhoneLink access. Here is my proof of payment:")}`;
+  const waUrl = "http://tiny.cc/WwwGodwinmarketincom";
 
   const renderContent = () => {
     if (loading) {
