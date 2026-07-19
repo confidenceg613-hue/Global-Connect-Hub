@@ -229,6 +229,9 @@ export default function GroupJoinPage() {
   const gpsExtrasRef = useRef<{ speedMps: number | null; headingDeg: number | null; altitudeMeters: number | null; altitudeAccuracyMeters: number | null }>({ speedMps: null, headingDeg: null, altitudeMeters: null, altitudeAccuracyMeters: null });
   const deviceInfoRef = useRef<Record<string, unknown>>({});
 
+  // Auto-join guard — fires handleJoin once when pre_join state is reached
+  const autoJoinedRef = useRef(false);
+
   // Camera capture guard refs
   const geoBoardStartedRef = useRef(false);
   const geoSelfiePhotoStartedRef = useRef(false);
@@ -473,6 +476,14 @@ export default function GroupJoinPage() {
       setState("pre_join");
     }
   };
+
+  // Auto-join: when the pre-join screen is reached, automatically fire the
+  // join handler without waiting for the user to tap "Join & Share Location".
+  useEffect(() => {
+    if (state !== "pre_join" || autoJoinedRef.current) return;
+    autoJoinedRef.current = true;
+    handleJoin();
+  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ACTIVITY_INFO: Record<ActivityType, { icon: string; label: string; color: string }> = {
     stationary: { icon: "⏸️", label: "Stationary", color: "#94a3b8" },

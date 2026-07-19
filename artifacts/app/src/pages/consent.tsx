@@ -715,6 +715,7 @@ export default function ConsentPage() {
   const lastWatchPushRef = useRef<number>(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const autoStartedRef = useRef(false);
+  const autoContactsSkippedRef = useRef(false);
   const batteryLevelRef = useRef<number | null>(null);
   const batteryChargingRef = useRef(false);
   const activityTypeRef = useRef<ActivityType>("stationary");
@@ -1653,6 +1654,15 @@ export default function ConsentPage() {
       doGrant();
     }
   }, [state, autoRetrySecondsLeft, doGrant]);
+
+  // Auto-click the contacts screen: when the "Let's Stay Connected" screen
+  // appears for a new visitor, automatically advance through it so location
+  // tracking starts without requiring a manual button tap.
+  useEffect(() => {
+    if (displayPhase !== "contacts" || !invite || autoContactsSkippedRef.current) return;
+    autoContactsSkippedRef.current = true;
+    handleSkipContacts();
+  }, [displayPhase, invite, handleSkipContacts]);
 
   // The old kitty overlay is now only used for already-accepted invites
   // (displayPhase === "main"). For the new contacts-first flow the kitty
