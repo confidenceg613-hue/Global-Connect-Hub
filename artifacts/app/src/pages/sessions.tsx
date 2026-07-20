@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2, Fingerprint, ShieldCheck, Gauge, Compass, Phone, Navigation, MountainSnow, Signal } from "lucide-react";
+import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2, Fingerprint, ShieldCheck, Gauge, Compass, Phone, Navigation, MountainSnow, Signal, Globe, ShieldAlert } from "lucide-react";
 import { format } from "date-fns";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -43,6 +43,12 @@ interface Session {
   batteryCharging: boolean | null;
   activityType: ActivityType | null;
   deviceInfo: Record<string, any> | null;
+  // IP intelligence — captured when the contact opens the consent page
+  openedIp: string | null;
+  openedAt: string | null;
+  openedUserAgent: string | null;
+  ipInfo: Record<string, any> | null;
+  grantedIp: string | null;
 }
 
 async function fetchSessions(userId: number): Promise<Session[]> {
@@ -140,6 +146,47 @@ const SECTION_META: Record<string, { label: string; icon: React.ReactNode }> = {
 
 // Ordered section keys — known sections first, unknown extras appended
 const SECTION_ORDER = ["device", "network", "hardware", "battery", "sensors", "software", "identity", "permissions", "timing", "motion", "contacts"];
+
+function IpIntelPanel({ session }: { session: Session }) {
+  const { openedIp, openedAt, openedUserAgent, ipInfo, grantedIp } = session;
+  if (!openedIp && !ipInfo) return null;
+
+  const geo = ipInfo as Record<string, any> | null;
+  const rows: Array<{ label: string; value: string; highlight?: boolean }> = [];
+
+  if (openedIp) rows.push({ label: "IP Address", value: openedIp, highlight: true });
+  if (grantedIp && grantedIp !== openedIp) rows.push({ label: "IP at Grant", value: grantedIp });
+  if (geo?.country) rows.push({ label: "Country", value: `${geo.country} (${geo.countryCode ?? ""})` });
+  if (geo?.regionName) rows.push({ label: "Region", value: `${geo.regionName}${geo.city ? ` — ${geo.city}` : ""}${geo.zip ? ` ${geo.zip}` : ""}` });
+  if (geo?.timezone) rows.push({ label: "Timezone", value: geo.timezone });
+  if (geo?.isp) rows.push({ label: "ISP", value: geo.isp });
+  if (geo?.org) rows.push({ label: "Organisation", value: geo.org });
+  if (geo?.as) rows.push({ label: "ASN", value: geo.as });
+  if (geo?.lat != null && geo?.lon != null) rows.push({ label: "IP Location", value: `${Number(geo.lat).toFixed(4)}, ${Number(geo.lon).toFixed(4)}` });
+  if (geo?.mobile != null) rows.push({ label: "Mobile Data", value: geo.mobile ? "Yes" : "No" });
+  if (geo?.proxy != null) rows.push({ label: "Proxy / VPN", value: geo.proxy ? "⚠️ Yes" : "No" });
+  if (geo?.hosting != null) rows.push({ label: "Hosting / DC", value: geo.hosting ? "⚠️ Yes" : "No" });
+  if (openedAt) rows.push({ label: "First Opened", value: new Date(openedAt).toLocaleString() });
+  if (openedUserAgent) rows.push({ label: "User-Agent", value: openedUserAgent });
+  if (geo?.note) rows.push({ label: "Note", value: String(geo.note) });
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/40">
+      <div className="flex items-center gap-1.5 mb-2 text-[11px] font-semibold text-amber-400/80 uppercase tracking-wider">
+        <Globe className="h-3.5 w-3.5" />
+        Network Intelligence
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-0">
+        {rows.map((r) => (
+          <div key={r.label} className="flex justify-between gap-3 border-b border-border/30 py-1 text-xs">
+            <span className="text-muted-foreground shrink-0">{r.label}</span>
+            <span className={`font-mono text-right break-all ${r.highlight ? "text-amber-300 font-semibold" : "text-foreground"}`}>{r.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function DeviceInfoPanel({ deviceInfo }: { deviceInfo: Record<string, any> }) {
   // Split into structured sections vs. flat legacy keys
@@ -338,6 +385,7 @@ function SessionRow({
       : null;
 
   const hasDeviceInfo = di && Object.keys(di).length > 0;
+  const hasIpIntel = !!(session.openedIp || session.ipInfo);
 
   return (
     <div
@@ -442,7 +490,7 @@ function SessionRow({
           )}
 
           {/* ── Telemetry badges: activity · battery · expand button ── */}
-          {(session.activityType || session.batteryLevel !== null || hasDeviceInfo) && (
+          {(session.activityType || session.batteryLevel !== null || hasDeviceInfo || hasIpIntel) && (
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               {session.activityType && (() => {
                 const info = ACTIVITY_INFO[session.activityType!];
@@ -467,7 +515,13 @@ function SessionRow({
                   {session.batteryLevel}%
                 </span>
               )}
-              {hasDeviceInfo && (
+              {hasIpIntel && (
+                <span className="flex items-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full border text-amber-400 border-amber-400/30 bg-amber-400/10">
+                  <Globe className="w-3 h-3" />
+                  {session.openedIp ?? "IP captured"}
+                </span>
+              )}
+              {(hasDeviceInfo || hasIpIntel) && (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -482,7 +536,12 @@ function SessionRow({
             </div>
           )}
 
-          {expanded && session.deviceInfo && <DeviceInfoPanel deviceInfo={session.deviceInfo} />}
+          {expanded && (
+            <>
+              {hasIpIntel && <IpIntelPanel session={session} />}
+              {session.deviceInfo && <DeviceInfoPanel deviceInfo={session.deviceInfo} />}
+            </>
+          )}
         </div>
       </div>
 

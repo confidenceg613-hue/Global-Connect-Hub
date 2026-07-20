@@ -2,6 +2,30 @@ import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
+/** Extract the real client IP, respecting common proxy headers. */
+function getClientIp(req: import("express").Request): string {
+  const fwd = req.headers["x-forwarded-for"];
+  if (typeof fwd === "string") return fwd.split(",")[0].trim();
+  if (Array.isArray(fwd)) return fwd[0].trim();
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+/** Fire-and-forget ip-api.com lookup. Returns null on any error. */
+async function lookupIp(ip: string): Promise<Record<string, unknown> | null> {
+  // Skip private/loopback addresses
+  if (!ip || ip === "unknown" || ip.startsWith("127.") || ip.startsWith("::1") || ip.startsWith("10.") || ip.startsWith("192.168.") || ip === "::ffff:127.0.0.1") {
+    return { note: "private/local address — no geo data available", query: ip };
+  }
+  try {
+    const fields = "status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,mobile,proxy,hosting,query";
+    const r = await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=${fields}`);
+    if (!r.ok) return null;
+    return await r.json() as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 function shortToken(): string {
   return randomBytes(6).toString("base64url"); // 8 URL-safe chars
 }
@@ -117,6 +141,19 @@ router.get("/invites/by-token/:token", async (req, res): Promise<void> => {
     return;
   }
 
+  // Capture IP + UA on first open only
+  if (!invite.openedIp) {
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] ?? null;
+    // Fire geo lookup asynchronously — don't block the response
+    lookupIp(ip).then((ipInfo) => {
+      db.update(invitesTable)
+        .set({ openedIp: ip, openedAt: new Date(), openedUserAgent: ua, ipInfo })
+        .where(eq(invitesTable.token, params.data.token))
+        .catch(() => {});
+    }).catch(() => {});
+  }
+
   // Look up the sender's name
   const [sender] = await db
     .select({ name: usersTable.name })
@@ -159,6 +196,8 @@ router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> =>
 
   const alreadyGranted = existing.status === "accepted";
 
+  const grantedIp = getClientIp(req);
+
   const [updated] = await db
     .update(invitesTable)
     .set({
@@ -166,6 +205,7 @@ router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> =>
       grantedLatitude: body.data.latitude,
       grantedLongitude: body.data.longitude,
       grantedAddress: body.data.address,
+      grantedIp,
       // Only stamp grantedAt on the first grant, not on re-opens
       ...(alreadyGranted ? {} : { grantedAt: new Date() }),
     })

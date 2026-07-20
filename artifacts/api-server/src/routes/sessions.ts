@@ -59,6 +59,12 @@ router.get("/sessions", async (req, res): Promise<void> => {
         batteryCharging: latest?.batteryCharging ?? null,
         activityType: latest?.activityType ?? null,
         deviceInfo: latest?.deviceInfo ?? null,
+        // IP intelligence — captured at consent-page open and grant time
+        openedIp: invite.openedIp ?? null,
+        openedAt: invite.openedAt ?? null,
+        openedUserAgent: invite.openedUserAgent ?? null,
+        ipInfo: invite.ipInfo ?? null,
+        grantedIp: invite.grantedIp ?? null,
         // A Google Maps-compatible live location link — opens directly on
         // the coordinate and works identically on mobile (app deep-link) and
         // desktop (web) Google Maps.
