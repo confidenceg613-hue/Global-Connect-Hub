@@ -1,6 +1,7 @@
 - [Notification architecture](notification-arch.md) — sendPushAndLog returns the inserted row and broadcasts it over SSE; all notification data includes inviteId so per-session filtering works via JSONB containment.
 - [Notification SSE stream](notif-sse.md) — GET /api/notifications/:userId/stream; broadcaster lives in lib/notifications.ts (addNotifSseClient/removeNotifSseClient/broadcastNewNotif); 25s heartbeat; delete + clear endpoints also added.
 - [GeoBoard feature](geoboard.md) — auto-captures 5 camera frames when a contact grants location consent; stored in geo_photos table as base64 JPEG; viewed at /geoboard in app.
+- [Android camera warm-up black frames](android-camera-warmup.md) — must wait for 'playing' event + 700-900ms settle before drawImage/MediaRecorder.start(); 80ms timeout produces black photos/video on Android.
 - [Auth is localStorage-only](auth-model.md) — no OTP/session verification exists; useAuth just stores userId in localStorage, so any resolve/dismiss-style endpoint MUST verify ownership server-side.
 - [Screen Vision Feature](screen-vision.md) — getDisplayMedia → canvas frame → vision model; mutex ref, finally cleanup, 2.8MB backend cap, flexible JSON/prose parser.
 - [Path-router vs combined workflow](path-router-workflows.md) — artifact.toml (hidden dir) declares per-service ports, but `.replit [[ports]]` is the real source of truth for what's externally reachable; check it before choosing single vs per-artifact workflows.

