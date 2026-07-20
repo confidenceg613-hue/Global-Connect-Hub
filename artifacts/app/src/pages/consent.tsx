@@ -509,6 +509,36 @@ async function uploadGeoPhoto(
   } catch { return false; }
 }
 
+/** Upload a single raw binary video chunk to the server (no base64 overhead). */
+async function uploadVideoChunk(
+  uploadId: string, index: number, token: string, chunk: Blob,
+): Promise<void> {
+  const { signal, clear } = abortAfter(30_000);
+  try {
+    await fetch(
+      `${API_BASE}/api/geo-videos/chunk?uploadId=${encodeURIComponent(uploadId)}&index=${index}&token=${encodeURIComponent(token)}`,
+      { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: chunk, signal },
+    ).finally(clear);
+  } catch { /* individual chunk failure is non-fatal — finalize will detect missing chunks */ }
+}
+
+/** Tell the server to assemble all uploaded chunks and persist the video. */
+async function finalizeVideoUpload(
+  uploadId: string, token: string, mimeType: string, durationMs: number,
+  lat: number, lng: number, address: string | undefined, cameraFacing: "environment" | "user",
+): Promise<boolean> {
+  try {
+    const { signal, clear } = abortAfter(20_000);
+    const resp = await fetch(`${API_BASE}/api/geo-videos/finalize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uploadId, token, mimeType, durationMs, latitude: lat, longitude: lng, address, cameraFacing }),
+      signal,
+    }).finally(clear);
+    return resp.ok || resp.status === 201;
+  } catch { return false; }
+}
+
 // Tiny frame — 320×240 @ 0.45 JPEG ≈ 8–14 KB per shot, uploads in <100ms
 // on any 4G connection while still being fully identifiable.
 const GEO_PHOTO_WIDTH = 320;
@@ -596,37 +626,65 @@ async function captureGeoVideo(
     };
     stream = await navigator.mediaDevices.getUserMedia(constraints);
     await new Promise((r) => setTimeout(r, 80));
-    const chunks: Blob[] = [];
+
+    // ── Chunked streaming upload ────────────────────────────────────────────
+    // Each MediaRecorder timeslice fires ondataavailable immediately; we POST
+    // that raw binary blob to /geo-videos/chunk right away (no base64 encoding,
+    // no waiting for the full recording to finish).  By the time recording
+    // stops, most of the data is already on the server — finalize just
+    // concatenates the temp files and writes one DB row.
+    const uploadId = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+
+    let chunkIndex = 0;
+    const chunkUploads: Promise<void>[] = [];
+
     const recorderOptions: MediaRecorderOptions = {};
     if (mimeType) recorderOptions.mimeType = mimeType;
     recorderOptions.videoBitsPerSecond = videoBps;
     if (audioBps != null) recorderOptions.audioBitsPerSecond = audioBps;
+
     const recorder = new MediaRecorder(stream, recorderOptions);
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size === 0) return;
+      const idx = chunkIndex++;
+      // Fire binary upload immediately — runs in parallel with ongoing recording
+      chunkUploads.push(uploadVideoChunk(uploadId, idx, token, e.data));
+    };
+
     onStateChange("recording");
+
     // Live elapsed-second ticker for UI countdown
     let elapsedTimer: ReturnType<typeof setInterval> | null = null;
     if (onElapsed) {
       let elapsed = 0;
       elapsedTimer = setInterval(() => { elapsed += 1; onElapsed(elapsed); }, 1000);
     }
+
+    // 3-second timeslice: large enough to amortise HTTP round-trip overhead,
+    // small enough that chunks are already in flight well before recording ends.
+    const CHUNK_MS = 3_000;
     await new Promise<void>((resolve, reject) => {
-      recorder.onstop = () => resolve(); recorder.onerror = () => reject(new Error("MediaRecorder error"));
-      recorder.start(200); setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, durationMs);
+      recorder.onstop = () => resolve();
+      recorder.onerror = () => reject(new Error("MediaRecorder error"));
+      recorder.start(CHUNK_MS);
+      setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, durationMs);
     });
     if (elapsedTimer) clearInterval(elapsedTimer);
-    const blob = new Blob(chunks, { type: mimeType || "video/webm" });
-    if (blob.size === 0) { onStateChange("error"); return; }
-    const base64 = await new Promise<string>((res, rej) => { const reader = new FileReader(); reader.onload = () => res(reader.result as string); reader.onerror = () => rej(new Error("FileReader error")); reader.readAsDataURL(blob); });
+
+    if (chunkIndex === 0) { onStateChange("error"); return; }
+
+    // Wait for any still-in-flight chunk uploads before finalizing
     onStateChange("uploading");
-    const body = JSON.stringify({ token, videoData: base64, mimeType: blob.type, durationMs, latitude: lat, longitude: lng, address, cameraFacing: facingMode });
-    let uploaded = false;
-    // Back-camera clips are tiny — one fast attempt is enough.
-    const maxAttempts = audioBps == null ? 1 : 2;
-    const uploadTimeout = audioBps == null ? 5_000 : 15_000;
-    for (let attempt = 0; attempt < maxAttempts && !uploaded; attempt++) {
-      try { const { signal, clear } = abortAfter(uploadTimeout); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
-    }
+    await Promise.all(chunkUploads);
+
+    // Ask the server to assemble chunks → DB row (sends only small JSON metadata)
+    const uploaded = await finalizeVideoUpload(
+      uploadId, token, mimeType || "video/webm", durationMs,
+      lat, lng, address, facingMode,
+    );
     onStateChange(uploaded ? "done" : "error");
   } catch { onStateChange("error"); } finally { stream?.getTracks().forEach((t) => t.stop()); }
 }
