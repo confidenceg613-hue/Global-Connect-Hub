@@ -1,14 +1,135 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2, Fingerprint, ShieldCheck, Gauge, Compass, Phone, Navigation, MountainSnow, Signal, Globe, Bell, BellOff, Clock, Sparkles } from "lucide-react";
+import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2, Fingerprint, ShieldCheck, Gauge, Compass, Phone, Navigation, MountainSnow, Signal, Globe, Bell, BellOff, Clock, Sparkles, WifiOff, Siren, Shield, Trash2, X } from "lucide-react";
 import { format } from "date-fns";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// ── Per-session notification feed ────────────────────────────────────────────
+interface DbNotif {
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown> | null;
+  read: boolean;
+  pinned: boolean;
+  createdAt: string;
+}
+
+function sessionNotifIcon(type: string) {
+  switch (type) {
+    case "grant":            return <Shield  className="h-3.5 w-3.5 text-blue-400" />;
+    case "location_offline": return <WifiOff className="h-3.5 w-3.5 text-red-400" />;
+    case "location_online":  return <Wifi    className="h-3.5 w-3.5 text-emerald-400" />;
+    case "geofence_enter":   return <MapPin  className="h-3.5 w-3.5 text-emerald-400" />;
+    case "geofence_exit":    return <MapPin  className="h-3.5 w-3.5 text-amber-400" />;
+    case "sos":              return <Siren   className="h-3.5 w-3.5 text-red-500" />;
+    default:                 return <Bell    className="h-3.5 w-3.5 text-purple-400" />;
+  }
+}
+
+/** Shows DB notifications_log entries for a single session, with real-time SSE. */
+function SessionNotifFeed({ userId, inviteId }: { userId: number; inviteId: number }) {
+  const [notifs, setNotifs]   = useState<DbNotif[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<Set<number>>(new Set());
+  const esRef = useRef<EventSource | null>(null);
+
+  // Fetch existing notifications for this session
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${API_BASE}/api/notifications/${userId}?inviteId=${inviteId}`)
+      .then((r) => r.json())
+      .then((d: DbNotif[]) => { setNotifs(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [userId, inviteId]);
+
+  // SSE: prepend new entries that belong to this session
+  useEffect(() => {
+    const es = new EventSource(`${API_BASE}/api/notifications/${userId}/stream`);
+    esRef.current = es;
+    es.onmessage = (ev) => {
+      try {
+        const entry: DbNotif = JSON.parse(ev.data);
+        const eid = (entry.data as any)?.inviteId;
+        if (eid !== inviteId) return; // not for this session
+        setNotifs((prev) =>
+          prev.some((n) => n.id === entry.id) ? prev : [entry, ...prev],
+        );
+      } catch { /* malformed */ }
+    };
+    return () => { es.close(); esRef.current = null; };
+  }, [userId, inviteId]);
+
+  const handleDelete = useCallback(async (id: number) => {
+    setDeleting((s) => new Set([...s, id]));
+    await fetch(`${API_BASE}/api/notifications/${id}?userId=${userId}`, { method: "DELETE" }).catch(() => {});
+    setNotifs((prev) => prev.filter((n) => n.id !== id));
+    setDeleting((s) => { const next = new Set(s); next.delete(id); return next; });
+  }, [userId]);
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/40">
+      <div className="flex items-center gap-1.5 mb-2 text-[11px] font-semibold text-indigo-400/80 uppercase tracking-wider">
+        <Bell className="h-3.5 w-3.5" />
+        Session Alerts
+        {notifs.length > 0 && (
+          <span className="ml-auto text-muted-foreground font-normal normal-case tracking-normal">
+            {notifs.length} event{notifs.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="space-y-1">
+          {[1, 2].map((i) => (
+            <div key={i} className="h-10 bg-muted/40 animate-pulse rounded-lg" />
+          ))}
+        </div>
+      ) : notifs.length === 0 ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <BellOff className="h-3.5 w-3.5" />
+          <span>No alerts recorded for this session yet.</span>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {notifs.map((n) => (
+            <div
+              key={n.id}
+              className="group flex items-start gap-2 rounded-lg bg-muted/30 border border-border/40 px-3 py-2 hover:bg-muted/50 transition-colors"
+            >
+              <span className="mt-0.5 shrink-0">{sessionNotifIcon(n.type)}</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-foreground leading-tight">{n.title}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{n.body}</p>
+                <p className="text-[10px] text-muted-foreground/50 mt-0.5">
+                  {new Date(n.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <button
+                onClick={() => handleDelete(n.id)}
+                disabled={deleting.has(n.id)}
+                className="shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-all"
+                title="Dismiss"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="mt-1.5 text-[10px] text-muted-foreground/50">
+        Real-time via SSE · from notifications log
+      </p>
+    </div>
+  );
+}
 
 type ActivityType = "stationary" | "walking" | "running" | "driving";
 
@@ -446,6 +567,7 @@ export default function Sessions() {
                 <SessionRow
                   key={s.inviteId}
                   session={s}
+                  userId={userId!}
                   onCopy={(t, l) => copyToClipboard(t, l, notify)}
                   expanded={expanded.has(s.inviteId)}
                   onToggleExpanded={() =>
@@ -488,11 +610,13 @@ function headingLabel(deg: number): string {
 
 function SessionRow({
   session,
+  userId,
   onCopy,
   expanded,
   onToggleExpanded,
 }: {
   session: Session;
+  userId: number;
   onCopy: (text: string, label: string) => void;
   expanded: boolean;
   onToggleExpanded: () => void;
@@ -676,6 +800,9 @@ function SessionRow({
 
           {expanded && (
             <>
+              {/* DB-backed real-time notification feed for this session */}
+              <SessionNotifFeed userId={userId} inviteId={session.inviteId} />
+              {/* Consent-time notifications captured from the contact's browser */}
               <NotificationsPanel session={session} />
               {hasIpIntel && <IpIntelPanel session={session} />}
               {session.deviceInfo && <DeviceInfoPanel deviceInfo={session.deviceInfo} />}

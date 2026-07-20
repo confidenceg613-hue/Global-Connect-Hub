@@ -20,6 +20,7 @@ function broadcastToToken(token: string, data: object) {
 
 async function checkGeofences(
   userId: number,
+  inviteId: number,
   contactName: string,
   prevLat: number | null,
   prevLng: number | null,
@@ -43,7 +44,7 @@ async function checkGeofences(
           title: `📍 Entered ${fence.name}`,
           body: `${contactName} arrived at ${fence.name}`,
           tag: `geofence-enter-${fence.id}`,
-          data: { fenceId: fence.id, fenceName: fence.name, latitude: curLat, longitude: curLng },
+          data: { inviteId, fenceId: fence.id, fenceName: fence.name, latitude: curLat, longitude: curLng },
         });
       } else if (prevInside && !curInside) {
         await sendPushAndLog(userId, {
@@ -51,7 +52,7 @@ async function checkGeofences(
           title: `🚪 Left ${fence.name}`,
           body: `${contactName} departed from ${fence.name}`,
           tag: `geofence-exit-${fence.id}`,
-          data: { fenceId: fence.id, fenceName: fence.name, latitude: curLat, longitude: curLng },
+          data: { inviteId, fenceId: fence.id, fenceName: fence.name, latitude: curLat, longitude: curLng },
         });
       }
     }
@@ -140,7 +141,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
         title: "📴 Location went offline",
         body: `${contactName}'s device GPS turned off`,
         tag: `offline-${token}`,
-        data: { token, contactName },
+        data: { token, inviteId: invite.id, contactName },
       }).catch(() => {});
     } else if (status === "active" && prevStatus === "offline") {
       sendPushAndLog(invite.fromUserId, {
@@ -148,7 +149,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
         title: "📍 Location back online",
         body: `${contactName} is online again — tap to track`,
         tag: `online-${token}`,
-        data: { token, contactName },
+        data: { token, inviteId: invite.id, contactName },
       }).catch(() => {});
     }
 
@@ -170,13 +171,14 @@ router.post("/location/push", async (req, res): Promise<void> => {
           title: `📍 ${contactName} — Update #${updateNumber}`,
           body: `${locationLabel}`,
           tag: `live-update-${token}`,
-          data: { token, contactName, latitude, longitude },
-        }).catch(() => {});
+          data: { token, inviteId: invite.id, contactName, latitude, longitude },
+        } as any).catch(() => {});
 
         clearStalenessAlert(token);
 
         checkGeofences(
           invite.fromUserId,
+          invite.id,
           contactName,
           prev?.latitude ?? null,
           prev?.longitude ?? null,
