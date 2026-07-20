@@ -15,6 +15,9 @@ interface GuardianContact {
   name: string;
   brief: string;
   risk: RiskLevel;
+  hasVisuals: boolean;
+  photoCount: number;
+  videoCount: number;
   lat: number | null;
   lng: number | null;
   address: string | null;
@@ -134,6 +137,30 @@ function ContactCard({ contact }: { contact: GuardianContact }) {
           <span className="text-indigo-400 text-[10px] font-bold tracking-widest uppercase flex-shrink-0 mt-0.5 pt-px">AI</span>
           <span>{contact.brief}</span>
         </div>
+        {/* Vision / media badge */}
+        {(contact.hasVisuals || contact.videoCount > 0) && (
+          <div className="flex items-center gap-2 mt-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+            {contact.hasVisuals && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-widest uppercase"
+                style={{ background: "rgba(167,139,250,0.12)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.25)" }}
+              >
+                📸 {contact.photoCount} frame{contact.photoCount !== 1 ? "s" : ""} analysed
+              </span>
+            )}
+            {contact.videoCount > 0 && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-widest uppercase"
+                style={{ background: "rgba(99,102,241,0.12)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.25)" }}
+              >
+                🎥 {contact.videoCount} video clip{contact.videoCount !== 1 ? "s" : ""}
+              </span>
+            )}
+            {contact.hasVisuals && (
+              <span className="text-[9px] text-slate-600 ml-auto">Vision · Pixtral</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Telemetry */}
