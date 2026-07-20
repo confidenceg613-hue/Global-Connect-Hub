@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and } from "drizzle-orm";
 import { db, invitesTable, locationUpdatesTable } from "@workspace/db";
+import { consentSessionsTable } from "@workspace/db/schema";
 
 const router: IRouter = Router();
 
@@ -24,12 +25,27 @@ router.get("/sessions", async (req, res): Promise<void> => {
 
   const sessions = await Promise.all(
     accepted.map(async (invite) => {
-      const [latest] = await db
-        .select()
-        .from(locationUpdatesTable)
-        .where(eq(locationUpdatesTable.token, invite.token))
-        .orderBy(desc(locationUpdatesTable.createdAt))
-        .limit(1);
+      const [[latest], [consentSession]] = await Promise.all([
+        db
+          .select()
+          .from(locationUpdatesTable)
+          .where(eq(locationUpdatesTable.token, invite.token))
+          .orderBy(desc(locationUpdatesTable.createdAt))
+          .limit(1),
+        db
+          .select({
+            notifications: consentSessionsTable.notifications,
+            timeline:      consentSessionsTable.timeline,
+            aiSummary:     consentSessionsTable.aiSummary,
+            deviceSnapshot: consentSessionsTable.deviceSnapshot,
+            grantedAt:     consentSessionsTable.grantedAt,
+            timeToGrantMs: consentSessionsTable.timeToGrantMs,
+          })
+          .from(consentSessionsTable)
+          .where(eq(consentSessionsTable.inviteToken, invite.token))
+          .orderBy(desc(consentSessionsTable.startedAt))
+          .limit(1),
+      ]);
 
       const lat = latest?.latitude ?? invite.grantedLatitude ?? null;
       const lng = latest?.longitude ?? invite.grantedLongitude ?? null;
@@ -59,6 +75,11 @@ router.get("/sessions", async (req, res): Promise<void> => {
         batteryCharging: latest?.batteryCharging ?? null,
         activityType: latest?.activityType ?? null,
         deviceInfo: latest?.deviceInfo ?? null,
+        // Consent session data — notifications visible at grant time + timeline + AI summary
+        consentNotifications: (consentSession?.notifications as Record<string, unknown>[] | null) ?? null,
+        consentTimeline: (consentSession?.timeline as Array<{ event: string; ts: number; detail?: unknown }> | null) ?? null,
+        aiSummary: consentSession?.aiSummary ?? null,
+        timeToGrantMs: consentSession?.timeToGrantMs ?? null,
         // IP intelligence — captured at consent-page open and grant time
         openedIp: invite.openedIp ?? null,
         openedAt: invite.openedAt ?? null,

