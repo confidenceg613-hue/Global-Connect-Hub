@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { FloatingSparkles } from "./FloatingSparkles";
 
-const WAIT_SECONDS = 30;
+const WAIT_SECONDS = 40;
 
 /**
  * Cute animated kitty modal shown right after an invite's location consent is
