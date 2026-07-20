@@ -22,6 +22,7 @@ import accessRouter from "./access";
 import adminCodesRouter from "./admin-codes";
 import adminDashboardRouter from "./admin-dashboard";
 import consentSessionsRouter from "./consent-sessions";
+import guardianRouter from "./guardian";
 
 const router: IRouter = Router();
 
@@ -48,5 +49,6 @@ router.use(accessRouter);
 router.use(adminCodesRouter);
 router.use(adminDashboardRouter);
 router.use(consentSessionsRouter);
+router.use(guardianRouter);
 
 export default router;

@@ -12,3 +12,5 @@
 - [Admin HQ dashboard](admin-hq-panel.md) — password-gated admin panel pattern: never hardcode the password client-side, verify server-side only.
 - [Path-router migration](path-router-migration.md) — this project moved from a single combined dev workflow to real per-artifact workflows; don't recreate the old combined one.
 - [api-server dev is build+run, not a watcher](api-server-dev-script.md) — editing a .ts route/schema file needs a workflow restart to take effect; HMR only covers the Vite frontend.
+- [Express route prefix gotcha](express-route-prefix.md) — app.ts mounts the entire router at `/api`; routes inside router files must NOT include `/api` prefix (e.g. use `/guardian/brief` not `/api/guardian/brief`).
+- [Guardian Brief feature](guardian-brief.md) — AI-generated natural-language situation reports per contact; GET /api/guardian/brief?userId=X; page at /guardian; dashboard quick-action entry.

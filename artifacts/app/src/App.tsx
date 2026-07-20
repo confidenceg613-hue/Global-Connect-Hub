@@ -40,6 +40,7 @@ const GMap = lazy(() => import("@/pages/gmap"));
 const GroupJoinPage = lazy(() => import("@/pages/group-join"));
 const Subscription = lazy(() => import("@/pages/subscription"));
 const Admin = lazy(() => import("@/pages/admin"));
+const GuardianPage = lazy(() => import("@/pages/guardian"));
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
@@ -226,6 +227,7 @@ function Router() {
       <Route path="/location-reports"><ProtectedRoute component={LocationReports} /></Route>
       <Route path="/settings"><ProtectedRoute component={SettingsPage} /></Route>
       <Route path="/surveillance"><ProtectedRoute component={Surveillance} /></Route>
+      <Route path="/guardian"><ProtectedRoute component={GuardianPage} /></Route>
       <Route path="/gmap"><ProtectedRoute component={GMap} /></Route>
       <Route path="/subscription"><SubscriptionRoute /></Route>
       <Route path="/group/:groupId" component={GroupJoinPage} />
