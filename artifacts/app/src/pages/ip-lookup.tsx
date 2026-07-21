@@ -2,459 +2,724 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Search, Wifi, MapPin, User, Clock, Shield, AlertTriangle, Info } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, format } from "date-fns";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function esc(v: unknown): string {
   return String(v ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-type ActivityType = "stationary" | "walking" | "running" | "driving";
-const ACTIVITY_INFO: Record<ActivityType, { icon: string; label: string }> = {
-  stationary: { icon: "⏸️", label: "Stationary" },
-  walking:    { icon: "🚶", label: "Walking" },
-  running:    { icon: "🏃", label: "Running" },
-  driving:    { icon: "🚗", label: "Driving" },
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+type Tier = "PRECISE" | "HIGH" | "MODERATE" | "LOW" | "ESTIMATE";
+
+const TIER_CONFIG: Record<Tier, { color: string; glow: string; bg: string; border: string; label: string }> = {
+  PRECISE:  { color: "#00ff88", glow: "#00ff8866", bg: "rgba(0,255,136,.07)",  border: "rgba(0,255,136,.25)",  label: "PRECISE"  },
+  HIGH:     { color: "#10b981", glow: "#10b98166", bg: "rgba(16,185,129,.07)", border: "rgba(16,185,129,.25)", label: "HIGH"     },
+  MODERATE: { color: "#f59e0b", glow: "#f59e0b66", bg: "rgba(245,158,11,.07)", border: "rgba(245,158,11,.25)", label: "MODERATE" },
+  LOW:      { color: "#f97316", glow: "#f9731666", bg: "rgba(249,115,22,.07)", border: "rgba(249,115,22,.25)", label: "LOW"      },
+  ESTIMATE: { color: "#ef4444", glow: "#ef444466", bg: "rgba(239,68,68,.07)",  border: "rgba(239,68,68,.25)",  label: "ESTIMATE" },
 };
 
+type ActivityType = "stationary" | "walking" | "running" | "driving";
+const ACTIVITY: Record<ActivityType, { icon: string; label: string }> = {
+  stationary: { icon: "⏸", label: "Stationary" },
+  walking:    { icon: "🚶", label: "Walking"    },
+  running:    { icon: "🏃", label: "Running"    },
+  driving:    { icon: "🚗", label: "Driving"    },
+};
+
+interface GeoSource {
+  provider: string;
+  lat: number; lon: number;
+  city?: string; regionName?: string; country?: string;
+  isp?: string; org?: string; asn?: string; asnName?: string;
+  mobile?: boolean; proxy?: boolean; hosting?: boolean;
+}
+
+interface IpIntel {
+  sources: GeoSource[];
+  consensus: {
+    lat: number; lon: number;
+    radiusKm: number; confidencePct: number;
+    agreementCount: number; totalQueried: number; method: string;
+  };
+  flags: { mobile: boolean; proxy: boolean; hosting: boolean; vpnLikely: boolean };
+  asn?: string; asnName?: string;
+}
+
+interface HistoryFix {
+  lat: number; lng: number;
+  accuracy?: number | null;
+  source?: string | null;
+  activity?: string | null;
+  battery?: number | null;
+  address?: string | null;
+  ts: string;
+}
+
 interface Contact {
-  inviteId: number;
-  token: string;
-  toName: string | null;
-  toPhone: string;
-  status: string;
-  grantedAt: string | null;
-  openedAt: string | null;
-  openedIp: string | null;
-  grantedIp: string | null;
+  inviteId: number; token: string;
+  toName: string | null; toPhone: string; status: string;
+  grantedAt: string | null; openedAt: string | null;
+  openedIp: string | null; grantedIp: string | null;
   ipInfo: Record<string, unknown> | null;
-  latitude: number | null;
-  longitude: number | null;
-  address: string | null;
-  lastUpdate: string | null;
-  accuracy: number | null;
-  batteryLevel: number | null;
-  batteryCharging: boolean | null;
-  activityType: ActivityType | null;
-  source: string | null;
-  hasGpsfix: boolean;
+  latitude: number | null; longitude: number | null;
+  address: string | null; lastUpdate: string | null;
+  accuracy: number | null; batteryLevel: number | null;
+  batteryCharging: boolean | null; activityType: ActivityType | null;
+  source: string | null; hasGpsfix: boolean;
+  gpsQualityScore: number;
+  movementVector?: { bearingDeg: number; speedKmh: number; distanceM: number; ageSecs: number } | null;
+  locationHistory: HistoryFix[];
   matchedOn: string[];
 }
 
-interface IpGeo {
-  lat?: number;
-  lon?: number;
-  city?: string;
-  regionName?: string;
-  country?: string;
-  isp?: string;
-  org?: string;
-  mobile?: boolean;
-  proxy?: boolean;
-  hosting?: boolean;
-  query?: string;
-  note?: string;
+interface BestEstimate {
+  lat: number; lon: number; accuracyM: number;
+  method: string; confidencePct: number;
+  tier: Tier;
+  contactName: string | null; contactPhone: string | null;
+  source: string;
 }
 
 interface LookupResult {
   contacts: Contact[];
-  ipGeo: IpGeo | null;
+  ipIntel: IpIntel | { note: string };
   searchedIp: string;
+  bestEstimate: BestEstimate | null;
 }
 
-function initials(name: string | null | undefined, phone?: string | null) {
-  if (name) return name.split(" ").map((w) => w[0] ?? "").join("").toUpperCase().slice(0, 2);
-  const digits = (phone ?? "").replace(/\D/g, "");
-  return digits ? digits.slice(-2) : "?";
+function initials(name?: string | null, phone?: string | null) {
+  if (name) return name.split(" ").map(w => w[0] ?? "").join("").toUpperCase().slice(0, 2);
+  const d = (phone ?? "").replace(/\D/g, "");
+  return d ? d.slice(-2) : "?";
 }
 
-function makePin(color: string, label: string) {
+// ── Leaflet icon factories ─────────────────────────────────────────────────
+
+function makeGpsPin(color: string, label: string, pulsing = false) {
+  const pulse = pulsing ? `<div style="position:absolute;inset:-8px;border-radius:50%;background:${color}22;animation:pl-pulse 2s ease-out infinite;"></div>` : "";
   return L.divIcon({
     className: "",
-    html: `<div style="position:relative;width:38px;height:50px;filter:drop-shadow(0 4px 12px ${color}88);">
-      <div style="width:38px;height:38px;background:${color};clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;letter-spacing:-0.5px;">${label}</div>
-      <div style="width:4px;height:12px;background:${color};margin:0 auto;border-radius:0 0 2px 2px;"></div>
+    html: `<div style="position:relative;width:40px;height:52px;filter:drop-shadow(0 0 8px ${color}aa);">
+      ${pulse}
+      <div style="width:40px;height:40px;background:${color};clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#000;letter-spacing:-0.5px;">${label}</div>
+      <div style="width:4px;height:12px;background:${color};margin:0 auto;border-radius:0 0 3px 3px;"></div>
     </div>`,
-    iconSize: [38, 50],
-    iconAnchor: [19, 50],
-    popupAnchor: [0, -52],
+    iconSize: [40, 52], iconAnchor: [20, 52], popupAnchor: [0, -54],
   });
 }
 
-function makeIpPin() {
+function makeHistoryDot(color: string, radius = 6) {
   return L.divIcon({
     className: "",
-    html: `<div style="position:relative;width:38px;height:50px;filter:drop-shadow(0 4px 12px #f59e0b88);">
-      <div style="width:38px;height:38px;background:#f59e0b;clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);display:flex;align-items:center;justify-content:center;font-size:18px;">🌐</div>
-      <div style="width:4px;height:12px;background:#f59e0b;margin:0 auto;border-radius:0 0 2px 2px;"></div>
-    </div>`,
-    iconSize: [38, 50],
-    iconAnchor: [19, 50],
-    popupAnchor: [0, -52],
+    html: `<div style="width:${radius * 2}px;height:${radius * 2}px;border-radius:50%;background:${color};border:1.5px solid #000a;opacity:0.75;"></div>`,
+    iconSize: [radius * 2, radius * 2], iconAnchor: [radius, radius],
   });
 }
 
+function makeReticle(tier: Tier) {
+  const c = TIER_CONFIG[tier].color;
+  return L.divIcon({
+    className: "",
+    html: `<div style="filter:drop-shadow(0 0 12px ${c});">
+      <svg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="30" cy="30" r="27" fill="none" stroke="${c}" stroke-width="1.2" stroke-dasharray="5 3" opacity="0.6"/>
+        <circle cx="30" cy="30" r="14" fill="none" stroke="${c}" stroke-width="1" opacity="0.5"/>
+        <circle cx="30" cy="30" r="4" fill="${c}"/>
+        <line x1="30" y1="2"  x2="30" y2="16" stroke="${c}" stroke-width="2"/>
+        <line x1="30" y1="44" x2="30" y2="58" stroke="${c}" stroke-width="2"/>
+        <line x1="2"  y1="30" x2="16" y2="30" stroke="${c}" stroke-width="2"/>
+        <line x1="44" y1="30" x2="58" y2="30" stroke="${c}" stroke-width="2"/>
+        <line x1="30" y1="2"  x2="30" y2="8"  stroke="${c}" stroke-width="3"/>
+        <line x1="30" y1="52" x2="30" y2="58" stroke="${c}" stroke-width="3"/>
+        <line x1="2"  y1="30" x2="8"  y2="30" stroke="${c}" stroke-width="3"/>
+        <line x1="52" y1="30" x2="58" y2="30" stroke="${c}" stroke-width="3"/>
+      </svg>
+    </div>`,
+    iconSize: [60, 60], iconAnchor: [30, 30], popupAnchor: [0, -32],
+  });
+}
+
+function makeIpSourcePin(color: string, idx: number) {
+  return L.divIcon({
+    className: "",
+    html: `<div style="width:22px;height:22px;border-radius:50%;background:${color};border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#000;">${idx}</div>`,
+    iconSize: [22, 22], iconAnchor: [11, 11], popupAnchor: [0, -13],
+  });
+}
+
+// ── Confidence gauge component ─────────────────────────────────────────────
+function ConfidenceGauge({ pct, tier, accuracyM }: { pct: number; tier: Tier; accuracyM: number }) {
+  const cfg = TIER_CONFIG[tier];
+  const r = 36;
+  const circ = 2 * Math.PI * r;
+  const filled = circ * (pct / 100);
+
+  const accStr = accuracyM < 1000
+    ? `±${Math.round(accuracyM)} m`
+    : `±${(accuracyM / 1000).toFixed(1)} km`;
+
+  return (
+    <div className="flex items-center gap-4">
+      <div className="relative w-20 h-20 shrink-0">
+        <svg width="80" height="80" viewBox="0 0 80 80">
+          <circle cx="40" cy="40" r={r} fill="none" stroke="rgba(255,255,255,.07)" strokeWidth="6"/>
+          <circle cx="40" cy="40" r={r} fill="none" stroke={cfg.color} strokeWidth="6"
+            strokeDasharray={`${filled} ${circ}`} strokeLinecap="round"
+            transform="rotate(-90 40 40)"
+            style={{ filter: `drop-shadow(0 0 6px ${cfg.glow})`, transition: "stroke-dasharray 0.6s ease" }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-base font-black" style={{ color: cfg.color }}>{pct}%</span>
+        </div>
+      </div>
+      <div>
+        <div className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-0.5">Confidence</div>
+        <div className="text-lg font-black tracking-wider" style={{ color: cfg.color, textShadow: `0 0 12px ${cfg.glow}` }}>
+          {cfg.label}
+        </div>
+        <div className="text-xs text-zinc-400 mt-0.5 font-mono">{accStr} accuracy radius</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Source agreement table ─────────────────────────────────────────────────
+function SourceTable({ intel, searchedIp }: { intel: IpIntel; searchedIp: string }) {
+  const SOURCE_COLORS = ["#38bdf8", "#a78bfa", "#fb923c", "#34d399"];
+  const agreeing = new Set<string>();
+  const { consensus, sources } = intel;
+
+  // A source "agrees" if it's within 50km of the consensus centroid
+  sources.forEach((s) => {
+    if (haversineKm(consensus.lat, consensus.lon, s.lat, s.lon) <= 50) {
+      agreeing.add(s.provider);
+    }
+  });
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">IP Geolocation Sources</span>
+        <span className="font-mono text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">{searchedIp}</span>
+      </div>
+      {sources.map((s, i) => {
+        const ok = agreeing.has(s.provider);
+        const loc = [s.city, s.regionName, s.country].filter(Boolean).join(", ");
+        const dist = haversineKm(consensus.lat, consensus.lon, s.lat, s.lon);
+        return (
+          <div key={s.provider} className="flex items-start gap-2 p-2 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
+            <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-black shrink-0 mt-0.5"
+              style={{ background: SOURCE_COLORS[i] }}>
+              {i + 1}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-zinc-200">{s.provider}</span>
+                {ok
+                  ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">✓ AGREES</span>
+                  : <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/15 border border-red-500/30 text-red-400">✗ OUTLIER</span>
+                }
+              </div>
+              <div className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                {s.lat.toFixed(5)}, {s.lon.toFixed(5)}
+                {dist > 0.1 && <span className="text-zinc-600"> · {dist < 1 ? `${(dist*1000).toFixed(0)}m` : `${dist.toFixed(1)}km`} from consensus</span>}
+              </div>
+              {loc && <div className="text-[10px] text-zinc-500">{loc}</div>}
+              {s.isp && <div className="text-[10px] text-zinc-600 truncate">{s.isp}</div>}
+            </div>
+          </div>
+        );
+      })}
+      {intel.flags.mobile && <div className="text-xs text-blue-400 flex items-center gap-1"><span>📶</span> Mobile carrier network</div>}
+      {intel.flags.proxy && <div className="text-xs text-red-400 flex items-center gap-1"><span>🔀</span> Proxy / VPN detected</div>}
+      {intel.flags.hosting && <div className="text-xs text-red-400 flex items-center gap-1"><span>🖥</span> Datacenter / hosting IP</div>}
+      {intel.asn && <div className="text-[10px] text-zinc-600 font-mono">{intel.asn}{intel.asnName ? ` · ${intel.asnName}` : ""}</div>}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────
 export default function IpLookupPage() {
   const { userId } = useAuth();
-  const [ip, setIp] = useState("");
+  const [ip, setIp]         = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase]   = useState<"idle" | "acquiring" | "done">("idle");
+  const [error, setError]   = useState<string | null>(null);
   const [result, setResult] = useState<LookupResult | null>(null);
 
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInst = useRef<L.Map | null>(null);
+  const mapRef    = useRef<HTMLDivElement>(null);
+  const mapInst   = useRef<L.Map | null>(null);
   const layersRef = useRef<L.Layer[]>([]);
 
-  // Init Leaflet map once
+  // Init Leaflet
   useEffect(() => {
     if (!mapRef.current || mapInst.current) return;
-    const map = L.map(mapRef.current, {
-      center: [20, 0],
-      zoom: 2,
-      zoomControl: true,
-    });
+    const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: true });
     L.tileLayer("https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", {
-      subdomains: ["0", "1", "2", "3"],
-      attribution: "Google Maps",
-      maxZoom: 20,
+      subdomains: ["0","1","2","3"], attribution: "Google Maps", maxZoom: 21,
     }).addTo(map);
     mapInst.current = map;
-    return () => {
-      map.remove();
-      mapInst.current = null;
-    };
+    return () => { map.remove(); mapInst.current = null; };
   }, []);
 
-  // Re-render pins whenever result changes
+  // Render all map layers whenever result changes
   useEffect(() => {
     const map = mapInst.current;
     if (!map) return;
 
-    // Clear old layers
     layersRef.current.forEach((l) => { try { map.removeLayer(l); } catch { /**/ } });
     layersRef.current = [];
-
     if (!result) return;
 
-    const points: [number, number][] = [];
+    const viewPoints: [number, number][] = [];
+    const SOURCE_COLORS = ["#38bdf8", "#a78bfa", "#fb923c", "#34d399"];
 
-    // Pin for each matched contact (GPS fix)
-    result.contacts.forEach((c, idx) => {
-      if (c.latitude != null && c.longitude != null) {
-        const color = c.status === "accepted" ? "#10b981" : "#6366f1";
-        const label = initials(c.toName, c.toPhone);
-        const marker = L.marker([c.latitude, c.longitude], { icon: makePin(color, label) });
-        const name = c.toName || c.toPhone;
-        const lastSeen = c.lastUpdate ? formatDistanceToNow(new Date(c.lastUpdate), { addSuffix: true }) : "—";
-        const actLabel = c.activityType ? `${ACTIVITY_INFO[c.activityType]?.icon} ${ACTIVITY_INFO[c.activityType]?.label}` : "";
-        const bat = c.batteryLevel != null ? `${c.batteryCharging ? "⚡" : "🔋"} ${c.batteryLevel}%` : "";
-        marker.bindPopup(`
-          <div style="font-family:system-ui,sans-serif;color:#f4f4f5;min-width:200px;">
-            <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${esc(name)}</div>
-            <div style="font-size:10px;color:#71717a;font-family:ui-monospace,monospace;margin-bottom:8px;">${esc(c.toPhone)}</div>
-            <div style="font-size:10px;color:#a1a1aa;">📍 GPS fix · ${esc(c.source ?? "unknown")} source</div>
-            ${c.address ? `<div style="font-size:10px;color:#71717a;margin-top:2px;">${esc(c.address.slice(0, 80))}</div>` : ""}
-            <div style="font-size:10px;color:#a1a1aa;margin-top:2px;">🕒 ${esc(lastSeen)}</div>
-            ${actLabel ? `<div style="font-size:10px;margin-top:2px;">${esc(actLabel)}${bat ? ` · ${esc(bat)}` : ""}</div>` : ""}
-            ${c.accuracy != null ? `<div style="font-size:10px;color:#a1a1aa;margin-top:2px;">🎯 ±${esc(Math.round(c.accuracy))}m accuracy</div>` : ""}
-            <div style="font-size:10px;color:#f59e0b;margin-top:4px;">Matched on: ${esc(c.matchedOn.join(", "))}</div>
+    // ── IP source uncertainty rings ──────────────────────────────────────────
+    const intel = result.ipIntel;
+    if ("consensus" in intel) {
+      const { consensus, sources } = intel;
+
+      // Large translucent uncertainty circle for the consensus
+      const uncertR = consensus.radiusKm * 1000;
+      const uncertCircle = L.circle([consensus.lat, consensus.lon], {
+        radius: Math.max(uncertR, 500),
+        color: "#f59e0b", fillColor: "#f59e0b",
+        fillOpacity: 0.04, weight: 1, dashArray: "6 4",
+      }).addTo(map);
+      layersRef.current.push(uncertCircle);
+
+      // Per-source pins + small rings
+      sources.forEach((s, i) => {
+        const color = SOURCE_COLORS[i] ?? "#aaa";
+        const pin = L.marker([s.lat, s.lon], { icon: makeIpSourcePin(color, i + 1) });
+        const loc = [s.city, s.regionName, s.country].filter(Boolean).join(", ");
+        pin.bindPopup(`
+          <div style="font-family:ui-monospace,monospace;font-size:11px;color:#f4f4f5;min-width:160px;">
+            <div style="font-weight:700;color:${esc(color)};margin-bottom:3px;">${esc(s.provider)}</div>
+            <div>${esc(s.lat.toFixed(5))}, ${esc(s.lon.toFixed(5))}</div>
+            ${loc ? `<div style="color:#a1a1aa;font-size:10px;">${esc(loc)}</div>` : ""}
+            ${s.isp ? `<div style="color:#71717a;font-size:10px;">${esc(s.isp)}</div>` : ""}
           </div>
         `);
-        marker.addTo(map);
-        layersRef.current.push(marker);
-        points.push([c.latitude, c.longitude]);
-      }
-    });
-
-    // Pin for IP geolocation (even if no GPS fix exists)
-    const geo = result.ipGeo;
-    if (geo && geo.lat != null && geo.lon != null && !geo.note) {
-      const ipMarker = L.marker([geo.lat, geo.lon], { icon: makeIpPin() });
-      const locStr = [geo.city, geo.regionName, geo.country].filter(Boolean).join(", ");
-      ipMarker.bindPopup(`
-        <div style="font-family:system-ui,sans-serif;color:#f4f4f5;min-width:180px;">
-          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">🌐 IP Geolocation</div>
-          <div style="font-size:10px;font-family:ui-monospace,monospace;color:#fcd34d;">${esc(result.searchedIp)}</div>
-          ${locStr ? `<div style="font-size:10px;color:#a1a1aa;margin-top:4px;">📍 ${esc(locStr)}</div>` : ""}
-          ${geo.isp ? `<div style="font-size:10px;color:#a1a1aa;margin-top:2px;">🏢 ${esc(geo.isp)}</div>` : ""}
-          ${geo.mobile ? `<div style="font-size:10px;color:#60a5fa;margin-top:2px;">📶 Mobile network</div>` : ""}
-          ${geo.proxy ? `<div style="font-size:10px;color:#f87171;margin-top:2px;">🔀 Proxy / VPN detected</div>` : ""}
-          ${geo.hosting ? `<div style="font-size:10px;color:#f87171;margin-top:2px;">🖥 Datacenter / hosting</div>` : ""}
-          <div style="font-size:9px;color:#52525b;margin-top:6px;">⚠ Approximate — not GPS</div>
-        </div>
-      `);
-      ipMarker.addTo(map);
-      layersRef.current.push(ipMarker);
-      points.push([geo.lat, geo.lon]);
+        pin.addTo(map);
+        layersRef.current.push(pin);
+        viewPoints.push([s.lat, s.lon]);
+      });
     }
 
-    // Fit map to all points
-    if (points.length === 1) {
-      map.setView(points[0], 13);
-    } else if (points.length > 1) {
-      map.fitBounds(L.latLngBounds(points).pad(0.15), { maxZoom: 15 });
-    } else {
-      map.setView([20, 0], 2);
+    // ── Per-contact GPS trails + accuracy rings ──────────────────────────────
+    result.contacts.forEach((c) => {
+      if (!c.hasGpsfix || c.latitude == null || c.longitude == null) return;
+
+      const pinColor = c.source === "gps" ? "#00ff88" : c.source === "fused" ? "#10b981" : "#60a5fa";
+      const trail = c.locationHistory.filter((h) => isFinite(h.lat) && isFinite(h.lng));
+
+      // History dots (oldest → newest)
+      trail.slice(1).forEach((h) => {
+        const dot = L.marker([h.lat, h.lng], { icon: makeHistoryDot(pinColor, 4) });
+        dot.bindPopup(`
+          <div style="font-family:ui-monospace,monospace;font-size:10px;color:#a1a1aa;">
+            ${esc(h.lat.toFixed(6))}, ${esc(h.lng.toFixed(6))}<br/>
+            ${h.accuracy != null ? `±${esc(Math.round(h.accuracy))}m` : ""} · ${esc(h.source ?? "?")}
+            <br/>${esc(formatDistanceToNow(new Date(h.ts), { addSuffix: true }))}
+          </div>`);
+        dot.addTo(map);
+        layersRef.current.push(dot);
+      });
+
+      // Trail polyline
+      if (trail.length >= 2) {
+        const line = L.polyline(
+          trail.map((h) => [h.lat, h.lng] as [number, number]),
+          { color: pinColor, weight: 2, opacity: 0.45, dashArray: "4 3" },
+        ).addTo(map);
+        layersRef.current.push(line);
+      }
+
+      // Accuracy circle on latest fix
+      if (c.accuracy != null && c.accuracy < 5000) {
+        const ring = L.circle([c.latitude, c.longitude], {
+          radius: Math.max(c.accuracy, 5),
+          color: pinColor, fillColor: pinColor, fillOpacity: 0.08, weight: 1.5,
+        }).addTo(map);
+        layersRef.current.push(ring);
+      }
+
+      // GPS pin (pulsing if recent)
+      const ageMin = c.lastUpdate
+        ? (Date.now() - new Date(c.lastUpdate).getTime()) / 60000 : 9999;
+      const pin = L.marker([c.latitude, c.longitude], {
+        icon: makeGpsPin(pinColor, initials(c.toName, c.toPhone), ageMin < 10),
+        zIndexOffset: 500,
+      });
+      const actStr = c.activityType ? `${ACTIVITY[c.activityType]?.icon} ${ACTIVITY[c.activityType]?.label}` : "";
+      const batStr = c.batteryLevel != null ? `${c.batteryCharging ? "⚡" : "🔋"} ${c.batteryLevel}%` : "";
+      const mv = c.movementVector;
+      pin.bindPopup(`
+        <div style="font-family:system-ui,sans-serif;color:#f4f4f5;min-width:200px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:2px;">${esc(c.toName || c.toPhone)}</div>
+          ${c.toName ? `<div style="font-size:10px;color:#71717a;font-family:ui-monospace,monospace;margin-bottom:6px;">${esc(c.toPhone)}</div>` : ""}
+          <div style="font-size:11px;font-family:ui-monospace,monospace;font-weight:700;color:${esc(pinColor)};">${esc(c.latitude.toFixed(7))}, ${esc(c.longitude.toFixed(7))}</div>
+          ${c.address ? `<div style="font-size:10px;color:#71717a;margin-top:2px;">${esc(c.address.slice(0, 85))}</div>` : ""}
+          <div style="font-size:10px;color:#a1a1aa;margin-top:3px;">🛰 ${esc(c.source ?? "?")} · ${c.accuracy != null ? `±${esc(Math.round(c.accuracy))}m` : "?"} · ${esc(formatDistanceToNow(new Date(c.lastUpdate ?? ""), { addSuffix: true }))}</div>
+          ${actStr ? `<div style="font-size:10px;margin-top:2px;">${esc(actStr)}${batStr ? ` · ${esc(batStr)}` : ""}</div>` : ""}
+          ${mv ? `<div style="font-size:10px;color:#fcd34d;margin-top:3px;">➤ ${esc(mv.bearingDeg.toFixed(0))}° · ${esc(mv.speedKmh)} km/h · ${esc(mv.distanceM)}m travelled</div>` : ""}
+          <div style="font-size:10px;color:#f59e0b;margin-top:4px;">📌 ${esc(c.locationHistory.length)} fixes on record</div>
+        </div>
+      `);
+      pin.addTo(map);
+      layersRef.current.push(pin);
+      viewPoints.push([c.latitude, c.longitude]);
+    });
+
+    // ── Best-estimate reticle ────────────────────────────────────────────────
+    const be = result.bestEstimate;
+    if (be) {
+      const reticle = L.marker([be.lat, be.lon], { icon: makeReticle(be.tier), zIndexOffset: 1000 });
+      const tier = TIER_CONFIG[be.tier];
+      reticle.bindPopup(`
+        <div style="font-family:ui-monospace,monospace;color:#f4f4f5;min-width:210px;">
+          <div style="font-weight:800;font-size:13px;color:${esc(tier.color)};letter-spacing:.05em;margin-bottom:4px;">◎ BEST ESTIMATE — ${esc(be.tier)}</div>
+          <div style="font-size:11px;font-weight:700;">${esc(be.lat.toFixed(7))}, ${esc(be.lon.toFixed(7))}</div>
+          <div style="font-size:10px;color:#a1a1aa;margin-top:3px;">${esc(be.method)}</div>
+          <div style="font-size:10px;color:${esc(tier.color)};margin-top:2px;">Confidence: ${esc(be.confidencePct)}%</div>
+        </div>
+      `);
+      reticle.addTo(map);
+      layersRef.current.push(reticle);
+      if (!viewPoints.some(([la, ln]) => haversineKm(la, ln, be.lat, be.lon) < 0.1)) {
+        viewPoints.push([be.lat, be.lon]);
+      }
+    }
+
+    // Fit view
+    if (viewPoints.length === 1) {
+      const hasGps = result.contacts.some((c) => c.hasGpsfix);
+      map.setView(viewPoints[0], hasGps ? 16 : 10);
+    } else if (viewPoints.length > 1) {
+      map.fitBounds(L.latLngBounds(viewPoints).pad(0.18), { maxZoom: 17 });
     }
   }, [result]);
 
   const handleSearch = async () => {
     if (!ip.trim() || !userId) return;
     setLoading(true);
+    setPhase("acquiring");
     setError(null);
     setResult(null);
     try {
       const r = await fetch(`${API_BASE}/api/ip-lookup?ip=${encodeURIComponent(ip.trim())}&userId=${userId}`);
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
-        throw new Error(body.error || `HTTP ${r.status}`);
+        throw new Error((body as Record<string, string>).error || `HTTP ${r.status}`);
       }
       const data: LookupResult = await r.json();
       setResult(data);
+      setPhase("done");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Search failed");
+      setPhase("idle");
     } finally {
       setLoading(false);
     }
   };
 
-  const geo = result?.ipGeo;
-  const geoLocStr = geo ? [geo.city, geo.regionName, geo.country].filter(Boolean).join(", ") : null;
-  const hasGpsContacts = result?.contacts.some((c) => c.hasGpsfix);
+  const be   = result?.bestEstimate;
+  const tier = be ? TIER_CONFIG[be.tier] : null;
+  const ipIntel = result?.ipIntel;
+  const hasConsensus = ipIntel && "consensus" in ipIntel;
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-3 duration-400">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-3 mb-1">
-          <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
-            <Wifi className="w-5 h-5 text-amber-400" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">IP Lookup</h1>
+    <div className="space-y-5 animate-in fade-in slide-in-from-bottom-3 duration-400">
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="flex items-start gap-3">
+        <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 shrink-0">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="6"/>
+            <line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/>
+            <line x1="18" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="3"/>
+          </svg>
         </div>
-        <p className="text-sm text-muted-foreground ml-14">
-          Find a contact by their IP address — shows their last known GPS location and network identity.
-        </p>
+        <div>
+          <h1 className="text-2xl font-black tracking-tight">IP Target Locator</h1>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            4-source triangulation · GPS trail analysis · movement vector · confidence scoring
+          </p>
+        </div>
       </div>
 
-      {/* Search bar */}
+      {/* ── Search ─────────────────────────────────────────────────────────── */}
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-mono text-xs pointer-events-none select-none">IP›</span>
           <input
-            type="text"
-            value={ip}
+            type="text" value={ip}
             onChange={(e) => setIp(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            placeholder="Enter IP address, e.g. 41.58.73.12"
-            className="w-full pl-9 pr-4 py-2.5 bg-zinc-900 border border-zinc-700 rounded-xl text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500/60 font-mono"
+            placeholder="41.58.73.12 or 2a02:26f0:..."
+            className="w-full pl-10 pr-4 py-3 bg-zinc-950 border border-zinc-700 rounded-xl text-sm text-green-300 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500/50 font-mono tracking-wide"
           />
         </div>
         <button
           onClick={handleSearch}
           disabled={loading || !ip.trim()}
-          className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-black font-semibold text-sm rounded-xl transition-all shadow-lg shadow-amber-500/20"
+          className="flex items-center gap-2 px-6 py-3 rounded-xl font-black text-sm tracking-widest uppercase transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            background: loading ? "rgba(245,158,11,.2)" : "#f59e0b",
+            color: loading ? "#f59e0b" : "#000",
+            border: loading ? "1px solid rgba(245,158,11,.4)" : "none",
+            boxShadow: loading ? "none" : "0 0 20px rgba(245,158,11,.35)",
+          }}
         >
-          {loading ? (
-            <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-          ) : (
-            <Search className="w-4 h-4" />
-          )}
-          {loading ? "Searching…" : "Search"}
+          {loading
+            ? <><span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin"/><span className="text-xs">Acquiring…</span></>
+            : <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Lock On</>
+          }
         </button>
       </div>
 
-      {/* Error */}
+      {/* ── Acquiring animation ────────────────────────────────────────────── */}
+      {phase === "acquiring" && (
+        <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl flex items-center gap-3">
+          <div className="flex gap-1">
+            {[0,1,2,3].map(i => (
+              <div key={i} className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: `${i * 0.12}s` }}/>
+            ))}
+          </div>
+          <span className="text-xs font-bold text-amber-400 tracking-widest uppercase">
+            Querying 4 geolocation sources · analysing GPS history · computing triangulation…
+          </span>
+        </div>
+      )}
+
+      {/* ── Error ──────────────────────────────────────────────────────────── */}
       {error && (
         <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           {error}
         </div>
       )}
 
-      {/* Map */}
+      {/* ── Best estimate banner ───────────────────────────────────────────── */}
+      {be && tier && (
+        <div className="p-4 rounded-2xl" style={{ background: tier.bg, border: `1px solid ${tier.border}` }}>
+          <div className="flex items-center gap-4 flex-wrap">
+            <ConfidenceGauge pct={be.confidencePct} tier={be.tier} accuracyM={be.accuracyM} />
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="text-[10px] font-bold tracking-widest uppercase text-zinc-500">Best estimate · {be.source === "gps" ? "GPS" : "IP Triangulation"}</div>
+              <div className="font-mono text-sm font-bold" style={{ color: tier.color }}>
+                {be.lat.toFixed(7)}, {be.lon.toFixed(7)}
+              </div>
+              <div className="text-xs text-zinc-400">{be.method}</div>
+              {be.contactName && <div className="text-xs text-zinc-500">Contact: {be.contactName} · {be.contactPhone}</div>}
+            </div>
+            <a
+              href={`https://www.google.com/maps?q=${be.lat},${be.lon}`}
+              target="_blank" rel="noreferrer"
+              className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+              style={{ background: `${tier.color}20`, border: `1px solid ${tier.color}40`, color: tier.color }}
+            >
+              Open in Maps ↗
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* ── Map ────────────────────────────────────────────────────────────── */}
       <div
         ref={mapRef}
-        className="w-full rounded-2xl border border-zinc-700 overflow-hidden"
-        style={{ height: 400 }}
+        className="w-full rounded-2xl overflow-hidden"
+        style={{
+          height: 500,
+          border: `1px solid ${tier ? tier.border : "rgba(63,63,70,.5)"}`,
+          boxShadow: tier ? `0 0 30px ${tier.glow}` : undefined,
+        }}
       />
 
-      {/* Results */}
+      {/* Map legend */}
+      {result && (result.contacts.some(c => c.hasGpsfix) || hasConsensus) && (
+        <div className="flex flex-wrap gap-3 text-[10px] text-zinc-500 font-mono px-1">
+          <span><span style={{ color: "#00ff88" }}>◉</span> GPS fix (precise)</span>
+          <span><span className="opacity-40">●</span> History trail dot</span>
+          <span><span style={{ color: "#f59e0b" }}>◎</span> Reticle = best estimate</span>
+          <span><span style={{ color: "#38bdf8" }}>①</span> IP source pin</span>
+          <span>Dashed ring = IP uncertainty radius</span>
+        </div>
+      )}
+
+      {/* ── Results grid ───────────────────────────────────────────────────── */}
       {result && (
-        <div className="space-y-4">
-          {/* IP geo summary */}
-          {geo && (
-            <div className="p-4 bg-amber-500/6 border border-amber-500/20 rounded-2xl space-y-3">
-              <div className="flex items-center gap-2">
-                <Wifi className="w-4 h-4 text-amber-400" />
-                <span className="text-sm font-semibold text-amber-300">IP Intelligence</span>
-                <span className="ml-auto font-mono text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">{result.searchedIp}</span>
-              </div>
-              {geo.note ? (
-                <p className="text-xs text-zinc-400 flex items-center gap-1.5"><Info className="w-3 h-3" />{geo.note}</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-                  {geoLocStr && <div className="col-span-2"><span className="text-zinc-500">Location</span> <span className="text-zinc-200">{geoLocStr}</span></div>}
-                  {geo.isp && <div><span className="text-zinc-500">ISP</span> <span className="text-zinc-200">{geo.isp}</span></div>}
-                  {geo.org && geo.org !== geo.isp && <div><span className="text-zinc-500">Org</span> <span className="text-zinc-200">{geo.org}</span></div>}
-                  <div className="col-span-2 flex gap-3 mt-1">
-                    {geo.mobile && <span className="text-blue-400 flex items-center gap-1"><span>📶</span> Mobile network</span>}
-                    {geo.proxy && <span className="text-red-400 flex items-center gap-1"><span>🔀</span> Proxy/VPN</span>}
-                    {geo.hosting && <span className="text-red-400 flex items-center gap-1"><span>🖥</span> Datacenter</span>}
-                    {!geo.mobile && !geo.proxy && !geo.hosting && <span className="text-zinc-500">No anomaly flags</span>}
-                  </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+          {/* IP Intelligence panel */}
+          <div className="p-4 bg-zinc-900/80 border border-zinc-700 rounded-2xl space-y-3">
+            {hasConsensus
+              ? <SourceTable intel={ipIntel as IpIntel} searchedIp={result.searchedIp} />
+              : <div className="text-xs text-zinc-400 flex items-center gap-2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  {(ipIntel as { note: string }).note}
                 </div>
-              )}
-            </div>
-          )}
+            }
+          </div>
 
-          {/* Contact matches */}
-          {result.contacts.length === 0 ? (
-            <div className="p-6 bg-zinc-900 border border-zinc-700 rounded-2xl text-center space-y-2">
-              <Shield className="w-8 h-8 text-zinc-600 mx-auto" />
-              <p className="text-sm text-zinc-400">No contacts matched this IP address.</p>
-              <p className="text-xs text-zinc-600">
-                {geo && !geo.note ? "The IP was geolocated and shown on the map, but it doesn't match any invite." : "Try a different address."}
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-emerald-400" />
-                <span className="text-sm font-semibold text-emerald-300">
-                  {result.contacts.length} contact{result.contacts.length !== 1 ? "s" : ""} matched
-                </span>
-                {hasGpsContacts && <span className="text-xs text-zinc-500 ml-auto">Green pin = GPS fix · Yellow pin = IP only</span>}
+          {/* Contact matches panel */}
+          <div className="space-y-3">
+            {result.contacts.length === 0 ? (
+              <div className="p-5 bg-zinc-900 border border-zinc-700 rounded-2xl text-center space-y-2">
+                <div className="text-zinc-600 text-2xl">🔍</div>
+                <p className="text-sm text-zinc-400">No contacts matched this IP.</p>
+                <p className="text-xs text-zinc-600">IP was geolocated and shown on the map.</p>
               </div>
-              <div className="space-y-3">
-                {result.contacts.map((c) => {
-                  const name = c.toName || c.toPhone;
-                  const lastSeen = c.lastUpdate ? formatDistanceToNow(new Date(c.lastUpdate), { addSuffix: true }) : null;
-                  const openedAgo = c.openedAt ? formatDistanceToNow(new Date(c.openedAt), { addSuffix: true }) : null;
-                  const act = c.activityType ? ACTIVITY_INFO[c.activityType] : null;
-                  const ipMatchIsp = (c.ipInfo as Record<string, unknown> | null)?.isp as string | undefined;
-                  const ipMatchCity = (c.ipInfo as Record<string, unknown> | null)?.city as string | undefined;
-                  const ipMatchCountry = (c.ipInfo as Record<string, unknown> | null)?.country as string | undefined;
+            ) : (
+              result.contacts.map((c) => {
+                const pinColor = c.source === "gps" ? "#00ff88" : c.source === "fused" ? "#10b981" : "#60a5fa";
+                const lastSeen = c.lastUpdate ? formatDistanceToNow(new Date(c.lastUpdate), { addSuffix: true }) : null;
+                const openedAgo = c.openedAt ? formatDistanceToNow(new Date(c.openedAt), { addSuffix: true }) : null;
+                const mv = c.movementVector;
+                const totalFixes = c.locationHistory.length;
+                const gpsFixes = c.locationHistory.filter(h => h.source === "gps" || h.source === "fused").length;
+                const qualityPct = totalFixes > 0 ? Math.round(gpsFixes / totalFixes * 100) : 0;
 
-                  return (
-                    <div
-                      key={c.inviteId}
-                      className="p-4 bg-zinc-900 border border-zinc-700 rounded-2xl space-y-3"
-                    >
-                      {/* Contact header */}
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center font-bold text-sm text-emerald-400">
-                          {initials(c.toName, c.toPhone)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm text-zinc-100 truncate">{name}</div>
-                          {c.toName && <div className="text-xs text-zinc-500 font-mono">{c.toPhone}</div>}
-                        </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
-                            c.status === "accepted"
-                              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                              : c.status === "pending"
-                              ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
-                              : "bg-zinc-700 border-zinc-600 text-zinc-400"
-                          }`}>
-                            {c.status}
-                          </span>
-                          {c.hasGpsfix
-                            ? <span className="text-xs text-emerald-500 flex items-center gap-1"><MapPin className="w-3 h-3" />GPS fix</span>
-                            : <span className="text-xs text-amber-500 flex items-center gap-1"><Wifi className="w-3 h-3" />IP only</span>
-                          }
-                        </div>
+                return (
+                  <div key={c.inviteId} className="p-4 bg-zinc-900 border border-zinc-700 rounded-2xl space-y-3">
+                    {/* Header */}
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0"
+                        style={{ background: `${pinColor}18`, border: `1.5px solid ${pinColor}40`, color: pinColor }}>
+                        {initials(c.toName, c.toPhone)}
                       </div>
-
-                      {/* Location info */}
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs border-t border-zinc-800 pt-3">
-                        {c.latitude != null && c.longitude != null && (
-                          <div className="col-span-2">
-                            <span className="text-zinc-500">Coordinates</span>{" "}
-                            <span className="text-zinc-200 font-mono">{c.latitude.toFixed(6)}, {c.longitude.toFixed(6)}</span>
-                          </div>
-                        )}
-                        {c.address && (
-                          <div className="col-span-2">
-                            <span className="text-zinc-500">Address</span>{" "}
-                            <span className="text-zinc-300">{c.address.slice(0, 90)}</span>
-                          </div>
-                        )}
-                        {lastSeen && (
-                          <div className="flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-zinc-600" />
-                            <span className="text-zinc-500">Last seen</span>{" "}
-                            <span className="text-zinc-300">{lastSeen}</span>
-                          </div>
-                        )}
-                        {c.source && (
-                          <div><span className="text-zinc-500">GPS source</span> <span className="text-zinc-300">{c.source}</span></div>
-                        )}
-                        {c.accuracy != null && (
-                          <div><span className="text-zinc-500">Accuracy</span> <span className="text-zinc-300">±{Math.round(c.accuracy)}m</span></div>
-                        )}
-                        {act && (
-                          <div>{act.icon} <span className="text-zinc-300">{act.label}</span>
-                            {c.batteryLevel != null && <span className="text-zinc-500"> · {c.batteryCharging ? "⚡" : "🔋"} {c.batteryLevel}%</span>}
-                          </div>
-                        )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-sm text-zinc-100 truncate">{c.toName || c.toPhone}</div>
+                        {c.toName && <div className="text-xs text-zinc-500 font-mono">{c.toPhone}</div>}
                       </div>
-
-                      {/* IP match details */}
-                      <div className="border-t border-zinc-800 pt-3 text-xs space-y-1">
-                        <div className="text-zinc-500 font-semibold uppercase tracking-wider text-[10px] mb-1.5">IP Match Details</div>
-                        <div className="flex flex-wrap gap-2">
-                          {c.openedIp && (
-                            <span className="font-mono px-2 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">
-                              Open: {c.openedIp}
-                            </span>
-                          )}
-                          {c.grantedIp && c.grantedIp !== c.openedIp && (
-                            <span className="font-mono px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded text-amber-300">
-                              Grant: {c.grantedIp}
-                            </span>
-                          )}
-                          {c.grantedIp && c.grantedIp === c.openedIp && (
-                            <span className="text-zinc-500 text-[10px]">Same IP at open &amp; grant</span>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-0.5 mt-1 text-zinc-400">
-                          {openedAgo && <span>🔗 Link opened {openedAgo}</span>}
-                          {ipMatchIsp && <span>🏢 {ipMatchIsp}{ipMatchCity ? ` · ${ipMatchCity}` : ""}{ipMatchCountry ? `, ${ipMatchCountry}` : ""}</span>}
-                        </div>
-                        {c.matchedOn.length > 0 && (
-                          <div className="text-amber-500/70 text-[10px] mt-1">
-                            Matched on: {c.matchedOn.join(", ")}
-                          </div>
-                        )}
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          c.status === "accepted" ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                          : "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                        }`}>{c.status.toUpperCase()}</span>
+                        {c.hasGpsfix
+                          ? <span className="text-[10px] font-bold" style={{ color: pinColor }}>🛰 GPS {c.source?.toUpperCase()}</span>
+                          : <span className="text-[10px] text-amber-400">🌐 IP ONLY</span>
+                        }
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+
+                    {/* Coordinates */}
+                    {c.latitude != null && c.longitude != null && (
+                      <div className="p-2.5 bg-zinc-950 rounded-lg border border-zinc-800 font-mono">
+                        <div className="text-xs font-bold" style={{ color: pinColor }}>
+                          {c.latitude.toFixed(7)}, {c.longitude.toFixed(7)}
+                        </div>
+                        {c.address && <div className="text-[10px] text-zinc-500 mt-0.5 truncate">{c.address}</div>}
+                        <div className="flex gap-3 mt-1 text-[10px] text-zinc-600">
+                          {c.accuracy != null && <span>±{Math.round(c.accuracy)}m</span>}
+                          {lastSeen && <span>🕒 {lastSeen}</span>}
+                          {c.batteryLevel != null && <span>{c.batteryCharging ? "⚡" : "🔋"}{c.batteryLevel}%</span>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Movement vector */}
+                    {mv && (
+                      <div className="p-2.5 bg-amber-500/5 border border-amber-500/15 rounded-lg">
+                        <div className="text-[10px] text-amber-400/60 uppercase tracking-widest font-bold mb-1">Movement Vector</div>
+                        <div className="flex gap-4 text-xs font-mono">
+                          <span className="text-amber-300">⬆ {mv.bearingDeg.toFixed(1)}°</span>
+                          <span className="text-zinc-300">{mv.speedKmh} km/h</span>
+                          <span className="text-zinc-400">{mv.distanceM}m displaced</span>
+                          <span className="text-zinc-600">{mv.ageSecs < 60 ? `${mv.ageSecs}s ago` : `${Math.round(mv.ageSecs/60)}m ago`}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Fix stats */}
+                    <div className="flex gap-3 text-[10px] font-mono text-zinc-500">
+                      <span>{totalFixes} location fixes</span>
+                      <span style={{ color: pinColor }}>{gpsFixes} GPS-quality</span>
+                      {totalFixes > 0 && <span>{qualityPct}% precision</span>}
+                    </div>
+
+                    {/* IP match */}
+                    <div className="border-t border-zinc-800 pt-2.5 text-[10px] space-y-1">
+                      <div className="flex flex-wrap gap-1.5">
+                        {c.openedIp && (
+                          <span className="font-mono px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-400">
+                            OPEN: {c.openedIp}
+                          </span>
+                        )}
+                        {c.grantedIp && c.grantedIp !== c.openedIp && (
+                          <span className="font-mono px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded text-amber-300">
+                            GRANT: {c.grantedIp}
+                          </span>
+                        )}
+                        {c.grantedIp && c.grantedIp === c.openedIp && (
+                          <span className="text-zinc-600">Same IP at open &amp; grant</span>
+                        )}
+                      </div>
+                      {openedAgo && <div className="text-zinc-600">🔗 Link opened {openedAgo}</div>}
+                    </div>
+
+                    {/* Location history mini-timeline */}
+                    {totalFixes > 1 && (
+                      <details className="text-[10px]">
+                        <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300 font-mono select-none">
+                          ▸ History ({totalFixes} fixes)
+                        </summary>
+                        <div className="mt-2 space-y-1 max-h-40 overflow-y-auto pr-1">
+                          {c.locationHistory.slice(0, 30).map((h, i) => (
+                            <div key={i} className="flex gap-2 items-center font-mono text-zinc-600">
+                              <span className="shrink-0" style={{ color: h.source === "gps" || h.source === "fused" ? pinColor : "#71717a" }}>●</span>
+                              <span className="text-zinc-400">{h.lat.toFixed(5)}, {h.lng.toFixed(5)}</span>
+                              {h.accuracy != null && <span>±{Math.round(h.accuracy)}m</span>}
+                              <span className="text-zinc-700 shrink-0">{format(new Date(h.ts), "MM/dd HH:mm")}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 
       {/* Empty state */}
       {!result && !loading && (
-        <div className="p-8 bg-zinc-900/50 border border-zinc-800 border-dashed rounded-2xl text-center space-y-2">
-          <Wifi className="w-10 h-10 text-zinc-600 mx-auto" />
-          <p className="text-sm text-zinc-400">Enter an IP address above and click Search.</p>
-          <p className="text-xs text-zinc-600 max-w-sm mx-auto">
-            Works with any IP captured when a contact opened or granted your invite link — online or offline.
+        <div className="p-10 bg-zinc-950 border border-zinc-800 border-dashed rounded-2xl text-center space-y-3">
+          <div className="text-5xl opacity-20">◎</div>
+          <p className="text-sm text-zinc-500 font-mono">AWAITING TARGET IP</p>
+          <p className="text-xs text-zinc-700 max-w-sm mx-auto leading-relaxed">
+            Queries 4 independent geolocation sources simultaneously, cross-references GPS history,
+            computes a triangulated consensus with confidence score.
           </p>
         </div>
       )}
+
+      {/* CSS for pulsing pin */}
+      <style>{`
+        @keyframes pl-pulse {
+          0%   { transform: scale(1); opacity: 0.6; }
+          70%  { transform: scale(2.8); opacity: 0; }
+          100% { transform: scale(2.8); opacity: 0; }
+        }
+      `}</style>
     </div>
   );
 }
