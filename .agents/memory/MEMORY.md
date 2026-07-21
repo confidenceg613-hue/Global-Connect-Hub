@@ -16,3 +16,4 @@
 - [api-server dev is build+run, not a watcher](api-server-dev-script.md) — editing a .ts route/schema file needs a workflow restart to take effect; HMR only covers the Vite frontend.
 - [Express route prefix gotcha](express-route-prefix.md) — app.ts mounts the entire router at `/api`; routes inside router files must NOT include `/api` prefix (e.g. use `/guardian/brief` not `/api/guardian/brief`).
 - [Guardian Brief feature](guardian-brief.md) — AI-generated natural-language situation reports per contact; GET /api/guardian/brief?userId=X; page at /guardian; dashboard quick-action entry.
+- [Invite sessions (permanent reusable links)](invite-sessions.md) — each consent link click creates a new invite_sessions row; location_updates always stored under inviteToken (not sessionToken) so all read endpoints stay intact.

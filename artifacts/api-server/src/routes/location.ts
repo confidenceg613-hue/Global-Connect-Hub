@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, desc, and, lt, gte, sql } from "drizzle-orm";
-import { db, locationUpdatesTable, invitesTable, geofencesTable } from "@workspace/db";
+import { db, locationUpdatesTable, invitesTable, inviteSessionsTable, geofencesTable } from "@workspace/db";
 import { z } from "zod";
 import { sendPushAndLog, haversineMeters } from "../lib/notifications";
 
@@ -106,26 +106,51 @@ router.post("/location/push", async (req, res): Promise<void> => {
       }
     : deviceInfo;
 
+  // Resolve: token may be a sessionToken (new flow) or an inviteToken (legacy/direct).
+  // Try session lookup first; fall back to direct invite lookup.
+  let inviteToken = token;
+  let sessionForToken: { inviteToken: string } | null = null;
+  const [maybeSession] = await db
+    .select({ inviteToken: inviteSessionsTable.inviteToken })
+    .from(inviteSessionsTable)
+    .where(eq(inviteSessionsTable.sessionToken, token))
+    .limit(1);
+
+  if (maybeSession) {
+    sessionForToken = maybeSession;
+    inviteToken = maybeSession.inviteToken;
+  }
+
+  // Always store location updates under the invite token so all existing read endpoints
+  // (latest, history, SSE stream initial payload, staleness detector) keep working
+  // regardless of whether the push came from a session token or the invite token directly.
+  const storeToken = inviteToken;
+
   // Run the two reads in parallel — neither depends on the other
   const [[prev], [invite], [update]] = await Promise.all([
     db
       .select()
       .from(locationUpdatesTable)
-      .where(eq(locationUpdatesTable.token, token))
+      .where(eq(locationUpdatesTable.token, storeToken))
       .orderBy(desc(locationUpdatesTable.createdAt))
       .limit(1),
     db
       .select()
       .from(invitesTable)
-      .where(eq(invitesTable.token, token)),
+      .where(eq(invitesTable.token, inviteToken)),
     db
       .insert(locationUpdatesTable)
-      .values({ token, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType, deviceInfo: enrichedDeviceInfo })
+      .values({ token: storeToken, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType, deviceInfo: enrichedDeviceInfo })
       .returning(),
   ]);
 
-  // Broadcast SSE immediately so the owner's map updates in real-time
-  broadcastToToken(token, { lat: latitude, lng: longitude, accuracy, source, address, status, timestamp: update.createdAt });
+  // Broadcast SSE on the invite token channel (owner's dashboard map)
+  broadcastToToken(inviteToken, { lat: latitude, lng: longitude, accuracy, source, address, status, timestamp: update.createdAt });
+  // Also broadcast on the session token channel if this came from a session push
+  // (enables per-session SSE streams in future dashboard features)
+  if (sessionForToken && token !== inviteToken) {
+    broadcastToToken(token, { lat: latitude, lng: longitude, accuracy, source, address, status, timestamp: update.createdAt });
+  }
 
   // Respond to the contact's device right away — notifications and geofence
   // checks run fully in the background and must not delay the 200 OK.

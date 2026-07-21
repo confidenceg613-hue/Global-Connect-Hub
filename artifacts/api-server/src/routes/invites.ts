@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
 /** Extract the real client IP, respecting common proxy headers. */
@@ -29,7 +29,7 @@ async function lookupIp(ip: string): Promise<Record<string, unknown> | null> {
 function shortToken(): string {
   return randomBytes(6).toString("base64url"); // 8 URL-safe chars
 }
-import { db, invitesTable, usersTable } from "@workspace/db";
+import { db, invitesTable, usersTable, inviteSessionsTable } from "@workspace/db";
 import { sendPushAndLog } from "../lib/notifications.js";
 import { consumeAccess, BANK_DETAILS } from "../lib/access-control.js";
 import {
@@ -160,15 +160,52 @@ router.get("/invites/by-token/:token", async (req, res): Promise<void> => {
     .from(usersTable)
     .where(eq(usersTable.id, invite.fromUserId));
 
+  // Count sessions so the consent page can show "Xth time" messaging
+  const sessions = await db
+    .select()
+    .from(inviteSessionsTable)
+    .where(eq(inviteSessionsTable.inviteToken, invite.token));
+
   res.json({
     token: invite.token,
     fromUserName: sender?.name ?? "Someone",
+    // Always return "accepted" semantics if the link has been used before,
+    // but never block re-use — the link is permanent.
     status: invite.status,
     consentType: invite.consentType,
     grantedLatitude: invite.grantedLatitude,
     grantedLongitude: invite.grantedLongitude,
     grantedAt: invite.grantedAt,
+    sessionCount: sessions.length,
   });
+});
+
+// GET /invites/by-token/:token/sessions — list all sessions for this invite (dashboard)
+router.get("/invites/by-token/:token/sessions", async (req, res): Promise<void> => {
+  const params = GetInviteByTokenParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  // Verify the invite exists
+  const [invite] = await db
+    .select({ id: invitesTable.id })
+    .from(invitesTable)
+    .where(eq(invitesTable.token, params.data.token));
+
+  if (!invite) {
+    res.status(404).json({ error: "Invite not found" });
+    return;
+  }
+
+  const sessions = await db
+    .select()
+    .from(inviteSessionsTable)
+    .where(eq(inviteSessionsTable.inviteToken, params.data.token))
+    .orderBy(desc(inviteSessionsTable.createdAt));
+
+  res.json(sessions);
 });
 
 router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> => {
@@ -194,36 +231,56 @@ router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> =>
     return;
   }
 
-  const alreadyGranted = existing.status === "accepted";
-
   const grantedIp = getClientIp(req);
+  const isFirstGrant = existing.status !== "accepted";
 
-  const [updated] = await db
-    .update(invitesTable)
-    .set({
-      status: "accepted",
+  // --- Create a new session for this grant (permanent reuse: one session per click) ---
+  const sessionToken = shortToken();
+  const [session] = await db
+    .insert(inviteSessionsTable)
+    .values({
+      inviteToken: params.data.token,
+      sessionToken,
+      grantedAt: new Date(),
       grantedLatitude: body.data.latitude,
       grantedLongitude: body.data.longitude,
       grantedAddress: body.data.address,
       grantedIp,
-      // Only stamp grantedAt on the first grant, not on re-opens
-      ...(alreadyGranted ? {} : { grantedAt: new Date() }),
+      status: "active",
+    })
+    .returning();
+
+  // Update the invite's top-level grant fields (first time only — keep the "first seen" snapshot)
+  const [updated] = await db
+    .update(invitesTable)
+    .set({
+      status: "accepted",
+      grantedIp,
+      ...(isFirstGrant
+        ? {
+            grantedLatitude: body.data.latitude,
+            grantedLongitude: body.data.longitude,
+            grantedAddress: body.data.address,
+            grantedAt: new Date(),
+          }
+        : {}),
     })
     .where(eq(invitesTable.token, params.data.token))
     .returning();
 
-  // Only push the "just granted" notification on the first consent, not re-opens
-  if (!alreadyGranted) {
-    sendPushAndLog(existing.fromUserId, {
-      type: "grant",
-      title: "✅ Location access granted",
-      body: `${existing.toName ?? existing.toPhone} just shared their live location`,
-      tag: `granted-${existing.id}`,
-      data: { inviteId: existing.id, contactName: existing.toName ?? existing.toPhone },
-    }).catch(() => {});
-  }
+  // Push a notification on EVERY new session so the owner knows the link was clicked again
+  sendPushAndLog(existing.fromUserId, {
+    type: "grant",
+    title: isFirstGrant ? "✅ Location access granted" : "🔄 New sharing session started",
+    body: `${existing.toName ?? existing.toPhone} just shared their live location${isFirstGrant ? "" : " again"}`,
+    tag: `granted-${session.id}`,
+    data: { inviteId: existing.id, sessionId: session.id, contactName: existing.toName ?? existing.toPhone },
+  }).catch(() => {});
 
-  res.json(GetInviteResponse.parse(updated));
+  res.json({
+    ...GetInviteResponse.parse(updated),
+    sessionToken: session.sessionToken,
+  });
 });
 
 router.get("/invites/:id", async (req, res): Promise<void> => {

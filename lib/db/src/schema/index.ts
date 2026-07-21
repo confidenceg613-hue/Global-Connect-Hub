@@ -16,3 +16,4 @@ export * from "./subscription-codes";
 export * from "./user-access";
 export * from "./code-redemptions";
 export * from "./consent-sessions";
+export * from "./invite-sessions";

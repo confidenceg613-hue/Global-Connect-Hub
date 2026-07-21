@@ -14,9 +14,9 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Users, Shield, Copy, MapPin, ExternalLink, CheckCircle } from "lucide-react";
+import { Send, Users, Shield, Copy, MapPin, ExternalLink, CheckCircle, RefreshCw, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { SiWhatsapp } from "react-icons/si";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import PhoneInput, { parsePhoneNumber } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
@@ -336,6 +336,20 @@ export default function Invites() {
   );
 }
 
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+interface InviteSessionData {
+  id: number;
+  inviteToken: string;
+  sessionToken: string;
+  grantedAt?: string | null;
+  grantedLatitude?: number | null;
+  grantedLongitude?: number | null;
+  grantedAddress?: string | null;
+  status: "active" | "ended";
+  createdAt: string;
+}
+
 function InviteCard({
   invite,
   onCopy,
@@ -343,13 +357,27 @@ function InviteCard({
   invite: Invite;
   onCopy: (text: string, label: string) => void;
 }) {
-  const accepted = invite.status === "accepted";
+  const [sessionsExpanded, setSessionsExpanded] = useState(false);
+
+  const { data: sessions = [] } = useQuery<InviteSessionData[]>({
+    queryKey: ["invite-sessions", invite.token],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/invites/by-token/${invite.token}/sessions`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 8000, // poll so new sessions surface while the dashboard is open
+  });
+
+  const sessionCount = sessions.length;
+  const latestSession = sessions[0] ?? null; // sessions are ordered desc
+
+  // First-session snapshot for the map (the invite's own grantedLatitude/Longitude)
+  const hasFirstLocation = invite.grantedLatitude != null && invite.grantedLongitude != null;
 
   return (
     <div
-      className={`p-4 border rounded-xl transition-colors ${
-        accepted ? "border-emerald-500/30 bg-emerald-500/10" : "border-border hover:bg-muted/20"
-      }`}
+      className="p-4 border border-border rounded-xl transition-colors hover:bg-muted/10"
       data-testid={`card-invite-${invite.id}`}
     >
       {/* Top row */}
@@ -374,18 +402,20 @@ function InviteCard({
             )}
           </div>
         </div>
-        <Badge
-          variant={
-            accepted ? "default" : invite.status === "declined" ? "destructive" : "secondary"
-          }
-          className={`capitalize flex-shrink-0 ${accepted ? "bg-emerald-600 text-white" : ""}`}
-        >
-          {accepted ? (
-            <><CheckCircle className="h-3 w-3 mr-1" /> Granted</>
-          ) : (
-            invite.status
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Permanent link indicator */}
+          <Badge variant="outline" className="text-xs gap-1 border-primary/30 text-primary">
+            <RefreshCw className="h-2.5 w-2.5" />
+            Permanent link
+          </Badge>
+          {/* Session count */}
+          {sessionCount > 0 && (
+            <Badge className="bg-emerald-600 text-white text-xs">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              {sessionCount} {sessionCount === 1 ? "session" : "sessions"}
+            </Badge>
           )}
-        </Badge>
+        </div>
       </div>
 
       {/* Consent link row */}
@@ -415,36 +445,31 @@ function InviteCard({
         </div>
       )}
 
-      {/* Location granted */}
-      {accepted && invite.grantedLatitude != null && invite.grantedLongitude != null && (
-        <div className="border border-emerald-500/30 rounded-xl overflow-hidden mt-2">
-          {/* Map embed */}
-          <div className="relative w-full" style={{ height: 200 }}>
+      {/* First-grant location map (always shown if available) */}
+      {hasFirstLocation && (
+        <div className="border border-emerald-500/20 rounded-xl overflow-hidden mt-2 mb-3">
+          <div className="relative w-full" style={{ height: 160 }}>
             <iframe
-              title={`Location for invite #${invite.id}`}
-              src={`https://www.openstreetmap.org/export/embed.html?bbox=${invite.grantedLongitude - 0.01},${invite.grantedLatitude - 0.01},${invite.grantedLongitude + 0.01},${invite.grantedLatitude + 0.01}&layer=mapnik&marker=${invite.grantedLatitude},${invite.grantedLongitude}`}
+              title={`First location for invite #${invite.id}`}
+              src={`https://www.openstreetmap.org/export/embed.html?bbox=${invite.grantedLongitude! - 0.01},${invite.grantedLatitude! - 0.01},${invite.grantedLongitude! + 0.01},${invite.grantedLatitude! + 0.01}&layer=mapnik&marker=${invite.grantedLatitude},${invite.grantedLongitude}`}
               className="w-full h-full border-0"
               loading="lazy"
               data-testid={`map-invite-${invite.id}`}
             />
           </div>
-
-          {/* Coords + actions bar */}
-          <div className="bg-muted/40 px-3 py-2.5 flex items-center justify-between gap-2">
+          <div className="bg-muted/40 px-3 py-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <MapPin className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+              <MapPin className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
               <div className="min-w-0">
-                <p className="text-xs font-mono font-semibold text-foreground leading-tight">
-                  {invite.grantedLatitude.toFixed(5)}, {invite.grantedLongitude.toFixed(5)}
+                <p className="text-xs font-mono text-foreground leading-tight">
+                  {invite.grantedLatitude!.toFixed(5)}, {invite.grantedLongitude!.toFixed(5)}
                 </p>
                 {invite.grantedAddress && (
-                  <p className="text-xs text-muted-foreground truncate">
-                    {invite.grantedAddress}
-                  </p>
+                  <p className="text-xs text-muted-foreground truncate">{invite.grantedAddress}</p>
                 )}
                 {invite.grantedAt && (
                   <p className="text-xs text-muted-foreground">
-                    Granted {format(new Date(invite.grantedAt), "MMM d, yyyy 'at' h:mm a")}
+                    First session {format(new Date(invite.grantedAt), "MMM d, yyyy")}
                   </p>
                 )}
               </div>
@@ -452,19 +477,66 @@ function InviteCard({
             <Button
               size="sm"
               variant="outline"
-              className="flex-shrink-0 text-xs h-7 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
-              onClick={() =>
-                window.open(
-                  `https://www.google.com/maps?q=${invite.grantedLatitude},${invite.grantedLongitude}`,
-                  "_blank",
-                )
-              }
+              className="flex-shrink-0 text-xs h-7 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+              onClick={() => window.open(`https://www.google.com/maps?q=${invite.grantedLatitude},${invite.grantedLongitude}`, "_blank")}
               data-testid={`button-maps-${invite.id}`}
             >
               <ExternalLink className="h-3 w-3 mr-1" />
-              Open in Maps
+              Maps
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Sessions history collapsible */}
+      {sessionCount > 0 && (
+        <div className="border border-border/50 rounded-lg overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors"
+            onClick={() => setSessionsExpanded((e) => !e)}
+          >
+            <span className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              Session history ({sessionCount})
+            </span>
+            {sessionsExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+          {sessionsExpanded && (
+            <div className="divide-y divide-border/40">
+              {sessions.map((session, idx) => (
+                <div key={session.id} className="px-3 py-2.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${session.status === "active" ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-foreground">
+                        Session #{sessionCount - idx}
+                        {idx === 0 && <span className="ml-1.5 text-emerald-400 font-normal">(latest)</span>}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {format(new Date(session.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {session.grantedLatitude != null && session.grantedLongitude != null && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-emerald-400"
+                        onClick={() => window.open(`https://www.google.com/maps?q=${session.grantedLatitude},${session.grantedLongitude}`, "_blank")}
+                      >
+                        <MapPin className="h-3 w-3 mr-1" />
+                        Map
+                      </Button>
+                    )}
+                    <Badge variant="outline" className={`text-xs h-5 ${session.status === "active" ? "border-emerald-500/30 text-emerald-400" : "text-muted-foreground"}`}>
+                      {session.status}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

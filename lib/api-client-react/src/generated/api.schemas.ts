@@ -185,6 +185,24 @@ export interface Invite {
   /** @nullable */
   grantedAt?: string | null;
   sentAt: string;
+  /** Session token returned after grant — use this for subsequent location pushes */
+  sessionToken?: string;
+}
+
+export interface InviteSession {
+  id: number;
+  inviteToken: string;
+  sessionToken: string;
+  /** @nullable */
+  grantedAt?: string | null;
+  /** @nullable */
+  grantedLatitude?: number | null;
+  /** @nullable */
+  grantedLongitude?: number | null;
+  /** @nullable */
+  grantedAddress?: string | null;
+  status: 'active' | 'ended';
+  createdAt: string;
 }
 
 export type InvitePublicStatus = typeof InvitePublicStatus[keyof typeof InvitePublicStatus];
