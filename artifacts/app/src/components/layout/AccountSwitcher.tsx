@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth, type SavedAccount } from "@/hooks/use-auth";
 import { useGetUser } from "@workspace/api-client-react";
-import { ChevronUp, UserPlus, LogOut, Check, X } from "lucide-react";
+import { ChevronUp, LogOut, Check, X } from "lucide-react";
 
 // Palette cycling per account
 const AVATAR_GRADIENTS = [
@@ -48,7 +48,7 @@ function AccountMetaSync({ userId }: { userId: number }) {
 
 export function AccountSwitcher() {
   const [, setLocation] = useLocation();
-  const { userId, savedAccounts, switchAccount, addAccountSlot, removeAccount, logout } = useAuth();
+  const { userId, savedAccounts, switchAccount, removeAccount, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -73,12 +73,6 @@ export function AccountSwitcher() {
     switchAccount(id);
     setOpen(false);
     setLocation("/dashboard");
-  };
-
-  const handleAddAccount = () => {
-    addAccountSlot();          // preserves saved accounts, clears active userId
-    setOpen(false);
-    setLocation("/");          // landing page
   };
 
   const handleSignOut = () => {
@@ -173,15 +167,8 @@ export function AccountSwitcher() {
             <div className="border-t border-border/50 mx-3" />
           )}
 
-          {/* Add account + Sign out */}
+          {/* Sign out */}
           <div className="p-2 space-y-0.5">
-            <button
-              onClick={handleAddAccount}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors text-sm font-medium"
-            >
-              <UserPlus size={15} className="text-indigo-400" />
-              <span>Add account</span>
-            </button>
             <button
               onClick={handleSignOut}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors text-sm font-medium"

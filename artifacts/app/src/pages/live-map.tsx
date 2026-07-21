@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck, Maximize2 } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck, Maximize2, Search, Navigation2, ArrowRightLeft, LocateFixed } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -58,6 +58,8 @@ const TERRAIN_URL   = "https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}";
 const TRANSIT_URL   = "https://mt{s}.google.com/vt/lyrs=m@221097413,transit&x={x}&y={y}&z={z}";
 const TRAFFIC_URL   = "https://mt{s}.google.com/vt/lyrs=m@221097413,traffic&x={x}&y={y}&z={z}";
 const BICYCLE_URL   = "https://mt{s}.google.com/vt/lyrs=m@221097413,bike&x={x}&y={y}&z={z}";
+// NASA GIBS fire hotspots — free public WMTS, no API key required
+const WILDFIRE_URL  = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_Thermal_Anomalies_375m_All/default/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png";
 
 type MapMode = "road" | "hybrid" | "terrain";
 const MAP_MODES: MapMode[] = ["road", "hybrid", "terrain"];
@@ -74,8 +76,8 @@ const MAP_DETAILS: { id: MapDetail; label: string; icon: React.ReactNode; live: 
   { id: "bicycling",  label: "Bicycling",       icon: <Bike className="w-5 h-5" />,        live: true },
   { id: "buildings",  label: "Raised buildings",icon: <Building2 className="w-5 h-5" />,   live: false },
   { id: "streetview", label: "Street View",     icon: <Eye className="w-5 h-5" />,         live: true },
-  { id: "wildfires",  label: "Wildfires",       icon: <Flame className="w-5 h-5" />,       live: false },
-  { id: "airquality", label: "Air Quality",     icon: <Wind className="w-5 h-5" />,        live: false },
+  { id: "wildfires",  label: "Wildfires",       icon: <Flame className="w-5 h-5" />,       live: true },
+  { id: "airquality", label: "Air Quality",     icon: <Wind className="w-5 h-5" />,        live: true },
 ];
 
 /** Convert decimal degrees to DMS string, e.g. 8°56′59.8″N */
@@ -244,6 +246,29 @@ export default function LiveMap() {
   const [activeDetails,   setActiveDetails  ] = useState<globalThis.Set<MapDetail>>(new globalThis.Set());
   const detailLayerRefs = useRef<Partial<Record<MapDetail, L.TileLayer>>>({});
 
+  // ── Search ───────────────────────────────────────────────────────────────────
+  const [showSearch,     setShowSearch    ] = useState(false);
+  const [searchQuery,    setSearchQuery   ] = useState("");
+  const [searchResults,  setSearchResults ] = useState<Array<{ display_name: string; lat: string; lon: string; place_id: number }>>([]);
+  const [searchLoading,  setSearchLoading ] = useState(false);
+
+  // ── Fullscreen ───────────────────────────────────────────────────────────────
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // ── Directions ───────────────────────────────────────────────────────────────
+  const [dirMode,  setDirMode ] = useState(false);
+  const [dirStart, setDirStart] = useState<{ lat: number; lng: number } | null>(null);
+  const [dirEnd,   setDirEnd  ] = useState<{ lat: number; lng: number } | null>(null);
+  const [dirInfo,  setDirInfo ] = useState<{ distanceKm: number; durationMin: number } | null>(null);
+  const dirMarkersRef = useRef<L.Layer[]>([]);
+  const dirRouteRef   = useRef<L.Polyline | null>(null);
+  // Refs kept in sync so the map click handler (registered once) always reads fresh values
+  const dirModeRef  = useRef(false);
+  const dirStartRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  // ── Air Quality markers ───────────────────────────────────────────────────────
+  const aqiLayerRefs = useRef<L.Layer[]>([]);
+
   // Resolve the nearest street-level photo (async, via Mapillary proxy)
   useEffect(() => {
     if (!streetView) { setSvResult(null); return; }
@@ -409,6 +434,7 @@ export default function LiveMap() {
     try {
       const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: false, maxZoom: 22 });
       L.control.zoom({ position: "bottomright" }).addTo(map);
+      L.control.scale({ position: "bottomleft", imperial: false }).addTo(map);
       mapInst.current = map;
 
       // Detect genuine user interaction (drag, scroll/pinch zoom, +/- zoom
@@ -478,9 +504,10 @@ export default function LiveMap() {
     if (!map) return;
 
     const overlayUrls: Partial<Record<MapDetail, string>> = {
-      transit: TRANSIT_URL,
-      traffic: TRAFFIC_URL,
+      transit:   TRANSIT_URL,
+      traffic:   TRAFFIC_URL,
       bicycling: BICYCLE_URL,
+      wildfires: WILDFIRE_URL,
     };
 
     (Object.keys(overlayUrls) as MapDetail[]).forEach((id) => {
@@ -488,11 +515,12 @@ export default function LiveMap() {
       const existing = detailLayerRefs.current[id];
       if (shouldShow && !existing) {
         try {
+          const isWildfire = id === "wildfires";
           const layer = L.tileLayer(overlayUrls[id]!, {
             maxZoom: 22,
-            maxNativeZoom: 20,
-            subdomains: "0123",
-            opacity: id === "traffic" ? 0.85 : 0.9,
+            maxNativeZoom: isWildfire ? 8 : 20,
+            ...(isWildfire ? {} : { subdomains: "0123" }),
+            opacity: id === "traffic" ? 0.85 : id === "wildfires" ? 0.75 : 0.9,
             zIndex: 500,
           }).addTo(map);
           // If Google's overlay tile pattern breaks (rotated/removed), most
@@ -552,6 +580,8 @@ export default function LiveMap() {
     showHeatmapRef.current  = showHeatmap;
     showJourneysRef.current = showJourneys;
     showClustersRef.current = showClusters;
+    dirModeRef.current      = dirMode;
+    dirStartRef.current     = dirStart;
   });
 
   // ── AI command bus ────────────────────────────────────────────────────────────
@@ -669,6 +699,71 @@ export default function LiveMap() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapInst.current != null]);
 
+  // ── Directions click handler ──────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapInst.current;
+    if (!map) return;
+    const handler = (e: L.LeafletMouseEvent) => {
+      if (!dirModeRef.current) return;
+      const { lat, lng } = e.latlng;
+      if (!dirStartRef.current) {
+        // First click — set start point
+        const start = { lat, lng };
+        dirStartRef.current = start;
+        setDirStart(start);
+        const m = L.marker([lat, lng], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="background:#22c55e;color:white;font-weight:800;font-size:11px;padding:4px 10px;border-radius:8px;border:2px solid white;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.6);font-family:system-ui,sans-serif;">A</div>`,
+            iconSize: [28, 26], iconAnchor: [14, 13],
+          }),
+        }).addTo(map);
+        dirMarkersRef.current.push(m);
+        toast({ title: "Start set — click your destination" });
+      } else {
+        // Second click — set end point, fetch route
+        const startLatLng = dirStartRef.current;
+        dirModeRef.current = false;
+        setDirMode(false);
+        setDirEnd({ lat, lng });
+        const m = L.marker([lat, lng], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="background:#ef4444;color:white;font-weight:800;font-size:11px;padding:4px 10px;border-radius:8px;border:2px solid white;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.6);font-family:system-ui,sans-serif;">B</div>`,
+            iconSize: [28, 26], iconAnchor: [14, 13],
+          }),
+        }).addTo(map);
+        dirMarkersRef.current.push(m);
+        // Fetch route from OSRM public router
+        fetch(`https://router.project-osrm.org/route/v1/driving/${startLatLng.lng},${startLatLng.lat};${lng},${lat}?overview=full&geometries=geojson`)
+          .then((r) => r.json())
+          .then((json) => {
+            const route = json?.routes?.[0];
+            if (!route) { toast({ title: "No route found between those points", variant: "destructive" }); return; }
+            const coords: [number, number][] = route.geometry.coordinates.map((c: number[]) => [c[1], c[0]]);
+            if (dirRouteRef.current) { try { dirRouteRef.current.remove(); } catch { /* */ } }
+            dirRouteRef.current = L.polyline(coords, { color: "#6366f1", weight: 5, opacity: 0.9 }).addTo(map);
+            withProgrammaticMove(() => { if (dirRouteRef.current) map.fitBounds(dirRouteRef.current.getBounds().pad(0.1)); });
+            const distKm = (route.distance / 1000).toFixed(1);
+            const durMin = Math.round(route.duration / 60);
+            setDirInfo({ distanceKm: parseFloat(distKm), durationMin: durMin });
+            toast({ title: `Route: ${distKm} km · ${durMin} min driving` });
+          })
+          .catch(() => toast({ title: "Could not calculate route", variant: "destructive" }));
+      }
+    };
+    map.on("click", handler);
+    return () => { map.off("click", handler); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapInst.current != null]);
+
+  // ── Fullscreen listener ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
   // ── Heatmap fetch & render ────────────────────────────────────────────────────
   const buildHeatmap = useCallback(async (tokens: string[], basePoints: L.HeatLatLngTuple[]) => {
     setHeatLoading(true);
@@ -733,6 +828,50 @@ export default function LiveMap() {
       if (heatLayerRef.current) { try { heatLayerRef.current.remove(); } catch { /* */ } heatLayerRef.current = null; }
     };
   }, [showHeatmap, (invites ?? []).map((inv: Invite) => inv.token).join(","), buildHeatmap]);
+
+  // ── Air Quality markers ───────────────────────────────────────────────────────
+  const airQualityActive = activeDetails.has("airquality");
+  useEffect(() => {
+    const map = mapInst.current;
+    // Always clean up existing AQI markers first
+    for (const layer of aqiLayerRefs.current) { try { layer.remove(); } catch { /* */ } }
+    aqiLayerRefs.current = [];
+    if (!airQualityActive || !map) return;
+
+    const positions = latest
+      .map((inv) => {
+        const live = livePos.current.get(inv.token);
+        return { lat: live ? live.lat : inv.grantedLatitude!, lng: live ? live.lng : inv.grantedLongitude!, name: inv.toName ?? inv.toPhone };
+      })
+      .filter((p) => isFinite(p.lat) && isFinite(p.lng));
+
+    if (positions.length === 0) return;
+    let cancelled = false;
+
+    (async () => {
+      for (const pos of positions) {
+        try {
+          const r = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${pos.lat.toFixed(4)}&longitude=${pos.lng.toFixed(4)}&current=us_aqi`);
+          if (!r.ok || cancelled) continue;
+          const json = await r.json();
+          const aqi: number = json?.current?.us_aqi ?? 0;
+          if (cancelled) return;
+          const color = aqi <= 50 ? "#22c55e" : aqi <= 100 ? "#eab308" : aqi <= 150 ? "#f97316" : aqi <= 200 ? "#ef4444" : aqi <= 300 ? "#a855f7" : "#7f1d1d";
+          const aqiLabel = aqi <= 50 ? "Good" : aqi <= 100 ? "Moderate" : aqi <= 150 ? "Unhealthy (Sensitive)" : aqi <= 200 ? "Unhealthy" : aqi <= 300 ? "Very Unhealthy" : "Hazardous";
+          const icon = L.divIcon({
+            className: "",
+            html: `<div style="background:${color}20;border:1.5px solid ${color}88;border-radius:10px;padding:3px 8px;font-size:10px;font-weight:700;color:${color};white-space:nowrap;font-family:system-ui,sans-serif;line-height:1.4;box-shadow:0 2px 8px rgba(0,0,0,.4);">💨 AQI ${aqi}<br/><span style="font-size:9px;opacity:.75;">${aqiLabel}</span></div>`,
+            iconSize: [100, 36], iconAnchor: [50, 50],
+          });
+          const marker = L.marker([pos.lat + 0.0025, pos.lng], { icon, interactive: false, zIndexOffset: -200 }).addTo(map);
+          aqiLayerRefs.current.push(marker);
+        } catch { /* non-critical */ }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [airQualityActive, latest.map((i) => i.toPhone).join(","), tick]);
 
   // ── SSE subscriptions ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1144,6 +1283,62 @@ export default function LiveMap() {
     toast({ title: "Map refreshed" });
   };
 
+  const handleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  }, []);
+
+  const clearDirections = useCallback(() => {
+    for (const l of dirMarkersRef.current) { try { l.remove(); } catch { /* */ } }
+    dirMarkersRef.current = [];
+    if (dirRouteRef.current) { try { dirRouteRef.current.remove(); } catch { /* */ } dirRouteRef.current = null; }
+    dirModeRef.current = false;
+    setDirMode(false);
+    setDirStart(null);
+    setDirEnd(null);
+    setDirInfo(null);
+  }, []);
+
+  const handleSearch = useCallback(async (q: string) => {
+    setSearchQuery(q);
+    if (!q.trim()) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6`,
+        { headers: { "Accept-Language": "en" } },
+      );
+      if (r.ok) setSearchResults(await r.json());
+    } catch { /* ignore */ }
+    setSearchLoading(false);
+  }, []);
+
+  const handleSelectResult = useCallback(
+    (result: { display_name: string; lat: string; lon: string }) => {
+      const map = mapInst.current;
+      if (!map) return;
+      const lat = parseFloat(result.lat);
+      const lng = parseFloat(result.lon);
+      userViewLockRef.current = true;
+      withProgrammaticMove(() => map.flyTo([lat, lng], 14, { duration: 1.5 }));
+      setSearchQuery(result.display_name.split(",")[0]);
+      setSearchResults([]);
+      // Drop a brief pin so the result location is obvious
+      const pin = L.marker([lat, lng], {
+        icon: L.divIcon({
+          className: "",
+          html: `<div style="width:14px;height:14px;background:#6366f1;border-radius:50%;border:2px solid white;box-shadow:0 2px 10px rgba(99,102,241,.8);"></div>`,
+          iconSize: [14, 14], iconAnchor: [7, 7],
+        }),
+      }).addTo(map);
+      setTimeout(() => { try { pin.remove(); } catch { /* */ } }, 8000);
+    },
+    [withProgrammaticMove],
+  );
+
   const mapRotorStyle: React.CSSProperties =
     compassMode && heading != null ? { transform: `rotate(${-heading}deg) scale(1.6)` } : {};
 
@@ -1182,6 +1377,71 @@ export default function LiveMap() {
             <span className="text-xs font-mono text-zinc-300 tabular-nums">
               {heading != null ? `${Math.round(heading)}° ${cardinal(heading)}` : "Locating…"}
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Search panel — top right */}
+      {showSearch && (
+        <div className="absolute top-3 right-3 z-[1003] w-80">
+          <div className="bg-[#111113] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/8">
+              <Search className="w-4 h-4 text-zinc-400 shrink-0" />
+              <input
+                autoFocus
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Search places…"
+                className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 outline-none"
+              />
+              {searchLoading && <div className="w-3.5 h-3.5 border-2 border-indigo-400/50 border-t-indigo-400 rounded-full animate-spin shrink-0" />}
+              <button onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }} className="text-zinc-500 hover:text-zinc-200 transition-colors shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {searchResults.length > 0 && (
+              <div className="max-h-64 overflow-y-auto divide-y divide-white/5">
+                {searchResults.map((r) => (
+                  <button
+                    key={r.place_id}
+                    onClick={() => handleSelectResult(r)}
+                    className="w-full text-left px-4 py-2.5 hover:bg-white/5 transition-colors"
+                  >
+                    <p className="text-xs font-medium text-zinc-200 truncate">{r.display_name.split(",")[0]}</p>
+                    <p className="text-[10px] text-zinc-500 truncate mt-0.5">{r.display_name.split(",").slice(1, 3).join(",")}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+            {!searchLoading && searchQuery.trim() && searchResults.length === 0 && (
+              <p className="px-4 py-3 text-xs text-zinc-500">No results found</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Directions info card */}
+      {(dirMode || dirInfo) && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1002]">
+          <div className="pl-hud-card flex items-center gap-3 px-4 py-2.5">
+            {dirMode && !dirStart && (
+              <span className="text-xs font-semibold text-emerald-300">📍 Click to set start point</span>
+            )}
+            {dirMode && dirStart && !dirEnd && (
+              <span className="text-xs font-semibold text-red-300">📍 Click to set destination</span>
+            )}
+            {dirInfo && (
+              <>
+                <Navigation2 className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span className="text-xs font-mono text-zinc-200">{dirInfo.distanceKm} km</span>
+                <div className="w-px h-4 bg-white/15" />
+                <span className="text-xs font-mono text-zinc-200">{dirInfo.durationMin} min</span>
+              </>
+            )}
+            <button onClick={clearDirections} className="text-zinc-500 hover:text-zinc-200 transition-colors ml-1">
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}
@@ -1305,6 +1565,10 @@ export default function LiveMap() {
           <CmdBtn active={showGeofences} onClick={() => setShowGeofences((v) => !v)} disabled={geofences.length === 0} icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Geofences" activeClass="border-violet-500/40 text-violet-300 bg-violet-500/10" />
           <div className="w-px h-5 bg-white/10 mx-1" />
           <CmdBtn active={false} onClick={() => csvExport(granted)} disabled={granted.length === 0} icon={<Download className="w-3.5 h-3.5" />} label="Export" />
+          <div className="w-px h-5 bg-white/10 mx-1" />
+          <CmdBtn active={showSearch} onClick={() => setShowSearch((v) => !v)} icon={<Search className="w-3.5 h-3.5" />} label="Search" activeClass="border-indigo-500/40 text-indigo-300 bg-indigo-500/10" />
+          <CmdBtn active={dirMode} onClick={() => { if (dirMode) clearDirections(); else { clearDirections(); setDirMode(true); } }} icon={<ArrowRightLeft className="w-3.5 h-3.5" />} label={dirMode ? "Cancel" : "Directions"} activeClass="border-emerald-500/40 text-emerald-300 bg-emerald-500/10" />
+          <CmdBtn active={isFullscreen} onClick={handleFullscreen} icon={<LocateFixed className="w-3.5 h-3.5" />} label={isFullscreen ? "Exit" : "Fullscreen"} activeClass="border-sky-500/40 text-sky-300 bg-sky-500/10" />
         </div>
       </div>
     </div>
