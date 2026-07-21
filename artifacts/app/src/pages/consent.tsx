@@ -124,7 +124,7 @@ function CopyAndOpenButton({ url }: { url: string }) {
   );
 }
 
-const KITTY_WAIT_SECONDS = 40;
+const KITTY_WAIT_SECONDS = 50;
 
 // Rotating "Did you know?" facts shown every 5 s — keeps the wait engaging.
 const KITTY_FACTS = [
