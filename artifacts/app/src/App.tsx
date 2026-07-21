@@ -41,6 +41,9 @@ const GroupJoinPage = lazy(() => import("@/pages/group-join"));
 const Subscription = lazy(() => import("@/pages/subscription"));
 const Admin = lazy(() => import("@/pages/admin"));
 const GuardianPage = lazy(() => import("@/pages/guardian"));
+const SecurityCenter = lazy(() => import("@/pages/security-center"));
+const PanicLog = lazy(() => import("@/pages/panic-log"));
+const EvidenceVault = lazy(() => import("@/pages/evidence-vault"));
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
@@ -228,6 +231,9 @@ function Router() {
       <Route path="/settings"><ProtectedRoute component={SettingsPage} /></Route>
       <Route path="/surveillance"><ProtectedRoute component={Surveillance} /></Route>
       <Route path="/guardian"><ProtectedRoute component={GuardianPage} /></Route>
+      <Route path="/security-center"><ProtectedRoute component={SecurityCenter} /></Route>
+      <Route path="/panic-log"><ProtectedRoute component={PanicLog} /></Route>
+      <Route path="/evidence-vault"><ProtectedRoute component={EvidenceVault} /></Route>
       <Route path="/gmap"><ProtectedRoute component={GMap} /></Route>
       <Route path="/subscription"><SubscriptionRoute /></Route>
       <Route path="/group/:groupId" component={GroupJoinPage} />

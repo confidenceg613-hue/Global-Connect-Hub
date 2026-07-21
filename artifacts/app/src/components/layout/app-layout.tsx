@@ -4,6 +4,7 @@ import {
   ShieldCheck, LayoutDashboard, Users, UserCircle, LogOut, Menu,
   Navigation, Clock, Map, Bell, BellOff, BellRing, Camera, Settings,
   Activity as ActivityIcon, Flag, ChevronRight, Radio, Globe,
+  ShieldAlert, Siren, Archive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -136,8 +137,11 @@ const NAV_SECTIONS = [
   {
     label: "SECURITY",
     items: [
-      { href: "/geoboard",    label: "GeoBoard",    icon: Camera },
-      { href: "/surveillance",label: "Surveillance", icon: Camera },
+      { href: "/security-center", label: "Security Center", icon: ShieldAlert },
+      { href: "/geoboard",        label: "GeoBoard",        icon: Camera },
+      { href: "/surveillance",    label: "Surveillance",    icon: Camera },
+      { href: "/panic-log",       label: "Panic Log",       icon: Siren },
+      { href: "/evidence-vault",  label: "Evidence Vault",  icon: Archive },
     ],
   },
   {
