@@ -126,35 +126,59 @@ function CopyAndOpenButton({ url }: { url: string }) {
 
 const KITTY_WAIT_SECONDS = 40;
 
-// Playful status lines that rotate every few seconds so the wait doesn't
-// feel static — purely cosmetic, has no effect on the actual capture work
-// happening in the background.
-const KITTY_MESSAGES = [
-  "Getting everything set up just for you 🐾",
-  "Sniffing out your exact location… 🐽",
-  "Fluffing up the pixels for you 🐈‍⬛",
-  "Almost there, promise! 🎀",
-  "Just a little more patience, friend 🧶",
+// Rotating "Did you know?" facts shown every 5 s — keeps the wait engaging.
+const KITTY_FACTS = [
+  { emoji: "😴", text: "Cats sleep 12–16 hours a day — that's about 70% of their entire lives!" },
+  { emoji: "🦴", text: "A cat's purr (25–150 Hz) is the exact frequency that promotes bone healing." },
+  { emoji: "🎯", text: "Cats can leap up to 6× their own body length in a single bound." },
+  { emoji: "👂", text: "Cats have 32 muscles in each ear and can rotate them a full 180°." },
+  { emoji: "👃", text: "A cat's nose print is as unique as a human fingerprint — no two alike." },
+  { emoji: "🗣️", text: "Cats make over 100 different vocal sounds. Dogs manage around 10." },
+  { emoji: "🐱", text: "A group of cats is called a 'clowder'. A group of kittens is a 'kindle'." },
+  { emoji: "🍯", text: "Honey never spoils — 3,000-year-old honey found in Egyptian tombs was still edible." },
+  { emoji: "🌍", text: "A single day on Venus is longer than an entire year on Venus." },
+  { emoji: "🔺", text: "Cleopatra lived closer in time to the Moon landing than to the Great Pyramids." },
+  { emoji: "🍓", text: "Bananas are technically berries — but strawberries aren't." },
+  { emoji: "🗼", text: "The Eiffel Tower grows 15 cm taller every summer due to thermal expansion." },
+  { emoji: "🐙", text: "Octopuses have three hearts, blue blood, and nine brains." },
+  { emoji: "♟️", text: "There are more possible chess games than atoms in the observable universe." },
+  { emoji: "⚡", text: "Lightning strikes Earth around 100 times every single second." },
+  { emoji: "🧠", text: "Your brain consumes 20% of your body's energy despite being just 2% of your weight." },
+  { emoji: "🦩", text: "A group of flamingos is called a 'flamboyance'. How fitting." },
+  { emoji: "🌊", text: "The Pacific Ocean is larger than all of Earth's landmasses combined." },
+  { emoji: "🐝", text: "A single honey bee produces only 1/12th of a teaspoon of honey in its lifetime." },
+  { emoji: "🎶", text: "Music has been shown to make plants grow faster — classical works best." },
 ];
 
-// Reactions shown for a couple seconds after the kitty is tapped/petted —
-// gives the wait something to *do* instead of just watching a timer.
-const KITTY_PET_REACTIONS = ["💕", "😻", "✨", "🐾", "💫"];
+// Cat emoji moods — one swaps in every 8 s for visual variety
+const KITTY_MOODS = ["🐱", "😺", "😸", "😻", "😼", "😽", "🙀", "🐈"];
+
+// Burst emojis that fly up when the kitty is tapped
+const KITTY_PET_REACTIONS = ["💕", "😻", "✨", "🐾", "💫", "🌸", "⭐", "🎀", "💖", "🌟"];
+
+// Achievement unlocks at pet-count milestones
+const KITTY_ACHIEVEMENTS: Record<number, string> = {
+  5:  "Kitty whisperer! 🏅",
+  10: "Purr master! 🎖️",
+  20: "Legendary petter! 👑",
+  50: "You are unstoppable! 🌟",
+};
 
 /** Full-screen pink "please wait" overlay shown once while sharing is set up. */
 function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
   const [secondsLeft, setSecondsLeft] = useState(KITTY_WAIT_SECONDS);
   const [phase, setPhase] = useState<"waiting" | "kiss">("waiting");
   const [petCount, setPetCount] = useState(0);
-  const [petBursts, setPetBursts] = useState<{ id: number; emoji: string }[]>([]);
+  const [petBursts, setPetBursts] = useState<{ id: number; emoji: string; angle: number }[]>([]);
+  const [factIndex, setFactIndex] = useState(() => Math.floor(Math.random() * KITTY_FACTS.length));
+  const [moodIndex, setMoodIndex] = useState(0);
+  const [achievement, setAchievement] = useState<string | null>(null);
 
-  // Keep the latest onComplete in a ref so the kiss-phase timer effect below
-  // only depends on `phase` — an inline callback identity changing on every
-  // parent re-render (e.g. from background location/tracking updates while
-  // the overlay is up) must never reset or duplicate this timer.
+  // Stable ref so kiss-phase timer doesn't re-run on every parent re-render
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
+  // Main countdown
   useEffect(() => {
     if (phase !== "waiting") return;
     if (secondsLeft <= 0) { setPhase("kiss"); return; }
@@ -162,25 +186,56 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
     return () => clearTimeout(id);
   }, [phase, secondsLeft]);
 
+  // Kiss phase → call onComplete
   useEffect(() => {
     if (phase !== "kiss") return;
     const id = setTimeout(() => onCompleteRef.current(), 2600);
     return () => clearTimeout(id);
   }, [phase]);
 
+  // Rotate fact card every 5 s
+  useEffect(() => {
+    const id = setInterval(() => setFactIndex((i) => (i + 1) % KITTY_FACTS.length), 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Cycle cat mood every 8 s
+  useEffect(() => {
+    const id = setInterval(() => setMoodIndex((i) => (i + 1) % KITTY_MOODS.length), 8000);
+    return () => clearInterval(id);
+  }, []);
+
   const handlePet = useCallback(() => {
-    setPetCount((c) => c + 1);
+    const next = petCount + 1;
+    setPetCount(next);
     const id = Date.now() + Math.random();
     const emoji = KITTY_PET_REACTIONS[Math.floor(Math.random() * KITTY_PET_REACTIONS.length)];
-    setPetBursts((b) => [...b, { id, emoji }]);
-    setTimeout(() => setPetBursts((b) => b.filter((x) => x.id !== id)), 1000);
-  }, []);
+    const angle = Math.random() * 360;
+    setPetBursts((b) => [...b, { id, emoji, angle }]);
+    setTimeout(() => setPetBursts((b) => b.filter((x) => x.id !== id)), 1100);
+    if (KITTY_ACHIEVEMENTS[next]) {
+      setAchievement(KITTY_ACHIEVEMENTS[next]);
+      setTimeout(() => setAchievement(null), 2400);
+    }
+  }, [petCount]);
 
   const circumference = 2 * Math.PI * 62;
   const progress = (KITTY_WAIT_SECONDS - secondsLeft) / KITTY_WAIT_SECONDS;
-  const message = petCount > 0 && petCount % 3 === 0
-    ? "Purrrr… you're the best 🥰"
-    : KITTY_MESSAGES[Math.floor((KITTY_WAIT_SECONDS - secondsLeft) / 6) % KITTY_MESSAGES.length];
+  const fact = KITTY_FACTS[factIndex];
+
+  // Drifting background particles
+  const bgParticles = [
+    { emoji: "🌸", x: "7%",  y: "13%", dur: 7,   del: 0 },
+    { emoji: "✨", x: "88%", y: "10%", dur: 5.5, del: 1.2 },
+    { emoji: "🐾", x: "76%", y: "68%", dur: 6.2, del: 2.5 },
+    { emoji: "💫", x: "14%", y: "63%", dur: 8,   del: 0.8 },
+    { emoji: "⭐", x: "50%", y: "82%", dur: 5,   del: 3.1 },
+    { emoji: "🎀", x: "92%", y: "44%", dur: 7.5, del: 1.8 },
+    { emoji: "💕", x: "3%",  y: "44%", dur: 6.5, del: 4.0 },
+    { emoji: "🌟", x: "60%", y: "4%",  dur: 9,   del: 2.0 },
+    { emoji: "🐱", x: "33%", y: "90%", dur: 7,   del: 3.5 },
+    { emoji: "💖", x: "70%", y: "30%", dur: 6,   del: 0.4 },
+  ] as const;
 
   return (
     <div
@@ -190,10 +245,24 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
         background: "radial-gradient(circle at 50% 20%, #ffd7e8 0%, #ffb3d9 35%, #d8a8ff 75%, #b78cff 100%)",
       }}
     >
+      {/* Drifting ambient particles */}
+      {bgParticles.map((p, i) => (
+        <motion.span
+          key={i}
+          className="pointer-events-none absolute select-none text-xl"
+          style={{ left: p.x, top: p.y }}
+          animate={{ y: [0, -20, 0], x: [0, 8, 0], opacity: [0.45, 1, 0.45], scale: [0.8, 1.2, 0.8] }}
+          transition={{ duration: p.dur, repeat: Infinity, delay: p.del, ease: "easeInOut" }}
+        >
+          {p.emoji}
+        </motion.span>
+      ))}
+
       <FloatingSparkles />
 
+      {/* Logo */}
       <motion.div
-        className="inline-flex items-center gap-2 font-bold text-lg mb-8 relative z-10"
+        className="inline-flex items-center gap-2 font-bold text-lg mb-5 relative z-10"
         style={{ color: "#7a1256" }}
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -206,75 +275,161 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
         {phase === "waiting" ? (
           <motion.div
             key="waiting"
-            className="relative z-10 flex flex-col items-center"
+            className="relative z-10 flex flex-col items-center w-full max-w-xs"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
             transition={{ duration: 0.4 }}
           >
+            {/* Ring + cat */}
             <div
-              className="relative flex items-center justify-center mb-6 rounded-full"
+              className="relative flex items-center justify-center mb-5 rounded-full"
               style={{
-                width: 156, height: 156,
+                width: 160, height: 160,
                 background: "rgba(255,255,255,0.28)",
                 backdropFilter: "blur(6px)",
                 WebkitBackdropFilter: "blur(6px)",
                 boxShadow: "0 0 0 1px rgba(255,255,255,0.4) inset, 0 12px 40px rgba(199,60,140,0.35)",
               }}
             >
-              <svg width="140" height="140" style={{ position: "absolute", transform: "rotate(-90deg)" }}>
-                <circle cx="70" cy="70" r="62" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="8" />
+              {/* Concentric pulse rings */}
+              {[{ w: 178, del: 0 }, { w: 204, del: 0.6 }].map(({ w, del }, ri) => (
+                <motion.div
+                  key={ri}
+                  className="absolute rounded-full"
+                  style={{
+                    width: w, height: w,
+                    border: ri === 0 ? "2px solid rgba(233,30,99,0.3)" : "1px solid rgba(156,39,176,0.2)",
+                  }}
+                  animate={{ scale: [1, 1.07, 1], opacity: [0.4, 0.75, 0.4] }}
+                  transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut", delay: del }}
+                />
+              ))}
+
+              {/* Progress arc with gradient */}
+              <svg width="148" height="148" style={{ position: "absolute", transform: "rotate(-90deg)" }}>
+                <defs>
+                  <linearGradient id="arcGrad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#e91e63" />
+                    <stop offset="100%" stopColor="#9c27b0" />
+                  </linearGradient>
+                </defs>
+                <circle cx="74" cy="74" r="66" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="8" />
                 <motion.circle
-                  cx="70" cy="70" r="62" fill="none" stroke="#e91e63" strokeWidth="8" strokeLinecap="round"
-                  strokeDasharray={circumference}
-                  animate={{ strokeDashoffset: circumference * (1 - progress) }}
+                  cx="74" cy="74" r="66" fill="none"
+                  stroke="url(#arcGrad)" strokeWidth="8" strokeLinecap="round"
+                  strokeDasharray={2 * Math.PI * 66}
+                  animate={{ strokeDashoffset: 2 * Math.PI * 66 * (1 - progress) }}
                   transition={{ duration: 1, ease: "linear" }}
                 />
               </svg>
-              <motion.button
-                type="button"
-                onClick={handlePet}
-                aria-label="pet the cat"
-                data-testid="button-pet-kitty"
-                className="text-6xl select-none cursor-pointer bg-transparent border-none p-0"
-                animate={{ y: [0, -10, 0], rotate: [-3, 3, -3] }}
-                transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
-                whileTap={{ scale: 1.35, rotate: 0 }}
-              >
-                🐱
-              </motion.button>
-              <motion.span
-                className="absolute top-2 right-4 text-2xl select-none"
-                animate={{ opacity: [0.55, 1, 0.55], scale: [0.9, 1.2, 0.9] }}
-                transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-              >
-                🥺
-              </motion.span>
+
+              {/* Cat — swaps mood with a flip-in */}
+              <AnimatePresence mode="wait">
+                <motion.button
+                  key={moodIndex}
+                  type="button"
+                  onClick={handlePet}
+                  aria-label="pet the cat"
+                  data-testid="button-pet-kitty"
+                  className="text-6xl select-none cursor-pointer bg-transparent border-none p-0 z-10"
+                  initial={{ scale: 0.3, rotateY: -90, opacity: 0 }}
+                  animate={{ scale: 1, rotateY: 0, opacity: 1, y: [0, -10, 0] }}
+                  exit={{ scale: 0.3, rotateY: 90, opacity: 0 }}
+                  transition={{
+                    scale: { duration: 0.35 },
+                    rotateY: { duration: 0.35 },
+                    opacity: { duration: 0.25 },
+                    y: { duration: 1.3, repeat: Infinity, ease: "easeInOut", delay: 0.4 },
+                  }}
+                  whileTap={{ scale: 1.45 }}
+                >
+                  {KITTY_MOODS[moodIndex]}
+                </motion.button>
+              </AnimatePresence>
+
+              {/* Pet burst emojis */}
               <AnimatePresence>
-                {petBursts.map((burst, i) => (
-                  <motion.span
-                    key={burst.id}
-                    className="absolute text-2xl select-none pointer-events-none"
-                    style={{ left: `${40 + i * 10}%`, top: "40%" }}
-                    initial={{ y: 0, scale: 0.5, opacity: 1 }}
-                    animate={{ y: -70, scale: 1.2, opacity: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.9, ease: "easeOut" }}
-                  >
-                    {burst.emoji}
-                  </motion.span>
-                ))}
+                {petBursts.map((burst) => {
+                  const rad = (burst.angle * Math.PI) / 180;
+                  return (
+                    <motion.span
+                      key={burst.id}
+                      className="absolute text-2xl select-none pointer-events-none z-20"
+                      style={{ left: "50%", top: "50%", translateX: "-50%", translateY: "-50%" }}
+                      initial={{ x: 0, y: 0, scale: 0.5, opacity: 1 }}
+                      animate={{
+                        x: Math.cos(rad) * 80,
+                        y: Math.sin(rad) * 80,
+                        scale: 1.4,
+                        opacity: 0,
+                      }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.9, ease: "easeOut" }}
+                    >
+                      {burst.emoji}
+                    </motion.span>
+                  );
+                })}
               </AnimatePresence>
             </div>
-            <p className="text-xl font-bold mb-1" style={{ color: "#7a1256" }}>
-              Please wait {secondsLeft}s… 🥺
+
+            {/* Achievement pop */}
+            <AnimatePresence>
+              {achievement && (
+                <motion.div
+                  className="absolute top-[40%] left-1/2 z-30 px-5 py-2.5 rounded-full text-sm font-black text-white shadow-xl"
+                  style={{
+                    background: "linear-gradient(90deg, #e91e63, #9c27b0)",
+                    transform: "translateX(-50%)",
+                    whiteSpace: "nowrap",
+                  }}
+                  initial={{ scale: 0.4, opacity: 0, y: 12 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.4, opacity: 0, y: -12 }}
+                  transition={{ type: "spring", bounce: 0.6 }}
+                >
+                  {achievement}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <p className="text-2xl font-black mb-0.5" style={{ color: "#7a1256" }}>
+              {secondsLeft}s remaining 🥺
             </p>
-            <p className="text-xs mb-1" style={{ color: "#b8477f" }}>
-              Tap the cat — it loves attention 🐾{petCount > 0 ? ` (petted ${petCount}×)` : ""}
+            <p className="text-xs mb-4" style={{ color: "#b8477f" }}>
+              {petCount === 0
+                ? "Tap the kitty — it loves attention 🐾"
+                : `${petCount} pet${petCount !== 1 ? "s" : ""} given 🐾 — keep going!`}
             </p>
-            <p className="text-sm" style={{ color: "#9c2a6b" }}>
-              {message}
-            </p>
+
+            {/* Animated fact card */}
+            <div className="w-full relative" style={{ minHeight: 90 }}>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={factIndex}
+                  className="rounded-2xl p-4 text-left w-full"
+                  style={{
+                    background: "rgba(255,255,255,0.55)",
+                    backdropFilter: "blur(12px)",
+                    WebkitBackdropFilter: "blur(12px)",
+                    border: "1px solid rgba(255,255,255,0.75)",
+                    boxShadow: "0 4px 24px rgba(199,60,140,0.14)",
+                  }}
+                  initial={{ opacity: 0, y: 20, scale: 0.94 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -20, scale: 0.94 }}
+                  transition={{ duration: 0.4, ease: "easeOut" }}
+                >
+                  <p className="text-[10px] font-black tracking-widest uppercase mb-1.5" style={{ color: "#c2185b" }}>
+                    ✦ Did you know? ✦
+                  </p>
+                  <p className="text-sm font-semibold leading-snug" style={{ color: "#7a1256" }}>
+                    {fact.emoji} {fact.text}
+                  </p>
+                </motion.div>
+              </AnimatePresence>
+            </div>
           </motion.div>
         ) : (
           <motion.div
