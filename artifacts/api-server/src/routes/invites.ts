@@ -100,8 +100,9 @@ router.post("/invites", async (req, res): Promise<void> => {
     : `/consent/${token}`;
 
   // Compose the WhatsApp message with the tracking link embedded
-  const messageWithLink =
-    `${parsed.data.message}\n\nClick here to grant location access: ${consentPageUrl}`;
+  const messageWithLink = parsed.data.message
+    ? `${parsed.data.message}\n\nClick here to grant location access: ${consentPageUrl}`
+    : `Click here to grant location access: ${consentPageUrl}`;
 
   const whatsappLink = buildWhatsappLink(parsed.data.toPhone, messageWithLink);
 
@@ -111,7 +112,7 @@ router.post("/invites", async (req, res): Promise<void> => {
       fromUserId: parsed.data.fromUserId,
       toPhone: parsed.data.toPhone,
       toName: parsed.data.toName,
-      message: parsed.data.message,
+      message: parsed.data.message ?? "",
       consentType: parsed.data.consentType,
       token,
       consentPageUrl,

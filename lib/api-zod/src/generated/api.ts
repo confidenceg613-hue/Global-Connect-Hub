@@ -245,7 +245,7 @@ export const CreateInviteBody = zod.object({
   "fromUserId": zod.number(),
   "toPhone": zod.string().min(1),
   "toName": zod.string().optional(),
-  "message": zod.string().min(1),
+  "message": zod.string().optional(),
   "consentType": zod.enum(['location', 'notification', 'messaging']).optional(),
   "baseUrl": zod.string().optional().describe('Origin URL to build the consent page link (e.g. https:\/\/app.replit.app)')
 })

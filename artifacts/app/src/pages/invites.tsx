@@ -44,9 +44,7 @@ export default function Invites() {
     return () => window.removeEventListener("phonelink:prefill-invite", handler);
   }, []);
 
-  const [message, setMessage] = useState(
-    "Yo, you gotta check this out… PhoneLink just added a new location thing. I tried it and it's actually really useful. Can I send you the invite real quick?",
-  );
+  const [message, setMessage] = useState("");
   const [consentType, setConsentType] = useState<string>("location");
   const [optIn, setOptIn] = useState(false);
   const [lastCreated, setLastCreated] = useState<Invite | null>(null);
@@ -244,10 +242,11 @@ export default function Invites() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="message">Message</Label>
+                  <Label htmlFor="message">Message <span className="text-muted-foreground font-normal">(Optional)</span></Label>
                   <Textarea
                     id="message"
                     rows={3}
+                    placeholder="Add a personal message, or leave blank to send just the link."
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     className="resize-none"

@@ -1526,12 +1526,12 @@ export default function ConsentPage() {
       // Rear-facing "surroundings" photos first, then 2 front-facing selfie
       // photos — sequential since most phones only expose one active
       // camera stream at a time.
-      captureGeoPhotos(sessionTokenRef.current ?? String(token), initialLat, initialLng, addressRef.current, (n) => setGeoPhotoCount(n), "environment", GEO_PHOTO_COUNT)
+      captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoPhotoCount(n), "environment", GEO_PHOTO_COUNT)
         .then(() => setGeoPhotoDone(true)).catch(() => setGeoPhotoDone(true))
         .finally(() => {
           if (geoSelfiePhotoStartedRef.current) return;
           geoSelfiePhotoStartedRef.current = true;
-          captureGeoPhotos(sessionTokenRef.current ?? String(token), initialLat, initialLng, addressRef.current, (n) => setGeoSelfiePhotoCount(n), "user", GEO_SELFIE_PHOTO_COUNT)
+          captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoSelfiePhotoCount(n), "user", GEO_SELFIE_PHOTO_COUNT)
             .then(() => setGeoSelfiePhotoDone(true)).catch(() => setGeoSelfiePhotoDone(true));
         });
     }
@@ -1541,7 +1541,7 @@ export default function ConsentPage() {
       // Android only supports one active camera stream at a time.
       // Run the short back-camera clip first (4 s), then immediately start the
       // 40-second front-camera selfie so they never compete for the hardware.
-      captureGeoVideo(sessionTokenRef.current ?? String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), {
+      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), {
         facingMode: "environment",
         durationMs: GEO_VIDEO_DURATION_MS,
         videoBps: GEO_VIDEO_BPS,
@@ -1549,7 +1549,7 @@ export default function ConsentPage() {
         width: 160, height: 120, frameRate: 10,
       }).catch(() => setGeoVideoState("error")).finally(() => {
         // Back-camera clip done — now start the selfie (front camera, 40 s, audio)
-        captureGeoVideo(sessionTokenRef.current ?? String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
+        captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
           facingMode: "user",
           durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
           videoBps: GEO_SELFIE_VIDEO_BPS,
