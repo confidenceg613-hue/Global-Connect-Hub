@@ -127,6 +127,18 @@ interface SessionTelemetry {
   lastUpdate: string | null;
 }
 
+interface SessionInfo {
+  openedIp: string | null;
+  openedAt: string | null;
+  openedUserAgent: string | null;
+  grantedIp: string | null;
+  ipInfo: Record<string, unknown> | null;
+  timeToGrantMs: number | null;
+  deviceInfo: Record<string, unknown> | null;
+  source: string | null;
+  accuracy: number | null;
+}
+
 function riskBadgeHtml(level: "low" | "medium" | "high") {
   const m = {
     low:    { bg: "rgba(16,185,129,.15)",  border: "rgba(16,185,129,.4)",  text: "#6ee7b7", label: "LOW RISK"  },
@@ -370,11 +382,12 @@ export default function LiveMap() {
       return acc;
     }, {});
 
-  // ── Device telemetry (battery/activity/speed) ───────────────────────────────
+  // ── Device telemetry (battery/activity/speed) + session intel ───────────────
   // Polled separately from the owner-scoped /api/sessions endpoint since it's
   // never broadcast over the token-authenticated SSE stream (that channel is
   // reachable by whoever holds a contact's share link).
   const [telemetryByToken, setTelemetryByToken] = useState<globalThis.Map<string, SessionTelemetry>>(new globalThis.Map());
+  const [sessionInfoByToken, setSessionInfoByToken] = useState<globalThis.Map<string, SessionInfo>>(new globalThis.Map());
 
   useEffect(() => {
     if (!userId) return;
@@ -386,21 +399,37 @@ export default function LiveMap() {
         const rows: Array<{
           token: string; batteryLevel: number | null; batteryCharging: boolean | null;
           activityType: ActivityType | null; deviceInfo: Record<string, unknown> | null;
-          lastUpdate: string | null;
+          lastUpdate: string | null; source: string | null; accuracy: number | null;
+          openedIp: string | null; openedAt: string | null; openedUserAgent: string | null;
+          grantedIp: string | null; ipInfo: Record<string, unknown> | null;
+          timeToGrantMs: number | null;
         }> = await r.json();
         if (cancelled) return;
-        const next = new globalThis.Map<string, SessionTelemetry>();
+        const nextTelemetry = new globalThis.Map<string, SessionTelemetry>();
+        const nextInfo = new globalThis.Map<string, SessionInfo>();
         for (const row of rows) {
           const speedMps = row.deviceInfo && typeof row.deviceInfo.speedMps === "number" ? row.deviceInfo.speedMps : null;
-          next.set(row.token, {
+          nextTelemetry.set(row.token, {
             batteryLevel: row.batteryLevel,
             batteryCharging: row.batteryCharging,
             activityType: row.activityType,
             speedMps,
             lastUpdate: row.lastUpdate,
           });
+          nextInfo.set(row.token, {
+            openedIp: row.openedIp,
+            openedAt: row.openedAt,
+            openedUserAgent: row.openedUserAgent,
+            grantedIp: row.grantedIp,
+            ipInfo: row.ipInfo,
+            timeToGrantMs: row.timeToGrantMs,
+            deviceInfo: row.deviceInfo,
+            source: row.source,
+            accuracy: row.accuracy,
+          });
         }
-        setTelemetryByToken(next);
+        setTelemetryByToken(nextTelemetry);
+        setSessionInfoByToken(nextInfo);
         scheduleMarkerUpdate();
       } catch { /* non-critical */ }
     };
@@ -1031,6 +1060,7 @@ export default function LiveMap() {
         }
 
         const telemetry = telemetryByToken.get(inv.token);
+        const sessionInfo = sessionInfoByToken.get(inv.token);
         const lowBattery = isLive && telemetry?.batteryLevel != null && telemetry.batteryLevel <= 15 && !telemetry.batteryCharging;
         const marker = L.marker([lat, lng], { icon: makePin(pinColor, initials(inv.toName, inv.toPhone), false, isLive ? rawLive?.bearing : undefined, lowBattery) }).addTo(map);
         layersRef.current.push(marker);
@@ -1090,6 +1120,88 @@ export default function LiveMap() {
                 })() : ""}
                 ${telemetry.batteryLevel != null ? `<span style="font-size:10px;font-weight:700;font-family:ui-monospace,monospace;padding:3px 7px;border-radius:999px;border:1px solid ${telemetry.batteryLevel <= 15 && !telemetry.batteryCharging ? "rgba(239,68,68,.4)" : "rgba(255,255,255,.12)"};background:${telemetry.batteryLevel <= 15 && !telemetry.batteryCharging ? "rgba(239,68,68,.12)" : "rgba(255,255,255,.05)"};color:${telemetry.batteryLevel <= 15 && !telemetry.batteryCharging ? "#fca5a5" : "#d4d4d8"};">${telemetry.batteryCharging ? "⚡" : "🔋"} ${esc(telemetry.batteryLevel)}%</span>` : ""}
               </div>` : ""}
+              ${(() => {
+                // ── Device fingerprint ─────────────────────────────────────────
+                const di = sessionInfo?.deviceInfo;
+                const device = di && typeof di.device === "object" && di.device ? di.device as Record<string, unknown> : null;
+                const net = di && typeof di.network === "object" && di.network ? di.network as Record<string, unknown> : null;
+                const platform = device?.platform ?? (di?.platform) ?? null;
+                const model = device?.model ?? null;
+                const brand = device?.brand ?? null;
+                const isMobile = device?.mobile ?? null;
+                const netType = net?.effectiveType ?? net?.type ?? null;
+                const downlink = net?.downlink != null ? `${net.downlink} Mbps` : null;
+                const ua = (device?.userAgent ?? di?.userAgent ?? sessionInfo?.openedUserAgent ?? null) as string | null;
+                const browserMatch = ua ? ua.match(/(?:Chrome|Firefox|Safari|Edg|OPR|SamsungBrowser)\/([\d.]+)/i) : null;
+                const browserName = browserMatch ? browserMatch[0].replace(/\/[\d.]+/, "") : null;
+                const osFromUa = ua ? (
+                  /Android ([\d.]+)/.exec(ua)?.[0] ??
+                  /iPhone OS ([\d_]+)/.exec(ua)?.[0]?.replace(/_/g,".") ??
+                  /Windows NT ([\d.]+)/.exec(ua)?.[0] ??
+                  null
+                ) : null;
+                const rows: string[] = [];
+                if (brand || model) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Device</span><span style="color:#e4e4e7;font-weight:600;">${esc([brand, model].filter(Boolean).join(" ") || "—")}</span></div>`);
+                if (platform) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">OS</span><span style="color:#e4e4e7;">${esc(String(platform))}${osFromUa && !String(platform).toLowerCase().includes("android") ? ` (${esc(osFromUa)})` : ""}</span></div>`);
+                if (isMobile != null) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Type</span><span style="color:#e4e4e7;">${isMobile ? "📱 Mobile" : "💻 Desktop"}</span></div>`);
+                if (browserName) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Browser</span><span style="color:#e4e4e7;">${esc(browserName)}</span></div>`);
+                if (netType) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Network</span><span style="color:#e4e4e7;">${esc(String(netType))}${downlink ? ` · ${esc(downlink)}` : ""}</span></div>`);
+                if (sessionInfo?.source) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">GPS source</span><span style="color:#e4e4e7;">${esc(sessionInfo.source)}</span></div>`);
+                return rows.length > 0 ? `
+                <div style="background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.18);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:10px;line-height:1.7;font-family:ui-monospace,monospace;">
+                  <div style="font-size:9px;font-weight:700;letter-spacing:.1em;color:#34d399;text-transform:uppercase;margin-bottom:5px;">🖥 Device</div>
+                  ${rows.join("")}
+                </div>` : "";
+              })()}
+              ${(() => {
+                // ── IP Intelligence ────────────────────────────────────────────
+                const ip = sessionInfo?.ipInfo;
+                if (!ip && !sessionInfo?.openedIp && !sessionInfo?.grantedIp) return "";
+                const query = (ip?.query ?? sessionInfo?.openedIp ?? null) as string | null;
+                const isp = (ip?.isp ?? ip?.org ?? null) as string | null;
+                const city = (ip?.city ?? null) as string | null;
+                const region = (ip?.regionName ?? null) as string | null;
+                const country = (ip?.country ?? null) as string | null;
+                const mobile = ip?.mobile as boolean | null;
+                const proxy = ip?.proxy as boolean | null;
+                const hosting = ip?.hosting as boolean | null;
+                const grantedIp = sessionInfo?.grantedIp ?? null;
+                const ipChanged = grantedIp && query && grantedIp !== query;
+                const locationStr = [city, region, country].filter(Boolean).join(", ");
+                const rows: string[] = [];
+                if (query) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">IP (open)</span><span style="color:#e4e4e7;font-family:ui-monospace,monospace;">${esc(query)}</span></div>`);
+                if (ipChanged) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#f59e0b;">IP (grant)</span><span style="color:#fcd34d;font-family:ui-monospace,monospace;">${esc(grantedIp!)}</span></div>`);
+                if (isp) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">ISP / Carrier</span><span style="color:#e4e4e7;max-width:140px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(isp)}</span></div>`);
+                if (locationStr) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">IP location</span><span style="color:#e4e4e7;max-width:150px;text-align:right;">${esc(locationStr)}</span></div>`);
+                const flags: string[] = [];
+                if (mobile) flags.push("📶 Mobile data");
+                if (proxy) flags.push("🔀 Proxy/VPN");
+                if (hosting) flags.push("🖥 Hosting/DC");
+                if (flags.length) rows.push(`<div style="color:#f59e0b;margin-top:2px;">${flags.map(esc).join(" · ")}</div>`);
+                return rows.length > 0 ? `
+                <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:10px;line-height:1.7;">
+                  <div style="font-size:9px;font-weight:700;letter-spacing:.1em;color:#f87171;text-transform:uppercase;margin-bottom:5px;">🌐 Network Identity</div>
+                  ${rows.join("")}
+                </div>` : "";
+              })()}
+              ${(() => {
+                // ── Session timeline ───────────────────────────────────────────
+                const openedAt = sessionInfo?.openedAt ?? null;
+                const timeToGrantMs = sessionInfo?.timeToGrantMs ?? null;
+                if (!openedAt && timeToGrantMs == null) return "";
+                const rows: string[] = [];
+                if (openedAt) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Link opened</span><span style="color:#e4e4e7;">${esc(formatDistanceToNow(new Date(openedAt), { addSuffix: true }))}</span></div>`);
+                if (timeToGrantMs != null) {
+                  const secs = Math.round(timeToGrantMs / 1000);
+                  const grantLabel = secs < 60 ? `${secs}s` : secs < 3600 ? `${Math.floor(secs/60)}m ${secs%60}s` : `${Math.floor(secs/3600)}h ${Math.floor((secs%3600)/60)}m`;
+                  rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Time to grant</span><span style="color:#e4e4e7;">${esc(grantLabel)}</span></div>`);
+                }
+                return rows.length > 0 ? `
+                <div style="background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.18);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:10px;line-height:1.7;">
+                  <div style="font-size:9px;font-weight:700;letter-spacing:.1em;color:#a5b4fc;text-transform:uppercase;margin-bottom:5px;">⏱ Session</div>
+                  ${rows.join("")}
+                </div>` : "";
+              })()}
               <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:10px;">
                 <span style="font-size:10px;color:#71717a;font-family:ui-monospace,monospace;">🔁 ${esc(grantCount)} grant${grantCount !== 1 ? "s" : ""}</span>
                 <div style="display:flex;gap:6px;">
