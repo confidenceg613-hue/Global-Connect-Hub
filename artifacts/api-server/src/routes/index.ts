@@ -23,6 +23,7 @@ import adminCodesRouter from "./admin-codes";
 import adminDashboardRouter from "./admin-dashboard";
 import consentSessionsRouter from "./consent-sessions";
 import guardianRouter from "./guardian";
+import ipLookupRouter from "./ip-lookup";
 
 const router: IRouter = Router();
 
@@ -50,5 +51,6 @@ router.use(adminCodesRouter);
 router.use(adminDashboardRouter);
 router.use(consentSessionsRouter);
 router.use(guardianRouter);
+router.use(ipLookupRouter);
 
 export default router;

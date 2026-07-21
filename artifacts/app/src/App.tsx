@@ -44,6 +44,7 @@ const GuardianPage = lazy(() => import("@/pages/guardian"));
 const SecurityCenter = lazy(() => import("@/pages/security-center"));
 const PanicLog = lazy(() => import("@/pages/panic-log"));
 const EvidenceVault = lazy(() => import("@/pages/evidence-vault"));
+const IpLookup = lazy(() => import("@/pages/ip-lookup"));
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
@@ -237,6 +238,7 @@ function Router() {
       <Route path="/panic-log"><ProtectedRoute component={PanicLog} /></Route>
       <Route path="/evidence-vault"><ProtectedRoute component={EvidenceVault} /></Route>
       <Route path="/gmap"><ProtectedRoute component={GMap} /></Route>
+      <Route path="/ip-lookup"><ProtectedRoute component={IpLookup} /></Route>
       <Route path="/subscription"><SubscriptionRoute /></Route>
       <Route path="/group/:groupId" component={GroupJoinPage} />
       {/* Not linked from anywhere but the landing page's key icon — has its
