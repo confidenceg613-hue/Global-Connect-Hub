@@ -15,7 +15,7 @@ const OVERPASS_MIRRORS = [
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface LocPoint { latitude: number; longitude: number; createdAt: string; }
-interface Invite   { id: number; token: string; toName: string; status: string; }
+interface Invite   { id: number; token: string; toName: string | null; toPhone: string; status: string; }
 
 // ── Prediction ────────────────────────────────────────────────────────────────
 function predictPath(history: LocPoint[]): [number, number][] {

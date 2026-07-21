@@ -54,7 +54,9 @@ import { AppCommandHandler } from "@/components/assistant/AppCommandHandler";
 const queryClient = new QueryClient();
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const VAPID_PUBLIC_KEY = "BC25lK-LutnB0q-o9jd7PV8jo5dzFELRDBfpbUFcJRs632OKi1cx81ghTwK_mpV3AbtEk7SLLKIQroAHFkWaamM";
+// VAPID key injected at build time via VITE_VAPID_PUBLIC_KEY env var (set in .replit).
+// Falls back to empty string so push subscription is silently skipped rather than crashing.
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY ?? "";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);

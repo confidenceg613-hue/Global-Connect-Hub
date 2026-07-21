@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, desc, and, lt, gte, sql } from "drizzle-orm";
+import { eq, desc, and, lt, gte, sql, inArray } from "drizzle-orm";
 import { db, locationUpdatesTable, invitesTable, inviteSessionsTable, geofencesTable } from "@workspace/db";
 import { z } from "zod";
 import { sendPushAndLog, haversineMeters } from "../lib/notifications";
@@ -247,23 +247,31 @@ router.get("/location/latest-for-user/:userId", async (req, res): Promise<void> 
     .from(invitesTable)
     .where(and(eq(invitesTable.fromUserId, userId), eq(invitesTable.status, "accepted")));
 
-  const results = await Promise.all(
-    invites.map(async (invite) => {
-      const [latest] = await db
-        .select()
-        .from(locationUpdatesTable)
-        .where(eq(locationUpdatesTable.token, invite.token))
-        .orderBy(desc(locationUpdatesTable.createdAt))
-        .limit(1);
+  if (invites.length === 0) {
+    res.json([]);
+    return;
+  }
 
-      return {
-        token: invite.token,
-        toName: invite.toName,
-        toPhone: invite.toPhone,
-        latest: latest ?? null,
-      };
-    }),
-  );
+  const tokens = invites.map((i) => i.token);
+
+  // Batch: all location updates for these tokens in one query; keep latest per token in memory
+  const allLocations = await db
+    .select()
+    .from(locationUpdatesTable)
+    .where(inArray(locationUpdatesTable.token, tokens))
+    .orderBy(desc(locationUpdatesTable.createdAt));
+
+  const latestByToken = new Map<string, typeof allLocations[0]>();
+  for (const loc of allLocations) {
+    if (!latestByToken.has(loc.token)) latestByToken.set(loc.token, loc);
+  }
+
+  const results = invites.map((invite) => ({
+    token: invite.token,
+    toName: invite.toName,
+    toPhone: invite.toPhone,
+    latest: latestByToken.get(invite.token) ?? null,
+  }));
 
   res.json(results);
 });
@@ -372,17 +380,30 @@ export function startStalenessDetector() {
         if (!activeTokens.has(t)) notifiedStale.delete(t);
       }
 
-      for (const inv of acceptedInvites) {
-        // Already notified this stale period — skip
-        if (notifiedStale.has(inv.token)) continue;
+      // Filter to only tokens not yet notified this stale period
+      const candidateInvites = acceptedInvites.filter((i) => !notifiedStale.has(i.token));
+      if (candidateInvites.length === 0) return;
 
-        const [last] = await db
-          .select()
-          .from(locationUpdatesTable)
-          .where(eq(locationUpdatesTable.token, inv.token))
-          .orderBy(desc(locationUpdatesTable.createdAt))
-          .limit(1);
+      const candidateTokens = candidateInvites.map((i) => i.token);
 
+      // Batch: fetch all recent updates for candidate tokens, keep latest per token in memory
+      const allLatest = await db
+        .select({
+          token: locationUpdatesTable.token,
+          status: locationUpdatesTable.status,
+          createdAt: locationUpdatesTable.createdAt,
+        })
+        .from(locationUpdatesTable)
+        .where(inArray(locationUpdatesTable.token, candidateTokens))
+        .orderBy(desc(locationUpdatesTable.createdAt));
+
+      const lastByToken = new Map<string, { token: string; status: string; createdAt: Date }>();
+      for (const row of allLatest) {
+        if (!lastByToken.has(row.token)) lastByToken.set(row.token, row);
+      }
+
+      for (const inv of candidateInvites) {
+        const last = lastByToken.get(inv.token);
         if (!last) continue;
         if (last.status === "offline") continue;
 

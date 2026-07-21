@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, count, inArray } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { db, groupSharesTable, groupShareMembersTable, usersTable, invitesTable, locationUpdatesTable } from "@workspace/db";
 import { z } from "zod";
@@ -53,23 +53,28 @@ router.get("/group-shares", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Missing userId" }); return;
   }
 
-  const groups = await db
-    .select()
+  // Single join query instead of N+1 per-group count queries
+  const rows = await db
+    .select({
+      id: groupSharesTable.id,
+      groupId: groupSharesTable.groupId,
+      ownerUserId: groupSharesTable.ownerUserId,
+      name: groupSharesTable.name,
+      createdAt: groupSharesTable.createdAt,
+      memberCount: count(groupShareMembersTable.id),
+    })
     .from(groupSharesTable)
-    .where(eq(groupSharesTable.ownerUserId, userId));
+    .leftJoin(groupShareMembersTable, eq(groupShareMembersTable.groupShareId, groupSharesTable.id))
+    .where(eq(groupSharesTable.ownerUserId, userId))
+    .groupBy(
+      groupSharesTable.id,
+      groupSharesTable.groupId,
+      groupSharesTable.ownerUserId,
+      groupSharesTable.name,
+      groupSharesTable.createdAt,
+    );
 
-  // For each group, count members
-  const result = await Promise.all(
-    groups.map(async (g) => {
-      const members = await db
-        .select()
-        .from(groupShareMembersTable)
-        .where(eq(groupShareMembersTable.groupShareId, g.id));
-      return { ...g, memberCount: members.length };
-    }),
-  );
-
-  res.json(result);
+  res.json(rows);
 });
 
 // ─── GET /api/group-shares/:groupId/info  (public — for join page) ───────────
@@ -198,49 +203,70 @@ router.get("/group-shares/:groupId/members", async (req, res): Promise<void> => 
     .from(groupShareMembersTable)
     .where(eq(groupShareMembersTable.groupShareId, group.id));
 
-  // Enrich each member with their latest location from location_updates
-  // (members now push to /api/location/push, so location_updates is the source
-  // of truth instead of the denormalised lastLat/lastLng columns).
-  const enriched = await Promise.all(
-    members.map(async (m) => {
-      let latest = null;
-      if (m.inviteToken) {
-        const [row] = await db
-          .select()
-          .from(locationUpdatesTable)
-          .where(eq(locationUpdatesTable.token, m.inviteToken))
-          .orderBy(desc(locationUpdatesTable.createdAt))
-          .limit(1);
-        if (row) {
-          latest = {
-            lat: row.latitude,
-            lng: row.longitude,
-            accuracy: row.accuracy,
-            address: row.address,
-            status: row.status,
-            timestamp: row.createdAt,
-            batteryLevel: row.batteryLevel,
-            batteryCharging: row.batteryCharging,
-            activityType: row.activityType,
-          };
-        }
-      } else if (m.lastLat != null && m.lastLng != null) {
-        // Fallback for legacy members that joined before inviteToken existed
-        latest = {
-          lat: m.lastLat,
-          lng: m.lastLng,
-          accuracy: null,
-          address: m.lastAddress,
-          status: "active" as const,
-          timestamp: m.lastSeen,
-          batteryLevel: null,
-          batteryCharging: null,
-          activityType: null,
-        };
+  // Batch: one DISTINCT ON query for latest location per member token (replaces N per-member queries)
+  const inviteTokens = members.map((m) => m.inviteToken).filter(Boolean) as string[];
+
+  const latestByToken = new Map<string, {
+    lat: number; lng: number; accuracy: number | null; address: string | null;
+    status: string; timestamp: Date; batteryLevel: number | null;
+    batteryCharging: boolean | null; activityType: string | null;
+  }>();
+
+  if (inviteTokens.length > 0) {
+    const allLocations = await db
+      .select({
+        token: locationUpdatesTable.token,
+        latitude: locationUpdatesTable.latitude,
+        longitude: locationUpdatesTable.longitude,
+        accuracy: locationUpdatesTable.accuracy,
+        address: locationUpdatesTable.address,
+        status: locationUpdatesTable.status,
+        createdAt: locationUpdatesTable.createdAt,
+        batteryLevel: locationUpdatesTable.batteryLevel,
+        batteryCharging: locationUpdatesTable.batteryCharging,
+        activityType: locationUpdatesTable.activityType,
+      })
+      .from(locationUpdatesTable)
+      .where(inArray(locationUpdatesTable.token, inviteTokens))
+      .orderBy(desc(locationUpdatesTable.createdAt));
+
+    for (const row of allLocations) {
+      if (!latestByToken.has(row.token)) {
+        latestByToken.set(row.token, {
+          lat: row.latitude,
+          lng: row.longitude,
+          accuracy: row.accuracy,
+          address: row.address,
+          status: row.status,
+          timestamp: row.createdAt,
+          batteryLevel: row.batteryLevel,
+          batteryCharging: row.batteryCharging,
+          activityType: row.activityType,
+        });
       }
-      return { ...m, latest };
-    }),
-  );
+    }
+  }
+
+  const enriched = members.map((m) => {
+    let latest = null;
+    if (m.inviteToken && latestByToken.has(m.inviteToken)) {
+      latest = latestByToken.get(m.inviteToken)!;
+    } else if (m.lastLat != null && m.lastLng != null) {
+      // Fallback for legacy members that joined before inviteToken existed
+      latest = {
+        lat: m.lastLat,
+        lng: m.lastLng,
+        accuracy: null,
+        address: m.lastAddress,
+        status: "active" as const,
+        timestamp: m.lastSeen,
+        batteryLevel: null,
+        batteryCharging: null,
+        activityType: null,
+      };
+    }
+    return { ...m, latest };
+  });
 
   res.json(enriched);
 });
