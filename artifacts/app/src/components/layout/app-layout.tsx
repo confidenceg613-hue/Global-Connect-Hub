@@ -1,7 +1,8 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { AccountSwitcher } from "@/components/layout/AccountSwitcher";
 import {
-  ShieldCheck, LayoutDashboard, Users, UserCircle, LogOut, Menu,
+  ShieldCheck, LayoutDashboard, Users, UserCircle, Menu,
   Navigation, Clock, Map, Bell, BellOff, BellRing, Camera, Settings,
   Activity as ActivityIcon, Flag, ChevronRight, Radio, Globe,
   ShieldAlert, Siren, Archive,
@@ -155,7 +156,7 @@ const NAV_SECTIONS = [
 
 export function AppLayout({ children }: AppLayoutProps) {
   const [location] = useLocation();
-  const { logout, userId } = useAuth();
+  const { userId } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const { state: notifState, subscribe } = useNotificationBell(userId);
@@ -251,15 +252,9 @@ export function AppLayout({ children }: AppLayoutProps) {
         ))}
       </div>
 
-      {/* Footer */}
+      {/* Footer — account switcher */}
       <div className="px-3 py-3 border-t border-border/60">
-        <button
-          onClick={logout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all text-sm font-medium"
-        >
-          <LogOut size={16} />
-          Sign out
-        </button>
+        <AccountSwitcher />
       </div>
     </div>
   );

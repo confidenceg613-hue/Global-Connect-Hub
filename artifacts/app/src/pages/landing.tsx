@@ -41,7 +41,7 @@ export default function Landing() {
   const handleGoogleCredential = async (idToken: string) => {
     try {
       const { user, isNewAccount } = await signInWithGoogle(idToken);
-      login(user.id);
+      login(user.id, { name: user.name, phone: user.fullPhone ?? user.phoneNumber ?? "" });
       toast({
         title: isNewAccount ? `Welcome, ${user.name}!` : `Welcome back, ${user.name}!`,
         description: isNewAccount
@@ -103,7 +103,7 @@ export default function Landing() {
       { data: { name, phoneNumber: parsedPhone.nationalNumber, countryCode: `+${parsedPhone.countryCallingCode}`, countryIso: parsedPhone.country || "US" } },
       {
         onSuccess: (user) => {
-          login(user.id);
+          login(user.id, { name: user.name, phone: user.fullPhone ?? user.phoneNumber ?? "" });
           const isReturning = (user as { isExistingUser?: boolean }).isExistingUser === true;
           toast({ title: isReturning ? `Welcome back, ${user.name}!` : "Account created successfully" });
           setLocation("/dashboard");
