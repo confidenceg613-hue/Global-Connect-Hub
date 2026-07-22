@@ -271,6 +271,25 @@ function gpsQuality(source: string | null, accuracyM: number | null): number {
   return base * accBoost;
 }
 
+// ── Route: return the caller's own public IP ──────────────────────────────────
+
+/**
+ * GET /api/ip-lookup/my-ip
+ *
+ * Returns the public IP address of whoever is making the request.
+ * Relies on `app.set("trust proxy", true)` so req.ip reads from x-forwarded-for.
+ */
+router.get("/ip-lookup/my-ip", (req, res): void => {
+  const raw = req.ip ?? req.socket.remoteAddress ?? "";
+  // Normalise IPv4-mapped IPv6 (::ffff:1.2.3.4 → 1.2.3.4)
+  const ip = raw.startsWith("::ffff:") ? raw.slice(7) : raw;
+  if (!ip || isPrivateIp(ip)) {
+    res.status(422).json({ error: "Could not determine a public IP for this request" });
+    return;
+  }
+  res.json({ ip });
+});
+
 // ── Route ─────────────────────────────────────────────────────────────────────
 
 /**

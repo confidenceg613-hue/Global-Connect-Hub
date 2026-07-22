@@ -415,14 +415,15 @@ export default function IpLookupPage() {
     }
   }, [result]);
 
-  const handleSearch = async () => {
-    if (!ip.trim() || !userId) return;
+  const handleSearch = async (overrideIp?: string) => {
+    const target = (overrideIp ?? ip).trim();
+    if (!target || !userId) return;
     setLoading(true);
     setPhase("acquiring");
     setError(null);
     setResult(null);
     try {
-      const r = await fetch(`${API_BASE}/api/ip-lookup?ip=${encodeURIComponent(ip.trim())}&userId=${userId}`);
+      const r = await fetch(`${API_BASE}/api/ip-lookup?ip=${encodeURIComponent(target)}&userId=${userId}`);
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
         throw new Error((body as Record<string, string>).error || `HTTP ${r.status}`);
@@ -435,6 +436,23 @@ export default function IpLookupPage() {
       setPhase("idle");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [myIpLoading, setMyIpLoading] = useState(false);
+  const handleUseMyIp = async () => {
+    setMyIpLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/ip-lookup/my-ip`);
+      if (!r.ok) throw new Error("Could not detect your IP");
+      const { ip: detected } = await r.json() as { ip: string };
+      setIp(detected);
+      await handleSearch(detected);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not detect IP");
+    } finally {
+      setMyIpLoading(false);
     }
   };
 
@@ -476,7 +494,19 @@ export default function IpLookupPage() {
           />
         </div>
         <button
-          onClick={handleSearch}
+          onClick={handleUseMyIp}
+          disabled={loading || myIpLoading}
+          title="Auto-detect and search your current public IP"
+          className="flex items-center gap-1.5 px-3 py-3 rounded-xl text-xs font-bold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed border border-zinc-600 hover:border-zinc-400 text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 shrink-0"
+        >
+          {myIpLoading
+            ? <span className="w-3.5 h-3.5 border-2 border-zinc-500/30 border-t-zinc-300 rounded-full animate-spin"/>
+            : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>
+          }
+          My IP
+        </button>
+        <button
+          onClick={() => handleSearch()}
           disabled={loading || !ip.trim()}
           className="flex items-center gap-2 px-6 py-3 rounded-xl font-black text-sm tracking-widest uppercase transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           style={{
@@ -595,6 +625,17 @@ export default function IpLookupPage() {
                 const gpsFixes = c.locationHistory.filter(h => h.source === "gps" || h.source === "fused").length;
                 const qualityPct = totalFixes > 0 ? Math.round(gpsFixes / totalFixes * 100) : 0;
 
+                // Staleness badge
+                const ageMs = c.lastUpdate ? Date.now() - new Date(c.lastUpdate).getTime() : null;
+                const stalenessColor = ageMs == null ? "#71717a"
+                  : ageMs < 10 * 60_000 ? "#22c55e"
+                  : ageMs < 60 * 60_000 ? "#f59e0b"
+                  : "#ef4444";
+                const stalenessBg = ageMs == null ? "rgba(113,113,122,.1)"
+                  : ageMs < 10 * 60_000 ? "rgba(34,197,94,.1)"
+                  : ageMs < 60 * 60_000 ? "rgba(245,158,11,.1)"
+                  : "rgba(239,68,68,.1)";
+
                 return (
                   <div key={c.inviteId} className="p-4 bg-zinc-900 border border-zinc-700 rounded-2xl space-y-3">
                     {/* Header */}
@@ -606,6 +647,14 @@ export default function IpLookupPage() {
                       <div className="flex-1 min-w-0">
                         <div className="font-bold text-sm text-zinc-100 truncate">{c.toName || c.toPhone}</div>
                         {c.toName && <div className="text-xs text-zinc-500 font-mono">{c.toPhone}</div>}
+                        {/* Staleness badge */}
+                        {lastSeen && (
+                          <div className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                            style={{ background: stalenessBg, color: stalenessColor, border: `1px solid ${stalenessColor}30` }}>
+                            <span style={{ width: 5, height: 5, borderRadius: "50%", background: stalenessColor, display: "inline-block" }}/>
+                            {lastSeen}
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${

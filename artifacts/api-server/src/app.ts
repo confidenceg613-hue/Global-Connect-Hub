@@ -6,6 +6,9 @@ import { logger } from "./lib/logger";
 
 const app: Express = express();
 
+// Trust the Replit reverse-proxy so req.ip resolves to the real client IP
+app.set("trust proxy", true);
+
 app.use(
   pinoHttp({
     logger,
