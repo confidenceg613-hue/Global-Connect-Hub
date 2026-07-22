@@ -269,7 +269,7 @@ export default function IpLookupPage() {
   useEffect(() => {
     if (!mapRef.current || mapInst.current) return;
     const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: true });
-    L.tileLayer("https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", {
+    L.tileLayer("https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
       subdomains: ["0","1","2","3"], attribution: "Google Maps", maxZoom: 21,
     }).addTo(map);
     mapInst.current = map;
