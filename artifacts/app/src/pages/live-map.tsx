@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck, Maximize2, Search, Navigation2, ArrowRightLeft, LocateFixed } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck, Maximize2, Search, Navigation2, ArrowRightLeft, LocateFixed, Plus, Minus, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -462,7 +462,6 @@ export default function LiveMap() {
     if (!mapRef.current || mapInst.current) return;
     try {
       const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: false, maxZoom: 22 });
-      L.control.zoom({ position: "bottomright" }).addTo(map);
       L.control.scale({ position: "bottomleft", imperial: false }).addTo(map);
       mapInst.current = map;
 
@@ -489,6 +488,7 @@ export default function LiveMap() {
           .leaflet-tooltip-left:before,.leaflet-tooltip-right:before{border-right-color:#111113!important;border-left-color:#111113!important;}
           .leaflet-control-attribution{background:rgba(0,0,0,.55)!important;color:#52525b!important;font-size:8px!important;padding:2px 6px!important;border-radius:4px!important;}
           .leaflet-control-attribution a{color:#6366f1!important;}
+          .leaflet-bottom{bottom:148px!important;}
           @keyframes pl-pulse{0%,100%{transform:scale(1);opacity:.25;}50%{transform:scale(1.35);opacity:.1;}}
         `;
         document.head.appendChild(s);
@@ -1461,97 +1461,248 @@ export default function LiveMap() {
   };
 
   return (
-    <div className={`relative flex flex-col -m-4 md:-m-8 ${compassMode ? "pl-compass-mode" : ""}`} style={{ height: "calc(100vh - 64px)", minHeight: 400 }}>
-      {/* Map viewport */}
-      <div className="relative flex-1 w-full overflow-hidden" style={{ zIndex: 0, minHeight: 300 }}>
-        <div ref={mapRef} className="pl-map-rotor absolute inset-0" style={mapRotorStyle} />
-      </div>
+    <div
+      className={`relative -m-4 md:-m-8 ${compassMode ? "pl-compass-mode" : ""}`}
+      style={{ height: "calc(100vh - 64px)", minHeight: 400 }}
+    >
+      {/* ── Full-bleed map canvas ── */}
+      <div ref={mapRef} className="pl-map-rotor absolute inset-0" style={mapRotorStyle} />
 
-      {/* HUD — top left */}
-      <div className="absolute top-3 left-3 z-[1000] pointer-events-none">
-        <div className="pl-hud-card flex items-center gap-4 px-4 py-2.5">
-          <HudStat label="Contacts" value={latest.length} />
-          <div className="w-px h-7 bg-white/10" />
-          <HudStat label="Grants" value={granted.length} />
-          {liveCount > 0 && <><div className="w-px h-7 bg-white/10" /><HudStat label="Live" value={liveCount} accent="#10b981" /></>}
-          {showClusters && clusterCount > 0 && <><div className="w-px h-7 bg-white/10" /><HudStat label="Flags" value={clusterCount} accent="#f59e0b" /></>}
-          {myPos && <><div className="w-px h-7 bg-white/10" /><HudStat label="You" value="📍" /></>}
-          <div className="w-px h-7 bg-white/10" />
-          <HudStat label="View" value={MAP_MODE_LABELS[mapMode]} accent="#a1a1aa" />
-        </div>
-      </div>
+      {/* ════════════════════════════════════════
+          TOP BAR: search pill + quick chips
+      ════════════════════════════════════════ */}
+      <div className="absolute top-3 left-3 right-3 z-[1000] flex flex-col gap-2 pointer-events-none">
 
-      {/* Compass readout — top right */}
-      {compassMode && (
-        <div className="absolute top-3 right-3 z-[1000] pointer-events-none">
-          <div className="pl-hud-card flex items-center gap-2 px-3 py-2">
-            <Compass className="w-4 h-4 text-sky-400 flex-shrink-0" style={heading != null ? { transform: `rotate(${heading}deg)` } : undefined} />
-            <span className="text-xs font-mono text-zinc-300 tabular-nums">
-              {heading != null ? `${Math.round(heading)}° ${cardinal(heading)}` : "Locating…"}
-            </span>
+        {/* Search pill — mirrors Google Maps' floating search bar */}
+        <div
+          className="flex items-center gap-2.5 rounded-full px-3 py-2 pointer-events-auto"
+          style={{
+            background: "hsl(var(--card) / 0.97)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            border: "1px solid hsl(var(--border))",
+            boxShadow: "0 4px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)",
+          }}
+        >
+          {/* App logo dot */}
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: "hsl(var(--primary))" }}
+          >
+            <MapPin className="w-4 h-4 text-white" />
           </div>
-        </div>
-      )}
 
-      {/* Search panel — top right */}
-      {showSearch && (
-        <div className="absolute top-3 right-3 z-[1003] w-80">
-          <div className="bg-[#111113] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
-            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/8">
-              <Search className="w-4 h-4 text-zinc-400 shrink-0" />
+          {/* Input or placeholder */}
+          {showSearch ? (
+            <>
               <input
                 autoFocus
                 type="text"
                 value={searchQuery}
                 onChange={(e) => handleSearch(e.target.value)}
                 placeholder="Search places…"
-                className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 outline-none"
+                className="flex-1 bg-transparent text-sm outline-none min-w-0"
+                style={{ color: "hsl(var(--foreground))" }}
               />
-              {searchLoading && <div className="w-3.5 h-3.5 border-2 border-indigo-400/50 border-t-indigo-400 rounded-full animate-spin shrink-0" />}
-              <button onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }} className="text-zinc-500 hover:text-zinc-200 transition-colors shrink-0">
+              {searchLoading && (
+                <div
+                  className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin flex-shrink-0"
+                  style={{ borderColor: "hsl(var(--primary) / 0.4)", borderTopColor: "hsl(var(--primary))" }}
+                />
+              )}
+              <button
+                onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }}
+                className="flex-shrink-0 transition-colors"
+                style={{ color: "hsl(var(--muted-foreground))" }}
+              >
                 <X className="w-4 h-4" />
               </button>
-            </div>
-            {searchResults.length > 0 && (
-              <div className="max-h-64 overflow-y-auto divide-y divide-white/5">
+            </>
+          ) : (
+            <button
+              className="flex-1 text-sm text-left transition-colors"
+              style={{ color: "hsl(var(--muted-foreground))" }}
+              onClick={() => setShowSearch(true)}
+            >
+              Search here
+            </button>
+          )}
+
+          {/* Divider */}
+          {!showSearch && (
+            <>
+              <button
+                onClick={() => setShowSearch(true)}
+                className="flex-shrink-0 transition-colors"
+                style={{ color: "hsl(var(--muted-foreground))" }}
+              >
+                <Search className="w-4 h-4" />
+              </button>
+              <div className="w-px h-5 flex-shrink-0" style={{ background: "hsl(var(--border))" }} />
+              {/* Avatar */}
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border-2"
+                style={{
+                  background: "hsl(var(--primary) / 0.15)",
+                  borderColor: "hsl(var(--primary) / 0.4)",
+                }}
+              >
+                <span className="text-[10px] font-black" style={{ color: "hsl(var(--primary))" }}>PL</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Search results dropdown */}
+        {showSearch && (searchResults.length > 0 || (!searchLoading && searchQuery.trim())) && (
+          <div
+            className="rounded-2xl overflow-hidden pointer-events-auto"
+            style={{
+              background: "hsl(var(--card) / 0.98)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              border: "1px solid hsl(var(--border))",
+              boxShadow: "0 12px 48px rgba(0,0,0,0.55)",
+            }}
+          >
+            {searchResults.length > 0 ? (
+              <div className="divide-y" style={{ borderColor: "hsl(var(--border) / 0.5)" }}>
                 {searchResults.map((r) => (
                   <button
                     key={r.place_id}
                     onClick={() => handleSelectResult(r)}
-                    className="w-full text-left px-4 py-2.5 hover:bg-white/5 transition-colors"
+                    className="w-full text-left px-4 py-3 flex items-center gap-3 transition-colors hover:opacity-80"
                   >
-                    <p className="text-xs font-medium text-zinc-200 truncate">{r.display_name.split(",")[0]}</p>
-                    <p className="text-[10px] text-zinc-500 truncate mt-0.5">{r.display_name.split(",").slice(1, 3).join(",")}</p>
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{ background: "hsl(var(--muted))" }}
+                    >
+                      <MapPin className="w-3.5 h-3.5" style={{ color: "hsl(var(--muted-foreground))" }} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground))" }}>
+                        {r.display_name.split(",")[0]}
+                      </p>
+                      <p className="text-xs truncate mt-0.5" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        {r.display_name.split(",").slice(1, 3).join(", ")}
+                      </p>
+                    </div>
                   </button>
                 ))}
               </div>
+            ) : (
+              <p className="px-4 py-3 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+                No results found
+              </p>
             )}
-            {!searchLoading && searchQuery.trim() && searchResults.length === 0 && (
-              <p className="px-4 py-3 text-xs text-zinc-500">No results found</p>
-            )}
+          </div>
+        )}
+
+        {/* Quick-action chips row — like Google Maps' "Home · 25 min" pills */}
+        {!showSearch && (
+          <div className="flex gap-2 overflow-x-auto pointer-events-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
+            <MapChip
+              icon={<Crosshair className="w-3.5 h-3.5" />}
+              label={locating ? "Locating…" : "Find me"}
+              onClick={handleFindMe}
+              disabled={locating}
+            />
+            <MapChip
+              icon={<Maximize2 className="w-3.5 h-3.5" />}
+              label="Recenter"
+              onClick={handleRecenter}
+            />
+            <MapChip
+              icon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />}
+              label="Refresh"
+              onClick={handleRefresh}
+              disabled={refreshing}
+            />
+            <MapChip
+              icon={<ArrowRightLeft className="w-3.5 h-3.5" />}
+              label={dirMode ? "Cancel dir." : "Directions"}
+              onClick={() => { if (dirMode) clearDirections(); else { clearDirections(); setDirMode(true); } }}
+              active={dirMode}
+            />
+            <MapChip
+              icon={<Flame className="w-3.5 h-3.5" />}
+              label={heatLoading ? "Loading…" : "Heatmap"}
+              onClick={() => setShowHeatmap((v) => !v)}
+              active={showHeatmap}
+              disabled={heatLoading && !showHeatmap}
+            />
+            <MapChip
+              icon={<TrafficCone className="w-3.5 h-3.5" />}
+              label="Traffic"
+              onClick={() => toggleDetail("traffic")}
+              active={activeDetails.has("traffic")}
+            />
+            <MapChip
+              icon={<Download className="w-3.5 h-3.5" />}
+              label="Export"
+              onClick={() => csvExport(granted)}
+              disabled={granted.length === 0}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Compass readout badge — floats below search when active */}
+      {compassMode && (
+        <div className="absolute top-28 left-3 z-[1000]">
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-xl"
+            style={{
+              background: "hsl(var(--card) / 0.92)",
+              backdropFilter: "blur(16px)",
+              WebkitBackdropFilter: "blur(16px)",
+              border: "1px solid hsl(var(--border))",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+            }}
+          >
+            <Compass
+              className="w-4 h-4 text-sky-400 flex-shrink-0"
+              style={heading != null ? { transform: `rotate(${heading}deg)` } : undefined}
+            />
+            <span className="text-xs font-mono tabular-nums" style={{ color: "hsl(var(--foreground))" }}>
+              {heading != null ? `${Math.round(heading)}° ${cardinal(heading)}` : "Locating…"}
+            </span>
           </div>
         </div>
       )}
 
-      {/* Directions info card */}
+      {/* Directions info banner — floats top-center */}
       {(dirMode || dirInfo) && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1002]">
-          <div className="pl-hud-card flex items-center gap-3 px-4 py-2.5">
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[1002]">
+          <div
+            className="flex items-center gap-3 px-4 py-2.5 rounded-full"
+            style={{
+              background: "hsl(var(--card) / 0.97)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              border: "1px solid hsl(var(--border))",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            }}
+          >
             {dirMode && !dirStart && (
-              <span className="text-xs font-semibold text-emerald-300">📍 Click to set start point</span>
+              <span className="text-xs font-semibold text-emerald-400">📍 Click to set start point</span>
             )}
             {dirMode && dirStart && !dirEnd && (
-              <span className="text-xs font-semibold text-red-300">📍 Click to set destination</span>
+              <span className="text-xs font-semibold text-red-400">📍 Click to set destination</span>
             )}
             {dirInfo && (
               <>
-                <Navigation2 className="w-4 h-4 text-indigo-400 shrink-0" />
-                <span className="text-xs font-mono text-zinc-200">{dirInfo.distanceKm} km</span>
-                <div className="w-px h-4 bg-white/15" />
-                <span className="text-xs font-mono text-zinc-200">{dirInfo.durationMin} min</span>
+                <Navigation2 className="w-4 h-4 flex-shrink-0" style={{ color: "hsl(var(--primary))" }} />
+                <span className="text-sm font-bold" style={{ color: "hsl(var(--foreground))" }}>{dirInfo.distanceKm} km</span>
+                <div className="w-px h-4" style={{ background: "hsl(var(--border))" }} />
+                <span className="text-sm font-bold" style={{ color: "hsl(var(--foreground))" }}>{dirInfo.durationMin} min</span>
               </>
             )}
-            <button onClick={clearDirections} className="text-zinc-500 hover:text-zinc-200 transition-colors ml-1">
+            <button
+              onClick={clearDirections}
+              className="ml-1 transition-colors"
+              style={{ color: "hsl(var(--muted-foreground))" }}
+            >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -1560,18 +1711,32 @@ export default function LiveMap() {
 
       {/* Street View panel */}
       {streetView && (
-        <div className="absolute inset-x-3 top-14 z-[1001] bg-[#111113] border border-white/10 rounded-2xl overflow-hidden shadow-2xl" style={{ height: 280 }}>
-          <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+        <div
+          className="absolute inset-x-3 top-28 z-[1001] overflow-hidden rounded-3xl"
+          style={{
+            height: 280,
+            background: "hsl(var(--card) / 0.98)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            border: "1px solid hsl(var(--border))",
+            boxShadow: "0 20px 64px rgba(0,0,0,0.65)",
+          }}
+        >
+          <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid hsl(var(--border))" }}>
             <div>
-              <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Street View</span>
-              <span className="text-xs text-zinc-500 ml-2">{streetView.name}</span>
+              <span className="text-xs font-black text-sky-400 uppercase tracking-[0.15em]">Street View</span>
+              <span className="text-xs ml-2" style={{ color: "hsl(var(--muted-foreground))" }}>{streetView.name}</span>
             </div>
-            <button onClick={() => setStreetView(null)} className="text-zinc-500 hover:text-zinc-200 transition-colors p-1">
-              <X className="w-4 h-4" />
+            <button
+              onClick={() => setStreetView(null)}
+              className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+              style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+            >
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
           {svLoading ? (
-            <div className="flex items-center justify-center text-xs text-zinc-500" style={{ height: 238 }}>
+            <div className="flex items-center justify-center text-xs" style={{ height: 238, color: "hsl(var(--muted-foreground))" }}>
               Looking for nearby street-level photos…
             </div>
           ) : svResult?.available && svResult.imageUrl ? (
@@ -1584,73 +1749,109 @@ export default function LiveMap() {
               />
               <a
                 href={svResult.imageId ? mapillaryViewerUrl(svResult.imageId) : streetViewUrl(streetView.lat, streetView.lng)}
-                target="_blank"
-                rel="noreferrer"
-                className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/70 hover:bg-black/90 text-white text-xs font-semibold px-2.5 py-1.5 rounded-full backdrop-blur-sm transition-all"
+                target="_blank" rel="noreferrer"
+                className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/75 hover:bg-black/90 text-white text-xs font-bold px-3 py-1.5 rounded-full backdrop-blur-sm transition-all"
               >
-                View in Mapillary →
+                Mapillary →
               </a>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center gap-2 text-center px-6" style={{ height: 238 }}>
-              <span className="text-xs text-zinc-500">No street-level imagery available near this location.</span>
+            <div className="flex flex-col items-center justify-center gap-3 text-center px-6" style={{ height: 238 }}>
+              <Eye className="w-8 h-8 opacity-20" style={{ color: "hsl(var(--foreground))" }} />
+              <span className="text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+                No street-level imagery available near this location.
+              </span>
               <a
                 href={streetViewUrl(streetView.lat, streetView.lng)}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-sky-400 hover:text-sky-300 underline"
+                target="_blank" rel="noreferrer"
+                className="text-xs underline"
+                style={{ color: "hsl(var(--primary))" }}
               >
-                View satellite map instead
+                Open satellite view →
               </a>
             </div>
           )}
         </div>
       )}
 
-      {/* Map type panel */}
+      {/* ════════════════════════════════════════
+          MAP TYPE PANEL — slides up from bottom
+      ════════════════════════════════════════ */}
       {showTypePanel && (
-        <div className="absolute inset-0 z-[1002] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowTypePanel(false)}>
+        <div
+          className="absolute inset-0 z-[1002] flex items-end justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
+          onClick={() => setShowTypePanel(false)}
+        >
           <div
-            className="bg-[#111113] border border-white/10 rounded-2xl shadow-2xl w-full max-w-sm max-h-[85vh] overflow-y-auto"
+            className="w-full max-w-sm max-h-[85vh] overflow-y-auto rounded-3xl"
+            style={{
+              background: "hsl(var(--card) / 0.98)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              border: "1px solid hsl(var(--border))",
+              boxShadow: "0 -8px 64px rgba(0,0,0,0.6)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-              <h3 className="text-base font-bold text-zinc-100">Map type</h3>
-              <button onClick={() => setShowTypePanel(false)} className="text-zinc-500 hover:text-zinc-200 transition-colors p-1">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid hsl(var(--border))" }}>
+              <h3 className="text-base font-black" style={{ color: "hsl(var(--foreground))" }}>Map type</h3>
+              <button
+                onClick={() => setShowTypePanel(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
+                style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
+            {/* Map mode thumbnails */}
             <div className="grid grid-cols-3 gap-3 px-5 py-4">
               {MAP_MODES.map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMapMode(m)}
-                  className="flex flex-col items-center gap-2 group"
-                >
-                  <div className={`w-full aspect-square rounded-xl flex items-center justify-center transition-all ${
-                    mapMode === m ? "ring-2 ring-teal-400 bg-white/10" : "bg-white/5 group-hover:bg-white/10"
-                  }`}>
+                <button key={m} onClick={() => setMapMode(m)} className="flex flex-col items-center gap-2 group">
+                  <div
+                    className="w-full aspect-square rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all"
+                    style={{
+                      border: mapMode === m ? "2px solid hsl(var(--accent))" : "1px solid hsl(var(--border))",
+                      background: mapMode === m ? "hsl(var(--accent) / 0.15)" : "hsl(var(--muted) / 0.5)",
+                      boxShadow: mapMode === m ? "0 0 20px hsl(var(--accent) / 0.25)" : "none",
+                    }}
+                  >
                     {MAP_MODE_ICONS[m]}
                   </div>
-                  <span className={`text-xs font-semibold ${mapMode === m ? "text-teal-400" : "text-zinc-300"}`}>{MAP_MODE_LABELS[m]}</span>
+                  <span
+                    className="text-xs font-bold"
+                    style={{ color: mapMode === m ? "hsl(var(--accent))" : "hsl(var(--muted-foreground))" }}
+                  >
+                    {MAP_MODE_LABELS[m]}
+                  </span>
                 </button>
               ))}
             </div>
 
-            <div className="border-t border-white/10 px-5 py-4">
-              <h4 className="text-sm font-bold text-zinc-100 mb-3">Map details</h4>
+            {/* Map detail toggles */}
+            <div className="px-5 pb-5" style={{ borderTop: "1px solid hsl(var(--border))", paddingTop: 16 }}>
+              <h4 className="text-sm font-bold mb-3" style={{ color: "hsl(var(--foreground))" }}>Map details</h4>
               <div className="grid grid-cols-4 gap-3">
                 {MAP_DETAILS.map((d) => {
                   const isOn = d.id === "streetview" ? streetView != null : activeDetails.has(d.id);
                   return (
                     <button key={d.id} onClick={() => toggleDetail(d.id)} className="flex flex-col items-center gap-1.5">
-                      <div className={`w-full aspect-square rounded-xl flex items-center justify-center transition-all ${
-                        isOn ? "bg-teal-500/20 text-teal-300 ring-1 ring-teal-400/40" : "bg-white/5 text-zinc-300 hover:bg-white/10"
-                      } ${!d.live ? "opacity-50" : ""}`}>
+                      <div
+                        className="w-full aspect-square rounded-xl flex items-center justify-center transition-all"
+                        style={{
+                          background: isOn ? "hsl(var(--accent) / 0.2)" : "hsl(var(--muted) / 0.5)",
+                          border: isOn ? "1px solid hsl(var(--accent) / 0.5)" : "1px solid hsl(var(--border))",
+                          color: isOn ? "hsl(var(--accent))" : "hsl(var(--muted-foreground))",
+                          opacity: !d.live ? 0.5 : 1,
+                        }}
+                      >
                         {d.icon}
                       </div>
-                      <span className="text-[10px] text-center leading-tight text-zinc-400">{d.label}</span>
+                      <span className="text-[10px] text-center leading-tight" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        {d.label}
+                      </span>
                     </button>
                   );
                 })}
@@ -1660,58 +1861,249 @@ export default function LiveMap() {
         </div>
       )}
 
-      {/* Command bar — bottom center */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000]">
-        <div className="pl-command-bar flex items-center gap-0.5 px-1.5 py-1.5">
-          <CmdBtn active={false} onClick={handleFindMe} disabled={locating} icon={<Crosshair className="w-3.5 h-3.5" />} label={locating ? "Locating…" : "Find me"} />
-          <CmdBtn active={false} onClick={handleRecenter} icon={<Maximize2 className="w-3.5 h-3.5" />} label="Recenter" />
-          <CmdBtn active={false} onClick={handleRefresh} disabled={refreshing} icon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />} label="Refresh" />
-          <div className="w-px h-5 bg-white/10 mx-1" />
-          <CmdBtn active={showTypePanel || activeDetails.size > 0} onClick={() => setShowTypePanel(true)} icon={<Settings2 className="w-3.5 h-3.5" />} label={MAP_MODE_LABELS[mapMode]} activeClass="border-violet-500/40 text-violet-300 bg-violet-500/10" />
-          <div className="w-px h-5 bg-white/10 mx-1" />
-          <CmdBtn active={compassMode} onClick={handleToggleCompass} icon={<Compass className="w-3.5 h-3.5" />} label={compassMode ? "Compass on" : "Compass"} activeClass="border-sky-500/40 text-sky-300 bg-sky-500/10" />
-          <div className="w-px h-5 bg-white/10 mx-1" />
-          <CmdBtn active={showJourneys} onClick={() => setShowJourneys((v) => !v)} icon={<Layers className="w-3.5 h-3.5" />} label="Journeys" activeClass="border-indigo-500/40 text-indigo-300 bg-indigo-500/10" />
-          <CmdBtn active={showClusters} onClick={() => setShowClusters((v) => !v)} icon={<AlertTriangle className="w-3.5 h-3.5" />} label="Clusters" activeClass="border-amber-500/40 text-amber-300 bg-amber-500/10" />
-          <CmdBtn active={showHeatmap} onClick={() => setShowHeatmap((v) => !v)} disabled={heatLoading && !showHeatmap} icon={<Flame className="w-3.5 h-3.5" />} label={heatLoading ? "Loading…" : "Heat"} activeClass="border-orange-500/40 text-orange-300 bg-orange-500/10" />
-          <CmdBtn active={showGeofences} onClick={() => setShowGeofences((v) => !v)} disabled={geofences.length === 0} icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Geofences" activeClass="border-violet-500/40 text-violet-300 bg-violet-500/10" />
-          <div className="w-px h-5 bg-white/10 mx-1" />
-          <CmdBtn active={false} onClick={() => csvExport(granted)} disabled={granted.length === 0} icon={<Download className="w-3.5 h-3.5" />} label="Export" />
-          <div className="w-px h-5 bg-white/10 mx-1" />
-          <CmdBtn active={showSearch} onClick={() => setShowSearch((v) => !v)} icon={<Search className="w-3.5 h-3.5" />} label="Search" activeClass="border-indigo-500/40 text-indigo-300 bg-indigo-500/10" />
-          <CmdBtn active={dirMode} onClick={() => { if (dirMode) clearDirections(); else { clearDirections(); setDirMode(true); } }} icon={<ArrowRightLeft className="w-3.5 h-3.5" />} label={dirMode ? "Cancel" : "Directions"} activeClass="border-emerald-500/40 text-emerald-300 bg-emerald-500/10" />
-          <CmdBtn active={isFullscreen} onClick={handleFullscreen} icon={<LocateFixed className="w-3.5 h-3.5" />} label={isFullscreen ? "Exit" : "Fullscreen"} activeClass="border-sky-500/40 text-sky-300 bg-sky-500/10" />
+      {/* ════════════════════════════════════════
+          RIGHT SIDE FABs — stacked vertically
+          (like Google Maps' layer + compass stack)
+      ════════════════════════════════════════ */}
+      <div className="absolute right-3 z-[1000] flex flex-col gap-2" style={{ bottom: 212 }}>
+        {/* Zoom in */}
+        <MapFab
+          icon={<Plus className="w-5 h-5" />}
+          onClick={() => { mapInst.current?.zoomIn(1, { animate: true }); }}
+          label="Zoom in"
+        />
+        {/* Zoom out */}
+        <MapFab
+          icon={<Minus className="w-5 h-5" />}
+          onClick={() => { mapInst.current?.zoomOut(1, { animate: true }); }}
+          label="Zoom out"
+        />
+      </div>
+
+      <div className="absolute right-3 z-[1000] flex flex-col gap-2" style={{ bottom: 360 }}>
+        {/* Map type/layers */}
+        <MapFab
+          icon={<Settings2 className="w-5 h-5" />}
+          onClick={() => setShowTypePanel(true)}
+          active={showTypePanel || activeDetails.size > 0}
+          label="Map type"
+        />
+        {/* Compass */}
+        <MapFab
+          icon={
+            <Compass
+              className="w-5 h-5"
+              style={heading != null && compassMode ? { transform: `rotate(${heading}deg)` } : undefined}
+            />
+          }
+          onClick={handleToggleCompass}
+          active={compassMode}
+          label="Compass"
+        />
+        {/* Fullscreen */}
+        <MapFab
+          icon={<Maximize2 className="w-5 h-5" />}
+          onClick={handleFullscreen}
+          active={isFullscreen}
+          label="Fullscreen"
+        />
+      </div>
+
+      {/* Primary navigation FAB — large teal, bottom-right above sheet */}
+      <button
+        onClick={handleFindMe}
+        disabled={locating}
+        className="absolute right-3 z-[1001] w-14 h-14 rounded-2xl flex items-center justify-center transition-all active:scale-95 disabled:opacity-50"
+        style={{
+          bottom: 158,
+          background: "hsl(var(--accent))",
+          boxShadow: "0 8px 32px hsl(var(--accent) / 0.55), 0 2px 8px rgba(0,0,0,0.35)",
+        }}
+        title="Find my location"
+      >
+        <Navigation2 className="w-6 h-6 text-white" />
+      </button>
+
+      {/* ════════════════════════════════════════
+          BOTTOM SHEET — info + tab nav
+          mirrors Google Maps' slide-up panel
+      ════════════════════════════════════════ */}
+      <div className="absolute bottom-0 left-0 right-0 z-[1000]">
+        <div
+          className="rounded-t-[28px] pt-3"
+          style={{
+            background: "hsl(var(--card) / 0.97)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            borderTop: "1px solid hsl(var(--border))",
+            boxShadow: "0 -8px 40px rgba(0,0,0,0.45)",
+          }}
+        >
+          {/* Drag handle */}
+          <div className="flex justify-center mb-3">
+            <div className="w-10 h-1 rounded-full" style={{ background: "hsl(var(--muted-foreground) / 0.3)" }} />
+          </div>
+
+          {/* Info row */}
+          <div className="flex items-center gap-3 px-4 pb-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-black truncate" style={{ color: "hsl(var(--foreground))" }}>
+                {MAP_MODE_LABELS[mapMode]} View
+                {activeDetails.size > 0 && (
+                  <span className="ml-2 text-xs font-bold" style={{ color: "hsl(var(--accent))" }}>
+                    +{activeDetails.size} layer{activeDetails.size > 1 ? "s" : ""}
+                  </span>
+                )}
+              </p>
+              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  {latest.length} contact{latest.length !== 1 ? "s" : ""} · {granted.length} granted
+                </span>
+                {liveCount > 0 && (
+                  <span className="flex items-center gap-1 text-xs font-bold text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                    {liveCount} live
+                  </span>
+                )}
+                {showClusters && clusterCount > 0 && (
+                  <span className="text-xs font-bold text-amber-400">{clusterCount} clusters</span>
+                )}
+              </div>
+            </div>
+            {myPos && (
+              <div
+                className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center border-2"
+                style={{
+                  background: "hsl(var(--primary) / 0.15)",
+                  borderColor: "hsl(var(--primary) / 0.4)",
+                }}
+              >
+                <LocateFixed className="w-4 h-4" style={{ color: "hsl(var(--primary))" }} />
+              </div>
+            )}
+            {/* Expand / up-swipe affordance */}
+            <button
+              onClick={() => setShowTypePanel(true)}
+              className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+              style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+            >
+              <ChevronUp className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Tab bar — like Google Maps Explore / You / Contribute */}
+          <div className="grid grid-cols-4" style={{ borderTop: "1px solid hsl(var(--border))" }}>
+            <BottomTab
+              icon={<Layers className="w-5 h-5" />}
+              label="Journeys"
+              active={showJourneys}
+              onClick={() => setShowJourneys((v) => !v)}
+            />
+            <BottomTab
+              icon={<AlertTriangle className="w-5 h-5" />}
+              label={clusterCount > 0 ? `Clusters (${clusterCount})` : "Clusters"}
+              active={showClusters}
+              onClick={() => setShowClusters((v) => !v)}
+            />
+            <BottomTab
+              icon={<ShieldCheck className="w-5 h-5" />}
+              label="Geofences"
+              active={showGeofences}
+              onClick={() => setShowGeofences((v) => !v)}
+              disabled={geofences.length === 0}
+            />
+            <BottomTab
+              icon={<Eye className="w-5 h-5" />}
+              label="Street View"
+              active={streetView != null}
+              onClick={() => toggleDetail("streetview")}
+            />
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function HudStat({ label, value, accent }: { label: string; value: number | string; accent?: string }) {
-  return (
-    <div className="flex flex-col items-center min-w-[36px]">
-      <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-mono">{label}</span>
-      <span className="text-sm font-black font-mono leading-none" style={{ color: accent ?? "#f4f4f5" }}>{value}</span>
-    </div>
-  );
-}
+// ── Google Maps–style helper components ───────────────────────────────────────
 
-function CmdBtn({
-  active, onClick, icon, label, activeClass = "", disabled = false,
+/** Pill chip in the quick-action row below the search bar */
+function MapChip({
+  icon, label, onClick, active = false, disabled = false,
 }: {
-  active: boolean; onClick: () => void; icon: React.ReactNode;
-  label: string; activeClass?: string; disabled?: boolean;
+  icon: React.ReactNode; label: string; onClick: () => void;
+  active?: boolean; disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold font-mono transition-all disabled:opacity-40 ${
-        active ? activeClass : "border-transparent text-zinc-400 hover:text-zinc-200 hover:border-white/10"
-      }`}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold flex-shrink-0 transition-all disabled:opacity-40 active:scale-95"
+      style={{
+        background: active ? "hsl(var(--primary))" : "hsl(var(--card) / 0.95)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        border: active ? "1px solid hsl(var(--primary))" : "1px solid hsl(var(--border))",
+        color: active ? "#ffffff" : "hsl(var(--foreground))",
+        boxShadow: active
+          ? "0 4px 16px hsl(var(--primary) / 0.4)"
+          : "0 2px 10px rgba(0,0,0,0.35)",
+      }}
     >
       {icon}
-      <span className="hidden sm:inline">{label}</span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/** Square FAB on the right side of the map */
+function MapFab({
+  icon, onClick, active = false, disabled = false, label,
+}: {
+  icon: React.ReactNode; onClick: () => void;
+  active?: boolean; disabled?: boolean; label?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      className="w-11 h-11 rounded-2xl flex items-center justify-center transition-all disabled:opacity-40 active:scale-95"
+      style={{
+        background: active ? "hsl(var(--accent) / 0.2)" : "hsl(var(--card) / 0.95)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        border: active ? "1px solid hsl(var(--accent) / 0.5)" : "1px solid hsl(var(--border))",
+        color: active ? "hsl(var(--accent))" : "hsl(var(--muted-foreground))",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+      }}
+    >
+      {icon}
+    </button>
+  );
+}
+
+/** Tab button in the bottom navigation bar */
+function BottomTab({
+  icon, label, active = false, onClick, disabled = false,
+}: {
+  icon: React.ReactNode; label: string;
+  active?: boolean; onClick: () => void; disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="flex flex-col items-center gap-1 py-2.5 transition-all disabled:opacity-40 active:opacity-70"
+      style={{ color: active ? "hsl(var(--accent))" : "hsl(var(--muted-foreground))" }}
+    >
+      {icon}
+      <span
+        className="text-[10px] font-semibold truncate max-w-full px-1 leading-tight"
+        style={{ color: active ? "hsl(var(--accent))" : "hsl(var(--muted-foreground))" }}
+      >
+        {label}
+      </span>
     </button>
   );
 }
