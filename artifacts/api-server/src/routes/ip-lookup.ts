@@ -331,7 +331,27 @@ router.get("/ip-lookup", async (req, res): Promise<void> => {
   ]);
 
   if (matched.length === 0) {
-    res.json({ contacts: [], ipIntel, searchedIp: ip, bestEstimate: null });
+    // Still compute an IP-based best estimate even with no contact matches
+    let ipOnlyEstimate: {
+      lat: number; lon: number; accuracyM: number;
+      method: string; confidencePct: number;
+      tier: "PRECISE" | "HIGH" | "MODERATE" | "LOW" | "ESTIMATE";
+      contactName: null; contactPhone: null; source: string;
+    } | null = null;
+    if ("consensus" in ipIntel) {
+      const acc = ipIntel.consensus.radiusKm * 1000;
+      const pct = ipIntel.consensus.confidencePct;
+      const tier: "PRECISE" | "HIGH" | "MODERATE" | "LOW" | "ESTIMATE" =
+        pct >= 85 ? "HIGH" : pct >= 60 ? "MODERATE" : pct >= 40 ? "LOW" : "ESTIMATE";
+      ipOnlyEstimate = {
+        lat: ipIntel.consensus.lat, lon: ipIntel.consensus.lon,
+        accuracyM: acc,
+        method: `IP triangulation · ${ipIntel.consensus.method}`,
+        confidencePct: pct, tier,
+        contactName: null, contactPhone: null, source: "ip",
+      };
+    }
+    res.json({ contacts: [], ipIntel, searchedIp: ip, bestEstimate: ipOnlyEstimate });
     return;
   }
 
