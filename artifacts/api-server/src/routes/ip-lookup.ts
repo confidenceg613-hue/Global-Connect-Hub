@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, or, desc, inArray } from "drizzle-orm";
-import { db, invitesTable, locationUpdatesTable } from "@workspace/db";
+import { db, invitesTable, locationUpdatesTable, lanIpsTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
@@ -290,6 +290,44 @@ router.get("/ip-lookup/my-ip", (req, res): void => {
   res.json({ ip });
 });
 
+// ── LAN IP registry CRUD ──────────────────────────────────────────────────────
+
+/** GET /api/ip-lookup/lan?userId=X — list saved LAN IPs for a user */
+router.get("/ip-lookup/lan", async (req, res): Promise<void> => {
+  const userId = Number(req.query.userId);
+  if (!Number.isFinite(userId)) { res.status(400).json({ error: "Missing userId" }); return; }
+  const rows = await db.select().from(lanIpsTable).where(eq(lanIpsTable.userId, userId));
+  res.json(rows);
+});
+
+/** POST /api/ip-lookup/lan — save a new LAN IP entry */
+router.post("/ip-lookup/lan", async (req, res): Promise<void> => {
+  const { userId, ip, label, address, latitude, longitude } = req.body as Record<string, unknown>;
+  if (!Number.isFinite(Number(userId)) || typeof ip !== "string" || !ip || typeof label !== "string" || !label) {
+    res.status(400).json({ error: "userId, ip, and label are required" }); return;
+  }
+  const [entry] = await db.insert(lanIpsTable).values({
+    userId:    Number(userId),
+    ip:        ip.trim(),
+    label:     label.trim(),
+    address:   typeof address === "string" && address ? address : null,
+    latitude:  latitude != null && isFinite(Number(latitude)) ? Number(latitude) : null,
+    longitude: longitude != null && isFinite(Number(longitude)) ? Number(longitude) : null,
+  }).returning();
+  res.json(entry);
+});
+
+/** DELETE /api/ip-lookup/lan/:id?userId=X — remove a LAN IP entry */
+router.delete("/ip-lookup/lan/:id", async (req, res): Promise<void> => {
+  const id     = Number(req.params.id);
+  const userId = Number(req.query.userId);
+  if (!Number.isFinite(id) || !Number.isFinite(userId)) {
+    res.status(400).json({ error: "Invalid id or userId" }); return;
+  }
+  await db.delete(lanIpsTable).where(and(eq(lanIpsTable.id, id), eq(lanIpsTable.userId, userId)));
+  res.json({ ok: true });
+});
+
 // ── Route ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -331,7 +369,29 @@ router.get("/ip-lookup", async (req, res): Promise<void> => {
   ]);
 
   if (matched.length === 0) {
-    // Still compute an IP-based best estimate even with no contact matches
+    // For private IPs: check the LAN registry first
+    if ("note" in ipIntel) {
+      const [lanEntry] = await db
+        .select().from(lanIpsTable)
+        .where(and(eq(lanIpsTable.userId, userId), eq(lanIpsTable.ip, ip)))
+        .limit(1);
+      if (lanEntry) {
+        const bestEstimate = lanEntry.latitude != null && lanEntry.longitude != null
+          ? {
+              lat: lanEntry.latitude, lon: lanEntry.longitude, accuracyM: 20,
+              method: `LAN registry · ${lanEntry.label}${lanEntry.address ? ` · ${lanEntry.address}` : ""}`,
+              confidencePct: 95, tier: "PRECISE" as const,
+              contactName: lanEntry.label, contactPhone: null, source: "lan",
+            }
+          : null;
+        res.json({ contacts: [], ipIntel, searchedIp: ip, bestEstimate, lanEntry });
+        return;
+      }
+      res.json({ contacts: [], ipIntel, searchedIp: ip, bestEstimate: null, lanEntry: null });
+      return;
+    }
+
+    // For public IPs with no contact match: compute IP-based best estimate
     let ipOnlyEstimate: {
       lat: number; lon: number; accuracyM: number;
       method: string; confidencePct: number;
@@ -351,7 +411,7 @@ router.get("/ip-lookup", async (req, res): Promise<void> => {
         contactName: null, contactPhone: null, source: "ip",
       };
     }
-    res.json({ contacts: [], ipIntel, searchedIp: ip, bestEstimate: ipOnlyEstimate });
+    res.json({ contacts: [], ipIntel, searchedIp: ip, bestEstimate: ipOnlyEstimate, lanEntry: null });
     return;
   }
 

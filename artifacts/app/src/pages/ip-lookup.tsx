@@ -93,11 +93,23 @@ interface BestEstimate {
   source: string;
 }
 
+interface LanIpEntry {
+  id: number;
+  userId: number;
+  ip: string;
+  label: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  createdAt: string;
+}
+
 interface LookupResult {
   contacts: Contact[];
   ipIntel: IpIntel | { note: string };
   searchedIp: string;
   bestEstimate: BestEstimate | null;
+  lanEntry?: LanIpEntry | null;
 }
 
 function initials(name?: string | null, phone?: string | null) {
@@ -386,6 +398,32 @@ export default function IpLookupPage() {
       viewPoints.push([c.latitude, c.longitude]);
     });
 
+    // ── LAN device marker ────────────────────────────────────────────────────
+    const lan = result.lanEntry;
+    if (lan?.latitude != null && lan?.longitude != null) {
+      const lanIcon = L.divIcon({
+        className: "",
+        html: `<div style="position:relative;filter:drop-shadow(0 0 10px #a78bfaaa);">
+          <div style="width:36px;height:36px;background:#a78bfa;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;">
+            <span style="transform:rotate(45deg);font-size:16px;">🏠</span>
+          </div>
+        </div>`,
+        iconSize: [36, 36], iconAnchor: [18, 36], popupAnchor: [0, -38],
+      });
+      const lanPin = L.marker([lan.latitude, lan.longitude], { icon: lanIcon, zIndexOffset: 900 });
+      lanPin.bindPopup(`
+        <div style="font-family:ui-monospace,monospace;color:#f4f4f5;min-width:180px;">
+          <div style="font-weight:800;font-size:13px;color:#a78bfa;margin-bottom:3px;">🏠 ${esc(lan.label)}</div>
+          <div style="font-size:11px;font-family:ui-monospace;color:#a78bfa;">${esc(lan.ip)}</div>
+          ${lan.address ? `<div style="font-size:10px;color:#a1a1aa;margin-top:2px;">${esc(lan.address)}</div>` : ""}
+          <div style="font-size:10px;color:#71717a;margin-top:2px;">${esc(lan.latitude.toFixed(6))}, ${esc(lan.longitude.toFixed(6))}</div>
+        </div>
+      `);
+      lanPin.addTo(map);
+      layersRef.current.push(lanPin);
+      viewPoints.push([lan.latitude, lan.longitude]);
+    }
+
     // ── Best-estimate reticle ────────────────────────────────────────────────
     const be = result.bestEstimate;
     if (be) {
@@ -454,6 +492,51 @@ export default function IpLookupPage() {
     } finally {
       setMyIpLoading(false);
     }
+  };
+
+  // ── LAN IP registry ─────────────────────────────────────────────────────────
+  const [lanIps, setLanIps]         = useState<LanIpEntry[]>([]);
+  const [lanForm, setLanForm]       = useState({ ip: "", label: "", address: "", lat: "", lon: "" });
+  const [lanSaving, setLanSaving]   = useState(false);
+  const [lanError, setLanError]     = useState<string | null>(null);
+  const [lanOpen, setLanOpen]       = useState(false);
+
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`${API_BASE}/api/ip-lookup/lan?userId=${userId}`)
+      .then(r => r.json()).then(setLanIps).catch(() => {});
+  }, [userId]);
+
+  const handleAddLan = async () => {
+    if (!lanForm.ip.trim() || !lanForm.label.trim()) {
+      setLanError("IP and label are required"); return;
+    }
+    setLanSaving(true); setLanError(null);
+    try {
+      const body: Record<string, unknown> = {
+        userId, ip: lanForm.ip.trim(), label: lanForm.label.trim(),
+      };
+      if (lanForm.address.trim()) body.address = lanForm.address.trim();
+      if (lanForm.lat.trim() && isFinite(Number(lanForm.lat))) body.latitude = Number(lanForm.lat);
+      if (lanForm.lon.trim() && isFinite(Number(lanForm.lon))) body.longitude = Number(lanForm.lon);
+      const r = await fetch(`${API_BASE}/api/ip-lookup/lan`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error((d as Record<string,string>).error || "Save failed"); }
+      const entry: LanIpEntry = await r.json();
+      setLanIps(prev => [...prev, entry]);
+      setLanForm({ ip: "", label: "", address: "", lat: "", lon: "" });
+    } catch (e: unknown) {
+      setLanError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setLanSaving(false);
+    }
+  };
+
+  const handleDeleteLan = async (id: number) => {
+    await fetch(`${API_BASE}/api/ip-lookup/lan/${id}?userId=${userId}`, { method: "DELETE" });
+    setLanIps(prev => prev.filter(e => e.id !== id));
   };
 
   const be   = result?.bestEstimate;
@@ -582,13 +665,14 @@ export default function IpLookupPage() {
       />
 
       {/* Map legend */}
-      {result && (result.contacts.some(c => c.hasGpsfix) || hasConsensus) && (
+      {result && (result.contacts.some(c => c.hasGpsfix) || hasConsensus || result.lanEntry) && (
         <div className="flex flex-wrap gap-3 text-[10px] text-zinc-500 font-mono px-1">
           <span><span style={{ color: "#00ff88" }}>◉</span> GPS fix (precise)</span>
           <span><span className="opacity-40">●</span> History trail dot</span>
           <span><span style={{ color: "#f59e0b" }}>◎</span> Reticle = best estimate</span>
-          <span><span style={{ color: "#38bdf8" }}>①</span> IP source pin</span>
-          <span>Dashed ring = IP uncertainty radius</span>
+          {hasConsensus && <span><span style={{ color: "#38bdf8" }}>①</span> IP source pin</span>}
+          {hasConsensus && <span>Dashed ring = IP uncertainty radius</span>}
+          {result.lanEntry && <span><span style={{ color: "#a78bfa" }}>🏠</span> LAN device (registered)</span>}
         </div>
       )}
 
@@ -598,13 +682,42 @@ export default function IpLookupPage() {
 
           {/* IP Intelligence panel */}
           <div className="p-4 bg-zinc-900/80 border border-zinc-700 rounded-2xl space-y-3">
-            {hasConsensus
-              ? <SourceTable intel={ipIntel as IpIntel} searchedIp={result.searchedIp} />
-              : <div className="text-xs text-zinc-400 flex items-center gap-2">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                  {(ipIntel as { note: string }).note}
+            {hasConsensus ? (
+              <>
+                {/* Carrier gateway warning */}
+                {(ipIntel as IpIntel).flags.mobile && (
+                  <div className="p-3 rounded-xl bg-orange-500/8 border border-orange-500/25 flex gap-2 items-start">
+                    <span className="text-base shrink-0">📶</span>
+                    <div>
+                      <div className="text-[11px] font-bold text-orange-400 mb-0.5">Mobile Carrier Gateway</div>
+                      <div className="text-[10px] text-orange-300/70 leading-relaxed">
+                        All mobile IPs on this carrier route through the same central gateway — the pin shows the carrier's infrastructure location, not the physical device. This is a network-level limitation, not a bug.
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <SourceTable intel={ipIntel as IpIntel} searchedIp={result.searchedIp} />
+              </>
+            ) : result.lanEntry ? (
+              <div className="space-y-2">
+                <div className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">LAN Device</div>
+                <div className="p-3 rounded-xl bg-violet-500/8 border border-violet-500/25">
+                  <div className="font-bold text-sm text-violet-300">🏠 {result.lanEntry.label}</div>
+                  <div className="font-mono text-xs text-violet-400 mt-0.5">{result.lanEntry.ip}</div>
+                  {result.lanEntry.address && <div className="text-xs text-zinc-400 mt-1">{result.lanEntry.address}</div>}
+                  {result.lanEntry.latitude != null && (
+                    <div className="font-mono text-[10px] text-zinc-500 mt-1">
+                      {result.lanEntry.latitude.toFixed(6)}, {result.lanEntry.longitude?.toFixed(6)}
+                    </div>
+                  )}
                 </div>
-            }
+              </div>
+            ) : (
+              <div className="text-xs text-zinc-400 flex items-center gap-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                {(ipIntel as { note: string }).note}
+              </div>
+            )}
           </div>
 
           {/* Contact matches panel */}
@@ -748,6 +861,111 @@ export default function IpLookupPage() {
           </div>
         </div>
       )}
+
+      {/* ── LAN IP Registry manager ────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-zinc-700 overflow-hidden">
+        <button
+          onClick={() => setLanOpen(o => !o)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-zinc-900 hover:bg-zinc-800/80 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-base">🏠</span>
+            <span className="text-sm font-bold text-zinc-200">LAN / Local IP Registry</span>
+            {lanIps.length > 0 && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-400">
+                {lanIps.length} saved
+              </span>
+            )}
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`text-zinc-500 transition-transform ${lanOpen ? "rotate-180" : ""}`}>
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+
+        {lanOpen && (
+          <div className="p-4 bg-zinc-950 space-y-4">
+            <p className="text-[11px] text-zinc-500 leading-relaxed">
+              Register private / local network IPs (e.g. 192.168.x.x, 10.x.x.x) with a label and optional coordinates. Once saved, searching that IP will show the device on the map.
+            </p>
+
+            {/* Saved entries */}
+            {lanIps.length > 0 && (
+              <div className="space-y-2">
+                {lanIps.map(e => (
+                  <div key={e.id} className="flex items-center gap-3 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-violet-300">{e.label}</span>
+                        <span className="font-mono text-[10px] text-zinc-500">{e.ip}</span>
+                      </div>
+                      {e.address && <div className="text-[10px] text-zinc-600 truncate">{e.address}</div>}
+                      {e.latitude != null && (
+                        <div className="font-mono text-[10px] text-zinc-700">{e.latitude.toFixed(5)}, {e.longitude?.toFixed(5)}</div>
+                      )}
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
+                      <button
+                        onClick={() => { setIp(e.ip); handleSearch(e.ip); }}
+                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 hover:bg-violet-500/20 transition-colors"
+                      >
+                        Locate
+                      </button>
+                      <button
+                        onClick={() => handleDeleteLan(e.id)}
+                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add form */}
+            <div className="space-y-2">
+              <div className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">Add New Device</div>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={lanForm.ip} onChange={e => setLanForm(f => ({ ...f, ip: e.target.value }))}
+                  placeholder="192.168.1.5"
+                  className="col-span-1 px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-green-300 placeholder:text-zinc-600 font-mono focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+                />
+                <input
+                  value={lanForm.label} onChange={e => setLanForm(f => ({ ...f, label: e.target.value }))}
+                  placeholder="Label (e.g. Home Router)"
+                  className="col-span-1 px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+                />
+              </div>
+              <input
+                value={lanForm.address} onChange={e => setLanForm(f => ({ ...f, address: e.target.value }))}
+                placeholder="Address / description (optional)"
+                className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={lanForm.lat} onChange={e => setLanForm(f => ({ ...f, lat: e.target.value }))}
+                  placeholder="Latitude (optional)"
+                  className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-zinc-300 placeholder:text-zinc-600 font-mono focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+                />
+                <input
+                  value={lanForm.lon} onChange={e => setLanForm(f => ({ ...f, lon: e.target.value }))}
+                  placeholder="Longitude (optional)"
+                  className="px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-zinc-300 placeholder:text-zinc-600 font-mono focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+                />
+              </div>
+              {lanError && <p className="text-[10px] text-red-400">{lanError}</p>}
+              <button
+                onClick={handleAddLan}
+                disabled={lanSaving || !lanForm.ip.trim() || !lanForm.label.trim()}
+                className="w-full py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-40 bg-violet-600 hover:bg-violet-500 text-white"
+              >
+                {lanSaving ? "Saving…" : "+ Save Device"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Empty state */}
       {!result && !loading && (
