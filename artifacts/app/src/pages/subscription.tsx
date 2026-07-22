@@ -66,7 +66,7 @@ export default function Subscription() {
     }
   };
 
-  const waUrl = "http://tiny.cc/WwwGodwinmarketincom";
+  const waUrl = "https://wa.link/qt6lk4";
 
   const renderContent = () => {
     if (loading) {
