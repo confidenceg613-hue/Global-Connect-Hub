@@ -403,8 +403,9 @@ router.get("/ip-lookup", async (req, res): Promise<void> => {
     };
   });
 
-  // ── Best estimate across ALL signals ────────────────────────────────────────
-  // Rank: high-quality GPS fix > lower-quality GPS > IP consensus
+  // ── Best estimate: always from live IP geolocation (real-time, independent) ──
+  // Stored GPS data from PhoneLink contacts is intentionally NOT used here —
+  // it reflects a past location, not the current position of this IP address.
   let bestEstimate: {
     lat: number; lon: number; accuracyM: number;
     method: string; confidencePct: number;
@@ -413,29 +414,7 @@ router.get("/ip-lookup", async (req, res): Promise<void> => {
     source: string;
   } | null = null;
 
-  let bestScore = 0;
-  for (const c of contacts) {
-    if (c.hasGpsfix && c.latitude != null && c.longitude != null && c.gpsQualityScore > bestScore) {
-      bestScore = c.gpsQualityScore;
-      const acc = c.accuracy ?? (c.source === "gps" ? 8 : c.source === "fused" ? 15 : 150);
-      const pct = c.source === "gps" ? 97 : c.source === "fused" ? 93 : 78;
-      const tier: "PRECISE" | "HIGH" | "MODERATE" | "LOW" | "ESTIMATE" =
-        acc < 20 ? "PRECISE" : acc < 200 ? "HIGH" : acc < 1000 ? "MODERATE" : "LOW";
-      bestEstimate = {
-        lat: c.latitude,
-        lon: c.longitude,
-        accuracyM: acc,
-        method: `GPS (${c.source ?? "unknown"} source · ±${Math.round(acc)} m)`,
-        confidencePct: pct,
-        tier,
-        contactName: c.toName,
-        contactPhone: c.toPhone,
-        source: "gps",
-      };
-    }
-  }
-
-  if (!bestEstimate && "consensus" in ipIntel) {
+  if ("consensus" in ipIntel) {
     const acc = ipIntel.consensus.radiusKm * 1000;
     const pct = ipIntel.consensus.confidencePct;
     const tier: "PRECISE" | "HIGH" | "MODERATE" | "LOW" | "ESTIMATE" =
@@ -444,7 +423,7 @@ router.get("/ip-lookup", async (req, res): Promise<void> => {
       lat: ipIntel.consensus.lat,
       lon: ipIntel.consensus.lon,
       accuracyM: acc,
-      method: `IP triangulation (${ipIntel.consensus.method})`,
+      method: `IP triangulation · ${ipIntel.consensus.method}`,
       confidencePct: pct,
       tier,
       contactName: contacts[0]?.toName ?? null,
