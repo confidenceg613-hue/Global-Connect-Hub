@@ -4,10 +4,14 @@ import * as schema from "./schema";
 
 const { Pool } = pg;
 
-// APP_DATABASE_URL overrides DATABASE_URL — use this to point production at an
-// externally-reachable database (DATABASE_URL resolves "helium" which is only
-// available inside the dev container, not from the production deployment).
-const connectionString = process.env.APP_DATABASE_URL || process.env.DATABASE_URL;
+// APP_DATABASE_URL can override DATABASE_URL for an external database.
+// Only use it if it actually looks like a postgres URL (guards against
+// accidentally-set placeholder values).
+const raw = process.env.APP_DATABASE_URL ?? "";
+const connectionString =
+  (raw.startsWith("postgres://") || raw.startsWith("postgresql://"))
+    ? raw
+    : process.env.DATABASE_URL;
 
 if (!connectionString) {
   throw new Error(
