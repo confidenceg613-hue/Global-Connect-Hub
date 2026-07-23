@@ -102,9 +102,21 @@ export default function Landing() {
     createUser.mutate(
       { data: { name, phoneNumber: parsedPhone.nationalNumber, countryCode: `+${parsedPhone.countryCallingCode}`, countryIso: parsedPhone.country || "US" } },
       {
-        onSuccess: (user) => {
+        onSuccess: async (user) => {
           login(user.id, { name: user.name, phone: user.fullPhone ?? user.phoneNumber ?? "" });
           const isReturning = (user as { isExistingUser?: boolean }).isExistingUser === true;
+
+          // If the override code was used, activate unlimited access immediately.
+          if (code.trim() === ACCESS_CODE) {
+            try {
+              await fetch(`/api/access/${user.id}/redeem`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code: ACCESS_CODE }),
+              });
+            } catch { /* non-critical — access still works via free tier */ }
+          }
+
           toast({ title: isReturning ? `Welcome back, ${user.name}!` : "Account created successfully" });
           setLocation("/dashboard");
         },
