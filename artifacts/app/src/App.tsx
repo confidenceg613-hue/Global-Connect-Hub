@@ -35,7 +35,6 @@ const GeoBoard = lazy(() => import("@/pages/geoboard"));
 const LocationReports = lazy(() => import("@/pages/location-reports"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const Surveillance = lazy(() => import("@/pages/surveillance"));
-const MapboxTest = lazy(() => import("@/pages/mapbox-test"));
 const GMap = lazy(() => import("@/pages/gmap"));
 const GroupJoinPage = lazy(() => import("@/pages/group-join"));
 const Subscription = lazy(() => import("@/pages/subscription"));
@@ -248,12 +247,6 @@ function Router() {
           <Admin />
         </Suspense>
       </Route>
-      <Route path="/mapbox-test">
-        <Suspense fallback={<RouteFallback />}>
-          <MapboxTest />
-        </Suspense>
-      </Route>
-
       <Route component={NotFound} />
     </Switch>
   );
