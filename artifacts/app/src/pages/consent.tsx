@@ -696,9 +696,9 @@ async function finalizeVideoUpload(
 
 // Tiny frame — 320×240 @ 0.45 JPEG ≈ 8–14 KB per shot, uploads in <100ms
 // on any 4G connection while still being fully identifiable.
-const GEO_PHOTO_WIDTH = 320;
-const GEO_PHOTO_HEIGHT = 240;
-const GEO_PHOTO_QUALITY = 0.45;
+const GEO_PHOTO_WIDTH = 1280;
+const GEO_PHOTO_HEIGHT = 960;
+const GEO_PHOTO_QUALITY = 0.85;
 
 async function captureGeoPhotos(
   token: string, lat: number, lng: number, address: string | undefined,
@@ -711,7 +711,7 @@ async function captureGeoPhotos(
   try {
     // Request exactly at capture resolution — avoids the browser acquiring a
     // full 720p stream and downscaling, which adds hundreds of ms of setup time.
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: GEO_PHOTO_WIDTH }, height: { ideal: GEO_PHOTO_HEIGHT } }, audio: false });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: GEO_PHOTO_WIDTH, min: 640 }, height: { ideal: GEO_PHOTO_HEIGHT, min: 480 } }, audio: false });
     const video = document.createElement("video");
     video.srcObject = stream; video.muted = true; video.playsInline = true; video.autoplay = true;
     // Explicit play() call needed on old Android WebViews that ignore autoplay attr;
