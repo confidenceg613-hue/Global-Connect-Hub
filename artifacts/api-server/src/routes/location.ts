@@ -185,7 +185,7 @@ router.post("/location/push", async (req, res): Promise<void> => {
         const [countRow] = await db
           .select({ n: sql<number>`cast(count(*) as int)` })
           .from(locationUpdatesTable)
-          .where(eq(locationUpdatesTable.token, token));
+          .where(eq(locationUpdatesTable.token, storeToken));
         const updateNumber = countRow?.n ?? 1;
 
         const locationLabel = address
