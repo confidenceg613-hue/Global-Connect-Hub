@@ -153,7 +153,7 @@ function PageErrorBoundary({ children }: { children: React.ReactNode }) {
 function RouteFallback() {
   return (
     <div className="flex min-h-[50vh] w-full items-center justify-center">
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
     </div>
   );
 }

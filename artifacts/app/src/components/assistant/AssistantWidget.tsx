@@ -52,7 +52,7 @@ function renderMarkdown(text: string): React.ReactNode[] {
     if (/^[•\-\*] /.test(line.trim())) {
       return (
         <div key={i} className="flex gap-1.5 items-start">
-          <span className="mt-[5px] shrink-0 w-1.5 h-1.5 rounded-full bg-indigo-400/70" />
+          <span className="mt-[5px] shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400/70" />
           <span>{inlineMarkdown(line.replace(/^[\s•\-\*]+/, ""))}</span>
         </div>
       );
@@ -650,21 +650,21 @@ export default function AssistantWidget() {
             {(speaking || listening) && (
               <>
                 <div className="absolute inset-0 rounded-full border-2 animate-ping"
-                  style={{ borderColor: speaking ? "rgba(99,102,241,.45)" : "rgba(16,185,129,.45)", animationDuration: "1.4s" }} />
+                  style={{ borderColor: speaking ? "rgba(245,168,8,.55)" : "rgba(217,119,6,.45)", animationDuration: "1.4s" }} />
                 <div className="absolute inset-0 rounded-full border-2 animate-ping"
-                  style={{ borderColor: speaking ? "rgba(99,102,241,.25)" : "rgba(16,185,129,.25)", animationDuration: "2.1s", animationDelay: "0.4s" }} />
+                  style={{ borderColor: speaking ? "rgba(245,168,8,.3)" : "rgba(217,119,6,.25)", animationDuration: "2.1s", animationDelay: "0.4s" }} />
               </>
             )}
             <div className="w-32 h-32 rounded-full flex items-center justify-center border-2 transition-colors duration-300"
               style={{
-                background: speaking ? "rgba(99,102,241,.15)" : listening ? "rgba(16,185,129,.15)" : "rgba(255,255,255,.05)",
-                borderColor: speaking ? "rgba(99,102,241,.6)" : listening ? "rgba(16,185,129,.6)" : "rgba(255,255,255,.15)",
+                background: speaking ? "rgba(245,168,8,.15)" : listening ? "rgba(217,119,6,.15)" : "rgba(245,168,8,.05)",
+                borderColor: speaking ? "rgba(245,168,8,.7)" : listening ? "rgba(217,119,6,.6)" : "rgba(245,168,8,.2)",
               }}>
               <Bot className="w-16 h-16 text-white" />
             </div>
           </div>
           <div className="text-white text-2xl font-semibold mb-1">Falcon AI</div>
-          <div className="text-sm mb-2" style={{ color: speaking ? "#a5b4fc" : listening ? "#6ee7b7" : "#71717a" }}>
+          <div className="text-sm mb-2" style={{ color: speaking ? "#F5C97A" : listening ? "#FBBF24" : "#78716c" }}>
             {speaking ? "Speaking…" : listening ? "Listening…" : loading ? "Thinking…" : "Connected"}
           </div>
           <div className="text-xs font-mono mb-14" style={{ color: "#52525b" }}>{formatDuration(callDuration)}</div>
@@ -673,15 +673,15 @@ export default function AssistantWidget() {
               <div key={i} className="w-[3px] rounded-full transition-all duration-150"
                 style={{
                   height: speaking || listening ? `${10 + Math.abs(Math.sin(i * 0.7 + callDuration * 3)) * 22}px` : "4px",
-                  backgroundColor: speaking ? `rgba(99,102,241,${0.5 + Math.abs(Math.sin(i * 0.5)) * 0.5})` : listening ? `rgba(16,185,129,${0.5 + Math.abs(Math.sin(i * 0.5)) * 0.5})` : "#3f3f46",
+                  backgroundColor: speaking ? `rgba(245,168,8,${0.5 + Math.abs(Math.sin(i * 0.5)) * 0.5})` : listening ? `rgba(217,119,6,${0.5 + Math.abs(Math.sin(i * 0.5)) * 0.5})` : "#44403c",
                 }} />
             ))}
           </div>
           <div className="flex items-center gap-10">
             <div className="flex flex-col items-center gap-2">
               <button onClick={toggleListening} className="w-14 h-14 rounded-full flex items-center justify-center transition-all"
-                style={{ background: listening ? "rgba(16,185,129,.25)" : "rgba(255,255,255,.08)", border: `2px solid ${listening ? "rgba(16,185,129,.5)" : "rgba(255,255,255,.12)"}` }}>
-                {listening ? <Mic className="w-6 h-6 text-emerald-400" /> : <MicOff className="w-6 h-6 text-zinc-400" />}
+                style={{ background: listening ? "rgba(217,119,6,.25)" : "rgba(245,168,8,.08)", border: `2px solid ${listening ? "rgba(217,119,6,.5)" : "rgba(245,168,8,.2)"}` }}>
+                {listening ? <Mic className="w-6 h-6 text-amber-400" /> : <MicOff className="w-6 h-6 text-stone-400" />}
               </button>
               <span className="text-[10px] font-mono text-zinc-600">{listening ? "Mute" : "Mic"}</span>
             </div>
@@ -708,7 +708,7 @@ export default function AssistantWidget() {
       {countdown !== null && (
         <div className="fixed inset-0 z-[9998] flex flex-col items-center justify-center pointer-events-none">
           <div className="text-[120px] font-black tabular-nums leading-none select-none"
-            style={{ color: "white", textShadow: "0 0 60px rgba(99,102,241,.9), 0 4px 24px rgba(0,0,0,.8)" }}>
+            style={{ color: "#F5C97A", textShadow: "0 0 60px rgba(245,168,8,.9), 0 4px 24px rgba(0,0,0,.8)" }}>
             {countdown}
           </div>
           <p className="mt-4 text-lg font-semibold text-white/80" style={{ textShadow: "0 2px 8px rgba(0,0,0,.8)" }}>Taking screenshot…</p>

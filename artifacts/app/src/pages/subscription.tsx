@@ -72,7 +72,7 @@ export default function Subscription() {
     if (loading) {
       return (
         <div className="flex flex-col items-center justify-center py-16">
-          <Loader2 size={32} className="text-indigo-400 animate-spin mb-4" />
+          <Loader2 size={32} className="text-amber-400 animate-spin mb-4" />
           <p className="text-sm text-muted-foreground font-mono tracking-wider">Connecting to command node...</p>
         </div>
       );
@@ -95,12 +95,12 @@ export default function Subscription() {
     if (successState) {
       return (
         <div className="flex flex-col items-center justify-center py-12 text-center animate-in fade-in zoom-in duration-500">
-          <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mb-6 ring-4 ring-emerald-500/20">
-            <CheckCircle2 size={40} className="text-emerald-500" />
+          <div className="w-20 h-20 rounded-full bg-amber-500/20 flex items-center justify-center mb-6 ring-4 ring-amber-500/20">
+            <CheckCircle2 size={40} className="text-amber-500" />
           </div>
           <h2 className="text-2xl font-bold mb-2 tracking-tight">Access Granted</h2>
           <p className="text-muted-foreground mb-8 font-mono text-sm">System override successful.</p>
-          <Loader2 size={24} className="text-emerald-500 animate-spin mx-auto" />
+          <Loader2 size={24} className="text-amber-500 animate-spin mx-auto" />
         </div>
       );
     }
@@ -108,14 +108,14 @@ export default function Subscription() {
     if (status.status === "unlimited") {
       return (
         <div className="flex flex-col items-center text-center py-4">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mb-6 ring-1 ring-emerald-500/30">
-            <Zap size={28} className="text-emerald-500" />
+          <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-6 ring-1 ring-amber-500/30">
+            <Zap size={28} className="text-amber-500" />
           </div>
           <h2 className="text-xl font-bold mb-2 tracking-tight">Unlimited Access</h2>
           <p className="text-muted-foreground mb-8 text-sm">
             Your clearance level grants unrestricted access to all PhoneLink features.
           </p>
-          <Button className="w-full bg-emerald-600 hover:bg-emerald-500 text-white border-0 shadow-lg shadow-emerald-900/20 transition-all hover:-translate-y-0.5" onClick={() => setLocation("/dashboard")}>
+          <Button className="w-full bg-amber-600 hover:bg-amber-500 text-white border-0 shadow-lg shadow-amber-900/20 transition-all hover:-translate-y-0.5" onClick={() => setLocation("/dashboard")}>
             Enter Console <ArrowRight className="ml-2" size={16} />
           </Button>
         </div>
@@ -125,8 +125,8 @@ export default function Subscription() {
     if (status.status === "free") {
       return (
         <div className="flex flex-col items-center text-center py-4">
-          <div className="w-16 h-16 rounded-full bg-indigo-500/10 flex items-center justify-center mb-6 ring-1 ring-indigo-500/30">
-            <Unlock size={28} className="text-indigo-400" />
+          <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-6 ring-1 ring-amber-500/30">
+            <Unlock size={28} className="text-amber-400" />
           </div>
           <h2 className="text-xl font-bold mb-2 tracking-tight">Free Access Active</h2>
           <p className="text-muted-foreground mb-6 text-sm">
@@ -135,7 +135,7 @@ export default function Subscription() {
           <div className="w-full bg-black/30 border border-white/5 rounded-lg p-4 mb-8">
             <p className="text-xs text-muted-foreground font-mono leading-relaxed">{status.message}</p>
           </div>
-          <Button className="w-full bg-indigo-600 hover:bg-indigo-500 text-white border-0 shadow-lg shadow-indigo-900/20 transition-all hover:-translate-y-0.5" onClick={() => setLocation("/dashboard")}>
+          <Button className="w-full bg-amber-600 hover:bg-amber-500 text-white border-0 shadow-lg shadow-amber-900/20 transition-all hover:-translate-y-0.5" onClick={() => setLocation("/dashboard")}>
             Continue to Console <ArrowRight className="ml-2" size={16} />
           </Button>
         </div>

@@ -21,8 +21,8 @@ export function AIControlPanel() {
   const [expandedCapability, setExpandedCapability] = useState<string | null>(null);
 
   const riskColors: Record<string, string> = {
-    low: 'bg-green-500',
-    medium: 'bg-yellow-500',
+    low: 'bg-amber-500',
+    medium: 'bg-yellow-600',
     high: 'bg-red-500',
   };
 
@@ -49,7 +49,7 @@ export function AIControlPanel() {
             {!session ? (
               <Button
                 onClick={() => startSession()}
-                className="bg-amber-500 hover:bg-amber-400 text-[#040A18] font-bold"
+                className="bg-amber-500 hover:bg-amber-400 text-[#1A0F08] font-bold"
               >
                 <Play className="w-4 h-4 mr-2" />
                 Start Session
@@ -64,7 +64,7 @@ export function AIControlPanel() {
             <Button
               onClick={toggleMicrophone}
               className={`${
-                microphoneActive ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+                microphoneActive ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-500'
               } text-white`}
             >
               {microphoneActive ? (
@@ -82,7 +82,7 @@ export function AIControlPanel() {
           </div>
 
           {microphoneActive && (
-            <div className="p-3 bg-blue-950 border border-blue-700 rounded-lg text-blue-200 text-sm flex items-start gap-2">
+            <div className="p-3 bg-amber-950/40 border border-amber-700/50 rounded-lg text-amber-200 text-sm flex items-start gap-2">
               <Mic className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>
                 Microphone is active and listening. Voice commands will be processed automatically. Auto-disables after 30
@@ -131,7 +131,7 @@ export function AIControlPanel() {
                       handleCapabilityToggle(cap.id, !cap.enabled);
                     }}
                     className={`w-10 h-6 rounded-full transition flex items-center px-1 ${
-                      cap.enabled ? 'bg-green-600' : 'bg-slate-600'
+                      cap.enabled ? 'bg-amber-500' : 'bg-stone-600'
                     }`}
                   >
                     <div
@@ -153,7 +153,7 @@ export function AIControlPanel() {
                         handleAutoApproveToggle(cap.id, !cap.autoApprove);
                       }}
                       className={`w-10 h-6 rounded-full transition flex items-center px-1 ${
-                        cap.autoApprove ? 'bg-indigo-600' : 'bg-slate-600'
+                        cap.autoApprove ? 'bg-amber-600' : 'bg-stone-600'
                       }`}
                     >
                       <div

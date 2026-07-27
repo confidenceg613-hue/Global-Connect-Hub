@@ -24,13 +24,13 @@ interface DbNotif {
 
 function sessionNotifIcon(type: string) {
   switch (type) {
-    case "grant":            return <Shield  className="h-3.5 w-3.5 text-blue-400" />;
+    case "grant":            return <Shield  className="h-3.5 w-3.5 text-amber-400" />;
     case "location_offline": return <WifiOff className="h-3.5 w-3.5 text-red-400" />;
-    case "location_online":  return <Wifi    className="h-3.5 w-3.5 text-emerald-400" />;
-    case "geofence_enter":   return <MapPin  className="h-3.5 w-3.5 text-emerald-400" />;
-    case "geofence_exit":    return <MapPin  className="h-3.5 w-3.5 text-amber-400" />;
+    case "location_online":  return <Wifi    className="h-3.5 w-3.5 text-amber-400" />;
+    case "geofence_enter":   return <MapPin  className="h-3.5 w-3.5 text-amber-400" />;
+    case "geofence_exit":    return <MapPin  className="h-3.5 w-3.5 text-yellow-400" />;
     case "sos":              return <Siren   className="h-3.5 w-3.5 text-red-500" />;
-    default:                 return <Bell    className="h-3.5 w-3.5 text-purple-400" />;
+    default:                 return <Bell    className="h-3.5 w-3.5 text-amber-400" />;
   }
 }
 
@@ -76,7 +76,7 @@ function SessionNotifFeed({ userId, inviteId }: { userId: number; inviteId: numb
 
   return (
     <div className="mt-3 pt-3 border-t border-border/40">
-      <div className="flex items-center gap-1.5 mb-2 text-[11px] font-semibold text-indigo-400/80 uppercase tracking-wider">
+      <div className="flex items-center gap-1.5 mb-2 text-[11px] font-semibold text-amber-400/80 uppercase tracking-wider">
         <Bell className="h-3.5 w-3.5" />
         Session Alerts
         {notifs.length > 0 && (
@@ -134,10 +134,10 @@ function SessionNotifFeed({ userId, inviteId }: { userId: number; inviteId: numb
 type ActivityType = "stationary" | "walking" | "running" | "driving";
 
 const ACTIVITY_INFO: Record<ActivityType, { icon: string; label: string; color: string }> = {
-  stationary: { icon: "⏸️", label: "Stationary", color: "#94a3b8" },
-  walking: { icon: "🚶", label: "Walking", color: "#60a5fa" },
-  running: { icon: "🏃", label: "Running", color: "#fb923c" },
-  driving: { icon: "🚗", label: "Driving", color: "#34d399" },
+  stationary: { icon: "⏸️", label: "Stationary", color: "#78716c" },
+  walking:    { icon: "🚶", label: "Walking",    color: "#F5C97A" },
+  running:    { icon: "🏃", label: "Running",    color: "#F59E0B" },
+  driving:    { icon: "🚗", label: "Driving",    color: "#D97706" },
 };
 
 interface Session {

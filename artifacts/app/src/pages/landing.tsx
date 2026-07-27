@@ -237,8 +237,8 @@ export default function Landing() {
                 </div>
 
                 {isDeviceTrusted ? (
-                  <div className="flex items-center gap-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-4 py-3">
-                    <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <div className="flex items-center gap-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 px-4 py-3">
+                    <CheckCircle className="h-4 w-4 text-amber-400 shrink-0" />
                     <p className="text-xs text-foreground font-medium">Trusted device — access code not required</p>
                   </div>
                 ) : (

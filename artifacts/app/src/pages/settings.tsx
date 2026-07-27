@@ -416,10 +416,10 @@ function NotificationsSection() {
 
   const pushStatusColor =
     permState === "granted"
-      ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30"
+      ? "bg-amber-500/15 text-amber-500 border-amber-500/30"
       : permState === "denied"
       ? "bg-red-500/15 text-red-600 border-red-500/30"
-      : "bg-amber-500/15 text-amber-600 border-amber-500/30";
+      : "bg-amber-500/10 text-amber-400 border-amber-500/20";
 
   const pushStatusLabel =
     permState === "granted" ? "Active" : permState === "denied" ? "Blocked" : "Not enabled";

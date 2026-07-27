@@ -22,16 +22,16 @@ interface NotifEntry {
 
 function typeIcon(type: string) {
   switch (type) {
-    case "geofence_enter":      return <MapPin   size={14} className="text-emerald-400" />;
-    case "geofence_exit":       return <MapPin   size={14} className="text-amber-400"  />;
+    case "geofence_enter":      return <MapPin   size={14} className="text-amber-400"  />;
+    case "geofence_exit":       return <MapPin   size={14} className="text-yellow-400" />;
     case "location_offline":    return <WifiOff  size={14} className="text-red-400"    />;
-    case "location_online":     return <Wifi     size={14} className="text-emerald-400"/>;
+    case "location_online":     return <Wifi     size={14} className="text-amber-400"  />;
     case "location_stale":      return <Clock    size={14} className="text-amber-400"  />;
-    case "location_update":     return <MapPin   size={14} className="text-sky-400"    />;
+    case "location_update":     return <MapPin   size={14} className="text-amber-300"  />;
     case "sos":                 return <Siren    size={14} className="text-red-500"    />;
-    case "grant":               return <Shield   size={14} className="text-blue-400"   />;
+    case "grant":               return <Shield   size={14} className="text-amber-400"  />;
     case "admin_message":       return <KeyRound size={14} className="text-amber-400"  />;
-    default:                    return <Bell     size={14} className="text-zinc-400"   />;
+    default:                    return <Bell     size={14} className="text-amber-400/60"/>;
   }
 }
 

@@ -164,9 +164,9 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const BellIcon = notifState === "granted" ? BellRing : notifState === "denied" ? BellOff : Bell;
   const bellColor =
-    notifState === "granted" ? "text-emerald-400" :
+    notifState === "granted" ? "text-amber-400" :
     notifState === "denied" ? "text-red-400" :
-    notifState === "loading" ? "text-yellow-400 animate-pulse" :
+    notifState === "loading" ? "text-amber-300 animate-pulse" :
     "text-muted-foreground";
 
   const handleBellClick = useCallback(() => {
@@ -192,7 +192,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         </span>
       )}
       {notifState === "granted" && unreadCount === 0 && (
-        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400 ring-1 ring-background" />
+        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-1 ring-background" />
       )}
       {notifState === "default" && (
         <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-1 ring-background" />

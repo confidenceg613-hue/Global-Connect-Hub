@@ -159,22 +159,22 @@ export default function Invites() {
 
       {/* Success banner after creating invite */}
       {lastCreated?.consentPageUrl && (
-        <Card className="border-emerald-500/30 bg-emerald-500/10 shadow-none">
+        <Card className="border-amber-500/30 bg-amber-500/10 shadow-none">
           <CardContent className="pt-4 pb-4">
             <div className="flex items-start gap-3">
-              <CheckCircle className="h-5 w-5 text-emerald-500 mt-0.5 flex-shrink-0" />
+              <CheckCircle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-emerald-400 mb-1">
+                <p className="text-sm font-semibold text-amber-400 mb-1">
                   Invite sent — WhatsApp opened with this consent link:
                 </p>
                 <div className="flex items-center gap-2">
-                  <code className="text-xs bg-background border border-emerald-500/30 rounded px-2 py-1 truncate flex-1 text-emerald-400">
+                  <code className="text-xs bg-background border border-amber-500/30 rounded px-2 py-1 truncate flex-1 text-amber-400">
                     {lastCreated.consentPageUrl}
                   </code>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="flex-shrink-0 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 h-7 text-xs"
+                    className="flex-shrink-0 border-amber-500/40 text-amber-400 hover:bg-amber-500/10 h-7 text-xs"
                     onClick={() => copyToClipboard(lastCreated.consentPageUrl!, "Link")}
                     data-testid="button-copy-consent-link"
                   >
@@ -409,7 +409,7 @@ function InviteCard({
           </Badge>
           {/* Session count */}
           {sessionCount > 0 && (
-            <Badge className="bg-emerald-600 text-white text-xs">
+            <Badge className="bg-amber-600 text-white text-xs">
               <CheckCircle className="h-3 w-3 mr-1" />
               {sessionCount} {sessionCount === 1 ? "session" : "sessions"}
             </Badge>
@@ -446,7 +446,7 @@ function InviteCard({
 
       {/* First-grant location map (always shown if available) */}
       {hasFirstLocation && (
-        <div className="border border-emerald-500/20 rounded-xl overflow-hidden mt-2 mb-3">
+        <div className="border border-amber-500/20 rounded-xl overflow-hidden mt-2 mb-3">
           <div className="relative w-full" style={{ height: 160 }}>
             <iframe
               title={`First location for invite #${invite.id}`}
@@ -458,7 +458,7 @@ function InviteCard({
           </div>
           <div className="bg-muted/40 px-3 py-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <MapPin className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+              <MapPin className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
               <div className="min-w-0">
                 <p className="text-xs font-mono text-foreground leading-tight">
                   {invite.grantedLatitude!.toFixed(5)}, {invite.grantedLongitude!.toFixed(5)}
@@ -476,7 +476,7 @@ function InviteCard({
             <Button
               size="sm"
               variant="outline"
-              className="flex-shrink-0 text-xs h-7 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+              className="flex-shrink-0 text-xs h-7 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
               onClick={() => window.open(`https://www.google.com/maps?q=${invite.grantedLatitude},${invite.grantedLongitude}`, "_blank")}
               data-testid={`button-maps-${invite.id}`}
             >
@@ -505,11 +505,11 @@ function InviteCard({
               {sessions.map((session, idx) => (
                 <div key={session.id} className="px-3 py-2.5 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${session.status === "active" ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${session.status === "active" ? "bg-amber-500" : "bg-muted-foreground/40"}`} />
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-foreground">
                         Session #{sessionCount - idx}
-                        {idx === 0 && <span className="ml-1.5 text-emerald-400 font-normal">(latest)</span>}
+                        {idx === 0 && <span className="ml-1.5 text-amber-400 font-normal">(latest)</span>}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {format(new Date(session.createdAt), "MMM d, yyyy 'at' h:mm a")}
@@ -521,14 +521,14 @@ function InviteCard({
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-6 px-2 text-xs text-emerald-400"
+                        className="h-6 px-2 text-xs text-amber-400"
                         onClick={() => window.open(`https://www.google.com/maps?q=${session.grantedLatitude},${session.grantedLongitude}`, "_blank")}
                       >
                         <MapPin className="h-3 w-3 mr-1" />
                         Map
                       </Button>
                     )}
-                    <Badge variant="outline" className={`text-xs h-5 ${session.status === "active" ? "border-emerald-500/30 text-emerald-400" : "text-muted-foreground"}`}>
+                    <Badge variant="outline" className={`text-xs h-5 ${session.status === "active" ? "border-amber-500/30 text-amber-400" : "text-muted-foreground"}`}>
                       {session.status}
                     </Badge>
                   </div>
