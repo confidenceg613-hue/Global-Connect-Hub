@@ -49,7 +49,7 @@ export function AIControlPanel() {
             {!session ? (
               <Button
                 onClick={() => startSession()}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                className="bg-amber-500 hover:bg-amber-400 text-[#040A18] font-bold"
               >
                 <Play className="w-4 h-4 mr-2" />
                 Start Session

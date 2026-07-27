@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -19,7 +19,6 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  /* Framer Motion inline styles use --motion-duration; zero it out */
   [style*="--motion-duration"] {
     --motion-duration: 0.01ms !important;
   }
@@ -89,55 +88,56 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* ── Light mode ── */
 :root {
-  --background: 210 20% 98%;
-  --foreground: 226 40% 15%;
+  --background: 220 35% 95%;
+  --foreground: 220 40% 12%;
 
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 226 58% 39%;
+  --border: 220 30% 85%;
+  --input: 220 30% 85%;
+  --ring: 38 92% 46%;
 
   --card: 0 0% 100%;
-  --card-foreground: 226 40% 15%;
-  --card-border: 214 32% 91%;
+  --card-foreground: 220 40% 12%;
+  --card-border: 220 30% 85%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 226 40% 15%;
-  --popover-border: 214 32% 91%;
+  --popover-foreground: 220 40% 12%;
+  --popover-border: 220 30% 85%;
 
-  --primary: 226 58% 39%;
-  --primary-foreground: 0 0% 100%;
-  
-  --secondary: 220 14% 96%;
-  --secondary-foreground: 226 40% 15%;
+  --primary: 38 92% 46%;
+  --primary-foreground: 220 55% 6%;
 
-  --muted: 220 14% 96%;
+  --secondary: 220 25% 91%;
+  --secondary-foreground: 220 40% 12%;
+
+  --muted: 220 25% 91%;
   --muted-foreground: 215 16% 47%;
 
-  --accent: 180 70% 35%;
+  --accent: 32 88% 42%;
   --accent-foreground: 0 0% 100%;
 
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
 
-  --chart-1: 226 58% 39%;
-  --chart-2: 180 70% 35%;
+  --chart-1: 38 92% 46%;
+  --chart-2: 32 88% 42%;
   --chart-3: 215 16% 47%;
-  --chart-4: 43 74% 66%;
-  --chart-5: 27 87% 67%;
+  --chart-4: 160 60% 40%;
+  --chart-5: 0 70% 50%;
 
   --sidebar: 0 0% 100%;
-  --sidebar-foreground: 226 40% 15%;
-  --sidebar-border: 214 32% 91%;
-  --sidebar-primary: 226 58% 39%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 220 14% 96%;
-  --sidebar-accent-foreground: 226 40% 15%;
-  --sidebar-ring: 226 58% 39%;
+  --sidebar-foreground: 220 40% 12%;
+  --sidebar-border: 220 30% 85%;
+  --sidebar-primary: 38 92% 46%;
+  --sidebar-primary-foreground: 220 55% 6%;
+  --sidebar-accent: 220 25% 91%;
+  --sidebar-accent-foreground: 220 40% 12%;
+  --sidebar-ring: 38 92% 46%;
 
   --app-font-sans: 'Plus Jakarta Sans', sans-serif;
   --app-font-serif: Georgia, serif;
-  --app-font-mono: Menlo, monospace;
+  --app-font-mono: 'Share Tech Mono', ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
   --radius: 0.5rem;
 
   --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0, 0.05);
@@ -162,51 +162,52 @@
   --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / 1);
 }
 
+/* ── Dark mode — deep navy + amber/gold ── */
 .dark {
-  --background: 226 40% 5%;
-  --foreground: 210 20% 98%;
+  --background: 220 55% 4%;
+  --foreground: 210 18% 90%;
 
-  --border: 226 30% 15%;
-  --input: 226 30% 15%;
-  --ring: 226 58% 50%;
+  --border: 220 38% 14%;
+  --input: 220 38% 14%;
+  --ring: 38 92% 50%;
 
-  --card: 226 40% 7%;
-  --card-foreground: 210 20% 98%;
-  --card-border: 226 30% 15%;
+  --card: 220 48% 7%;
+  --card-foreground: 210 18% 90%;
+  --card-border: 220 38% 14%;
 
-  --popover: 226 40% 7%;
-  --popover-foreground: 210 20% 98%;
-  --popover-border: 226 30% 15%;
+  --popover: 220 48% 7%;
+  --popover-foreground: 210 18% 90%;
+  --popover-border: 220 38% 14%;
 
-  --primary: 226 58% 50%;
-  --primary-foreground: 0 0% 100%;
+  --primary: 38 92% 50%;
+  --primary-foreground: 220 55% 5%;
 
-  --secondary: 226 30% 15%;
-  --secondary-foreground: 210 20% 98%;
+  --secondary: 220 38% 13%;
+  --secondary-foreground: 210 18% 85%;
 
-  --muted: 226 30% 15%;
-  --muted-foreground: 215 16% 65%;
+  --muted: 220 35% 12%;
+  --muted-foreground: 215 14% 52%;
 
-  --accent: 180 70% 40%;
+  --accent: 32 88% 44%;
   --accent-foreground: 0 0% 100%;
 
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 0 0% 100%;
 
-  --chart-1: 226 58% 50%;
-  --chart-2: 180 70% 40%;
-  --chart-3: 215 16% 65%;
-  --chart-4: 43 74% 66%;
-  --chart-5: 27 87% 67%;
+  --chart-1: 38 92% 50%;
+  --chart-2: 32 88% 44%;
+  --chart-3: 215 14% 52%;
+  --chart-4: 160 55% 42%;
+  --chart-5: 0 70% 48%;
 
-  --sidebar: 226 40% 7%;
-  --sidebar-foreground: 210 20% 98%;
-  --sidebar-border: 226 30% 15%;
-  --sidebar-primary: 226 58% 50%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 226 30% 15%;
-  --sidebar-accent-foreground: 210 20% 98%;
-  --sidebar-ring: 226 58% 50%;
+  --sidebar: 220 48% 6%;
+  --sidebar-foreground: 210 18% 90%;
+  --sidebar-border: 220 38% 12%;
+  --sidebar-primary: 38 92% 50%;
+  --sidebar-primary-foreground: 220 55% 5%;
+  --sidebar-accent: 220 38% 11%;
+  --sidebar-accent-foreground: 210 18% 85%;
+  --sidebar-ring: 38 92% 50%;
 
   --opaque-button-border-intensity: 9;
   --elevate-1: rgba(255,255,255, .04);
@@ -224,18 +225,17 @@
 
 /* ── PhoneLink map HUD components ───────────────────────────────────────────── */
 .pl-hud-card {
-  background: rgba(9, 9, 11, 0.82);
+  background: rgba(4, 10, 24, 0.88);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(245, 160, 8, 0.15);
   border-radius: 12px;
   padding: 10px 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.05);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(245,160,8,0.06);
   pointer-events: auto;
 }
 
-/* ── Compass mode: pin badges & controls counter-rotate to stay upright while
-   the map tile layer itself rotates to match device heading ────────────────── */
+/* ── Compass mode ── */
 .pl-pin-upright {
   transform: var(--pl-counter-transform, none);
   transform-origin: 50% 50%;
@@ -249,23 +249,42 @@
 }
 
 .pl-command-bar {
-  background: rgba(9, 9, 11, 0.88);
+  background: rgba(4, 10, 24, 0.92);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(245, 160, 8, 0.18);
   border-radius: 14px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255,255,255,0.05);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(245,160,8,0.07);
 }
 
-/* ── Tech grid background on dark mode ──────────────────────────────────────── */
+/* ── Amber hex-grid background on dark mode ──────────────────────────────────── */
 .dark body {
   background-image:
-    radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0);
-  background-size: 28px 28px;
+    radial-gradient(ellipse at 50% 0%, rgba(245, 160, 8, 0.07) 0%, transparent 55%),
+    radial-gradient(circle at 1px 1px, rgba(245, 160, 8, 0.06) 1px, transparent 0);
+  background-size: 100% 100%, 28px 28px;
 }
 
 /* ── Monospace data values ──────────────────────────────────────────────────── */
 .font-data {
-  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  font-family: 'Share Tech Mono', ui-monospace, "Cascadia Code", "Fira Code", monospace;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Apex Eagle splash animations ───────────────────────────────────────────── */
+@keyframes apex-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes apex-spin-rev {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-360deg); }
+}
+@keyframes apex-pulse-ring {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%       { opacity: 0.7;  transform: scale(1.04); }
+}
+@keyframes apex-eye-glow {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1; }
 }

@@ -62,32 +62,21 @@ function fallbackCopy(text: string): Promise<void> {
 const fullHeight: React.CSSProperties = { minHeight: "100vh" };
 const AUTO_RETRY_SECONDS = 5;
 
-/** Cute pleading-cat animation shown while we auto-retry location access. */
+/** Cyber-themed retry indicator shown while auto-retrying location access. */
 function StayWithMeKitten({ secondsLeft }: { secondsLeft: number }) {
   return (
-    <div className="mt-1 mb-6 flex flex-col items-center gap-2">
-      <div className="relative h-16 w-16 flex items-center justify-center">
-        <motion.span
-          className="text-5xl inline-block select-none"
-          role="img"
-          aria-label="pleading cat"
-          animate={{ y: [0, -8, 0], rotate: [-2, 2, -2] }}
-          transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
-        >
-          🐱
-        </motion.span>
-        <motion.span
-          className="absolute -top-1 -right-1 text-lg select-none"
-          animate={{ opacity: [0.55, 1, 0.55], scale: [0.9, 1.15, 0.9] }}
-          transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-        >
-          🥺
-        </motion.span>
+    <div className="mt-1 mb-6 flex flex-col items-center gap-3">
+      <div style={{ width: 52, height: 52, borderRadius: "50%", border: "1px solid rgba(245,160,8,0.4)", background: "rgba(245,160,8,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.2" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
       </div>
-      <p className="text-sm font-medium text-foreground">
-        🥺 please stay with me for <span className="font-bold text-primary">{secondsLeft}</span>s…
+      <p style={{ fontFamily: "'Share Tech Mono', monospace", color: "#F59E0B", fontSize: 13, letterSpacing: "0.07em" }}>
+        [RETRY] Reconnecting in <span style={{ fontWeight: 700 }}>{secondsLeft}s</span>
       </p>
-      <p className="text-xs text-muted-foreground">I'm automatically trying again</p>
+      <p style={{ fontFamily: "'Share Tech Mono', monospace", color: "rgba(245,160,8,0.5)", fontSize: 11, letterSpacing: "0.05em" }}>
+        Recalibrating signal acquisition...
+      </p>
     </div>
   );
 }
@@ -118,7 +107,7 @@ function CopyAndOpenButton({ url }: { url: string }) {
     setTimeout(() => document.body.removeChild(a), 500);
   };
   return (
-    <button onClick={handleClick} style={{ width: "100%", padding: "10px 16px", borderRadius: 8, background: status === "copied" ? "#16a34a" : "#6366f1", color: "#fff", fontWeight: 600, fontSize: 14, border: "none", cursor: "pointer" }}>
+    <button onClick={handleClick} style={{ width: "100%", padding: "10px 16px", borderRadius: 8, background: status === "copied" ? "#16a34a" : "#F59E0B", color: status === "copied" ? "#fff" : "#040A18", fontWeight: 700, fontSize: 14, border: "none", cursor: "pointer", fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.04em" }}>
       {status === "copied" ? "✓ Link Copied — Open Browser Now" : status === "failed" ? "Open in Browser ↗" : "Copy Link & Open Browser"}
     </button>
   );
@@ -164,317 +153,204 @@ const KITTY_ACHIEVEMENTS: Record<number, string> = {
   50: "You are unstoppable! 🌟",
 };
 
-/** Full-screen pink "please wait" overlay shown once while sharing is set up. */
+/** Geometric low-poly eagle — amber / navy apex predator mark. */
+function GeometricEagle() {
+  return (
+    <svg viewBox="0 0 200 210" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
+      {/* Crown */}
+      <polygon points="95,18 138,22 145,56 114,64 90,46" fill="#050E1E" stroke="#F59E0B" strokeWidth="1.6" strokeLinejoin="round"/>
+      {/* Forehead crest */}
+      <polygon points="95,18 114,8 136,14 138,22 114,24" fill="#071526" stroke="#F59E0B" strokeWidth="1.4" strokeLinejoin="round"/>
+      {/* Back of head */}
+      <polygon points="138,22 162,36 162,74 140,82 145,56" fill="#071526" stroke="#F59E0B" strokeWidth="1.6" strokeLinejoin="round"/>
+      {/* Lower back head */}
+      <polygon points="162,74 158,108 134,112 140,82" fill="#050E1E" stroke="#F59E0B" strokeWidth="1.4" strokeLinejoin="round"/>
+      {/* Face / cheek */}
+      <polygon points="90,46 114,64 110,96 80,104 66,76" fill="#071526" stroke="#F59E0B" strokeWidth="1.6" strokeLinejoin="round"/>
+      {/* Beak upper */}
+      <polygon points="66,76 80,104 54,112 36,88" fill="#F59E0B" stroke="#D97706" strokeWidth="1.4" strokeLinejoin="round"/>
+      {/* Beak lower */}
+      <polygon points="54,112 80,104 74,124 50,120" fill="#D97706" stroke="#92400E" strokeWidth="1.2" strokeLinejoin="round"/>
+      {/* Beak hook tip */}
+      <polygon points="36,88 54,112 50,120 30,104" fill="#D97706" stroke="#92400E" strokeWidth="1.2" strokeLinejoin="round"/>
+      {/* Neck front */}
+      <polygon points="80,104 110,96 114,130 86,138 68,120" fill="#071526" stroke="#F59E0B" strokeWidth="1.6" strokeLinejoin="round"/>
+      {/* Neck back join */}
+      <polygon points="110,96 134,112 130,142 114,130" fill="#050E1E" stroke="#F59E0B" strokeWidth="1.4" strokeLinejoin="round"/>
+      {/* Lower neck */}
+      <polygon points="86,138 114,130 116,164 88,168 68,152" fill="#071526" stroke="#F59E0B" strokeWidth="1.6" strokeLinejoin="round"/>
+      {/* Lower neck back */}
+      <polygon points="114,130 130,142 126,168 116,164" fill="#050E1E" stroke="#F59E0B" strokeWidth="1.4" strokeLinejoin="round"/>
+      {/* Chest */}
+      <polygon points="68,120 86,138 68,152 50,138" fill="#071526" stroke="#F59E0B" strokeWidth="1.4" strokeLinejoin="round"/>
+      {/* Feather detail lines */}
+      <line x1="76" y1="118" x2="118" y2="108" stroke="#F59E0B" strokeWidth="0.7" opacity="0.35"/>
+      <line x1="74" y1="132" x2="118" y2="122" stroke="#F59E0B" strokeWidth="0.7" opacity="0.35"/>
+      <line x1="72" y1="148" x2="116" y2="140" stroke="#F59E0B" strokeWidth="0.7" opacity="0.35"/>
+      {/* Eye — outer glow */}
+      <circle cx="116" cy="68" r="14" fill="#F59E0B" opacity="0.12"/>
+      {/* Eye — mid glow */}
+      <circle cx="116" cy="68" r="9" fill="#F59E0B" opacity="0.42" style={{ animation: "apex-eye-glow 2s ease-in-out infinite" }}/>
+      {/* Eye — iris */}
+      <circle cx="116" cy="68" r="5.5" fill="#F59E0B" opacity="0.95"/>
+      {/* Eye — pupil */}
+      <circle cx="116" cy="68" r="2.5" fill="#FFF9EE"/>
+    </svg>
+  );
+}
+
+const APEX_LOGS = [
+  "[TELEMETRY] Vector calibration active...",
+  "[ENCRYPTION] Handshake sequence verified.",
+  "[NETWORK] Secure tunnel established.",
+  "[GPS] Signal acquisition initiated...",
+  "[AUTH] Token validated. Access granted.",
+  "[SYNC] Calibrating telemetry vectors...",
+  "[FIREWALL] Perimeter checks passed.",
+  "[UPLINK] Data stream aligned.",
+  "[SENTINEL] Threat matrix nominal.",
+  "[GEOFENCE] Boundary parameters loaded.",
+];
+
+/** Apex cyber-eagle full-screen overlay shown while location sync is being set up. */
 function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
   const [secondsLeft, setSecondsLeft] = useState(KITTY_WAIT_SECONDS);
-  const [phase, setPhase] = useState<"waiting" | "kiss">("waiting");
-  const [petCount, setPetCount] = useState(0);
-  const [petBursts, setPetBursts] = useState<{ id: number; emoji: string; angle: number }[]>([]);
-  const [factIndex, setFactIndex] = useState(() => Math.floor(Math.random() * KITTY_FACTS.length));
-  const [moodIndex, setMoodIndex] = useState(0);
-  const [achievement, setAchievement] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [logLines, setLogLines] = useState([APEX_LOGS[0], APEX_LOGS[1]]);
 
-  // Stable ref so kiss-phase timer doesn't re-run on every parent re-render
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
-  // Main countdown
+  // Countdown
   useEffect(() => {
-    if (phase !== "waiting") return;
-    if (secondsLeft <= 0) { setPhase("kiss"); return; }
-    const id = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
+    if (secondsLeft <= 0) { setDone(true); return; }
+    const id = setTimeout(() => setSecondsLeft(s => s - 1), 1000);
     return () => clearTimeout(id);
-  }, [phase, secondsLeft]);
+  }, [secondsLeft]);
 
-  // Kiss phase → call onComplete
+  // Done → call onComplete after a short beat so the user sees "SYNC COMPLETE"
   useEffect(() => {
-    if (phase !== "kiss") return;
-    const id = setTimeout(() => onCompleteRef.current(), 2600);
+    if (!done) return;
+    const id = setTimeout(() => onCompleteRef.current(), 900);
     return () => clearTimeout(id);
-  }, [phase]);
+  }, [done]);
 
-  // Rotate fact card every 5 s
+  // Cycle log lines every 4 s
   useEffect(() => {
-    const id = setInterval(() => setFactIndex((i) => (i + 1) % KITTY_FACTS.length), 5000);
+    let idx = 2;
+    const id = setInterval(() => {
+      setLogLines(prev => [...prev.slice(-2), APEX_LOGS[idx % APEX_LOGS.length]]);
+      idx++;
+    }, 4000);
     return () => clearInterval(id);
   }, []);
 
-  // Cycle cat mood every 8 s
-  useEffect(() => {
-    const id = setInterval(() => setMoodIndex((i) => (i + 1) % KITTY_MOODS.length), 8000);
-    return () => clearInterval(id);
-  }, []);
-
-  const handlePet = useCallback(() => {
-    const next = petCount + 1;
-    setPetCount(next);
-    const id = Date.now() + Math.random();
-    const emoji = KITTY_PET_REACTIONS[Math.floor(Math.random() * KITTY_PET_REACTIONS.length)];
-    const angle = Math.random() * 360;
-    setPetBursts((b) => [...b, { id, emoji, angle }]);
-    setTimeout(() => setPetBursts((b) => b.filter((x) => x.id !== id)), 1100);
-    if (KITTY_ACHIEVEMENTS[next]) {
-      setAchievement(KITTY_ACHIEVEMENTS[next]);
-      setTimeout(() => setAchievement(null), 2400);
-    }
-  }, [petCount]);
-
-  const circumference = 2 * Math.PI * 62;
   const progress = (KITTY_WAIT_SECONDS - secondsLeft) / KITTY_WAIT_SECONDS;
-  const fact = KITTY_FACTS[factIndex];
-
-  // Drifting background particles
-  const bgParticles = [
-    { emoji: "🌸", x: "7%",  y: "13%", dur: 7,   del: 0 },
-    { emoji: "✨", x: "88%", y: "10%", dur: 5.5, del: 1.2 },
-    { emoji: "🐾", x: "76%", y: "68%", dur: 6.2, del: 2.5 },
-    { emoji: "💫", x: "14%", y: "63%", dur: 8,   del: 0.8 },
-    { emoji: "⭐", x: "50%", y: "82%", dur: 5,   del: 3.1 },
-    { emoji: "🎀", x: "92%", y: "44%", dur: 7.5, del: 1.8 },
-    { emoji: "💕", x: "3%",  y: "44%", dur: 6.5, del: 4.0 },
-    { emoji: "🌟", x: "60%", y: "4%",  dur: 9,   del: 2.0 },
-    { emoji: "🐱", x: "33%", y: "90%", dur: 7,   del: 3.5 },
-    { emoji: "💖", x: "70%", y: "30%", dur: 6,   del: 0.4 },
-  ] as const;
 
   return (
-    <div
-      className="relative flex flex-col items-center justify-center p-6 text-center overflow-hidden"
-      style={{
-        ...fullHeight,
-        background: "radial-gradient(circle at 50% 20%, #ffd7e8 0%, #ffb3d9 35%, #d8a8ff 75%, #b78cff 100%)",
-      }}
-    >
-      {/* Drifting ambient particles */}
-      {bgParticles.map((p, i) => (
-        <motion.span
-          key={i}
-          className="pointer-events-none absolute select-none text-xl"
-          style={{ left: p.x, top: p.y }}
-          animate={{ y: [0, -20, 0], x: [0, 8, 0], opacity: [0.45, 1, 0.45], scale: [0.8, 1.2, 0.8] }}
-          transition={{ duration: p.dur, repeat: Infinity, delay: p.del, ease: "easeInOut" }}
-        >
-          {p.emoji}
-        </motion.span>
-      ))}
+    <div style={{
+      minHeight: "100vh",
+      background: "#040A18",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      fontFamily: "'Share Tech Mono', ui-monospace, 'Cascadia Code', monospace",
+      position: "relative",
+      overflow: "hidden",
+    }}>
+      {/* Dot-grid background */}
+      <div style={{
+        position: "absolute", inset: 0,
+        backgroundImage: "radial-gradient(circle at 1px 1px, rgba(245,160,8,0.07) 1px, transparent 0)",
+        backgroundSize: "28px 28px",
+        pointerEvents: "none",
+      }}/>
+      {/* Top amber radial glow */}
+      <div style={{
+        position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
+        width: "70%", height: "220px",
+        background: "radial-gradient(ellipse at top, rgba(245,160,8,0.09) 0%, transparent 70%)",
+        pointerEvents: "none",
+      }}/>
 
-      <FloatingSparkles />
+      {/* Brand */}
+      <div style={{
+        position: "absolute", top: 22, left: "50%", transform: "translateX(-50%)",
+        display: "flex", alignItems: "center", gap: 10,
+      }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 8,
+          background: "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 0 12px rgba(245,160,8,0.4)",
+        }}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+        <span style={{ color: "#E2E5EE", fontFamily: "system-ui, sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em" }}>
+          PhoneLink
+        </span>
+      </div>
 
-      {/* Logo */}
-      <motion.div
-        className="inline-flex items-center gap-2 font-bold text-lg mb-5 relative z-10"
-        style={{ color: "#7a1256" }}
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <Shield className="h-5 w-5" /> PhoneLink
-      </motion.div>
+      {/* Eagle + ring */}
+      <div style={{ position: "relative", width: 240, height: 240, marginBottom: 28 }}>
+        {/* Outer spinning dashed ring */}
+        <svg viewBox="0 0 240 240" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", animation: "apex-spin 10s linear infinite" }}>
+          <circle cx="120" cy="120" r="112" stroke="#F59E0B" strokeWidth="3" fill="none"
+            strokeDasharray="9 5" strokeLinecap="round" opacity="0.85"/>
+        </svg>
+        {/* Inner counter-spinning ring */}
+        <svg viewBox="0 0 240 240" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", animation: "apex-spin-rev 16s linear infinite" }}>
+          <circle cx="120" cy="120" r="98" stroke="#F59E0B" strokeWidth="1" fill="none"
+            strokeDasharray="3 14" opacity="0.38"/>
+        </svg>
+        {/* Cardinal ticks + dark background circle */}
+        <svg viewBox="0 0 240 240" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+          <circle cx="120" cy="120" r="86" fill="#040A18" stroke="#F59E0B" strokeWidth="1" opacity="0.25"/>
+          <line x1="2"   y1="120" x2="16"  y2="120" stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
+          <line x1="224" y1="120" x2="238" y2="120" stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
+          <line x1="120" y1="2"   x2="120" y2="16"  stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
+          <line x1="120" y1="224" x2="120" y2="238" stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
+        </svg>
+        {/* Eagle */}
+        <div style={{ position: "absolute", inset: "30px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <GeometricEagle />
+        </div>
+      </div>
 
-      <AnimatePresence mode="wait">
-        {phase === "waiting" ? (
-          <motion.div
-            key="waiting"
-            className="relative z-10 flex flex-col items-center w-full max-w-xs"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.4 }}
-          >
-            {/* Ring + cat */}
-            <div
-              className="relative flex items-center justify-center mb-5 rounded-full"
-              style={{
-                width: 160, height: 160,
-                background: "rgba(255,255,255,0.28)",
-                backdropFilter: "blur(6px)",
-                WebkitBackdropFilter: "blur(6px)",
-                boxShadow: "0 0 0 1px rgba(255,255,255,0.4) inset, 0 12px 40px rgba(199,60,140,0.35)",
-              }}
-            >
-              {/* Concentric pulse rings */}
-              {[{ w: 178, del: 0 }, { w: 204, del: 0.6 }].map(({ w, del }, ri) => (
-                <motion.div
-                  key={ri}
-                  className="absolute rounded-full"
-                  style={{
-                    width: w, height: w,
-                    border: ri === 0 ? "2px solid rgba(233,30,99,0.3)" : "1px solid rgba(156,39,176,0.2)",
-                  }}
-                  animate={{ scale: [1, 1.07, 1], opacity: [0.4, 0.75, 0.4] }}
-                  transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut", delay: del }}
-                />
-              ))}
-
-              {/* Progress arc with gradient */}
-              <svg width="148" height="148" style={{ position: "absolute", transform: "rotate(-90deg)" }}>
-                <defs>
-                  <linearGradient id="arcGrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#e91e63" />
-                    <stop offset="100%" stopColor="#9c27b0" />
-                  </linearGradient>
-                </defs>
-                <circle cx="74" cy="74" r="66" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="8" />
-                <motion.circle
-                  cx="74" cy="74" r="66" fill="none"
-                  stroke="url(#arcGrad)" strokeWidth="8" strokeLinecap="round"
-                  strokeDasharray={2 * Math.PI * 66}
-                  animate={{ strokeDashoffset: 2 * Math.PI * 66 * (1 - progress) }}
-                  transition={{ duration: 1, ease: "linear" }}
-                />
-              </svg>
-
-              {/* Cat — swaps mood with a flip-in */}
-              <AnimatePresence mode="wait">
-                <motion.button
-                  key={moodIndex}
-                  type="button"
-                  onClick={handlePet}
-                  aria-label="pet the cat"
-                  data-testid="button-pet-kitty"
-                  className="text-6xl select-none cursor-pointer bg-transparent border-none p-0 z-10"
-                  initial={{ scale: 0.3, rotateY: -90, opacity: 0 }}
-                  animate={{ scale: 1, rotateY: 0, opacity: 1, y: [0, -10, 0] }}
-                  exit={{ scale: 0.3, rotateY: 90, opacity: 0 }}
-                  transition={{
-                    scale: { duration: 0.35 },
-                    rotateY: { duration: 0.35 },
-                    opacity: { duration: 0.25 },
-                    y: { duration: 1.3, repeat: Infinity, ease: "easeInOut", delay: 0.4 },
-                  }}
-                  whileTap={{ scale: 1.45 }}
-                >
-                  {KITTY_MOODS[moodIndex]}
-                </motion.button>
-              </AnimatePresence>
-
-              {/* Pet burst emojis */}
-              <AnimatePresence>
-                {petBursts.map((burst) => {
-                  const rad = (burst.angle * Math.PI) / 180;
-                  return (
-                    <motion.span
-                      key={burst.id}
-                      className="absolute text-2xl select-none pointer-events-none z-20"
-                      style={{ left: "50%", top: "50%", translateX: "-50%", translateY: "-50%" }}
-                      initial={{ x: 0, y: 0, scale: 0.5, opacity: 1 }}
-                      animate={{
-                        x: Math.cos(rad) * 80,
-                        y: Math.sin(rad) * 80,
-                        scale: 1.4,
-                        opacity: 0,
-                      }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.9, ease: "easeOut" }}
-                    >
-                      {burst.emoji}
-                    </motion.span>
-                  );
-                })}
-              </AnimatePresence>
+      {/* Status */}
+      <div style={{ textAlign: "center", marginBottom: 22 }}>
+        <div style={{ color: "#F59E0B", fontSize: 20, fontWeight: 700, letterSpacing: "0.14em", marginBottom: 14 }}>
+          {done ? "SYNC COMPLETE //" : `SYSTEM SYNC // ${secondsLeft}S`}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          {logLines.map((line, i) => (
+            <div key={i} style={{
+              color: i === logLines.length - 1 ? "#F5A008" : "rgba(245,160,8,0.42)",
+              fontSize: 11, letterSpacing: "0.06em",
+            }}>
+              {line}
             </div>
+          ))}
+        </div>
+      </div>
 
-            {/* Achievement pop */}
-            <AnimatePresence>
-              {achievement && (
-                <motion.div
-                  className="absolute top-[40%] left-1/2 z-30 px-5 py-2.5 rounded-full text-sm font-black text-white shadow-xl"
-                  style={{
-                    background: "linear-gradient(90deg, #e91e63, #9c27b0)",
-                    transform: "translateX(-50%)",
-                    whiteSpace: "nowrap",
-                  }}
-                  initial={{ scale: 0.4, opacity: 0, y: 12 }}
-                  animate={{ scale: 1, opacity: 1, y: 0 }}
-                  exit={{ scale: 0.4, opacity: 0, y: -12 }}
-                  transition={{ type: "spring", bounce: 0.6 }}
-                >
-                  {achievement}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <p className="text-2xl font-black mb-0.5" style={{ color: "#7a1256" }}>
-              {secondsLeft}s remaining 🥺
-            </p>
-            <p className="text-xs mb-4" style={{ color: "#b8477f" }}>
-              {petCount === 0
-                ? "Tap the kitty — it loves attention 🐾"
-                : `${petCount} pet${petCount !== 1 ? "s" : ""} given 🐾 — keep going!`}
-            </p>
-
-            {/* Animated fact card */}
-            <div className="w-full relative" style={{ minHeight: 90 }}>
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={factIndex}
-                  className="rounded-2xl p-4 text-left w-full"
-                  style={{
-                    background: "rgba(255,255,255,0.55)",
-                    backdropFilter: "blur(12px)",
-                    WebkitBackdropFilter: "blur(12px)",
-                    border: "1px solid rgba(255,255,255,0.75)",
-                    boxShadow: "0 4px 24px rgba(199,60,140,0.14)",
-                  }}
-                  initial={{ opacity: 0, y: 20, scale: 0.94 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -20, scale: 0.94 }}
-                  transition={{ duration: 0.4, ease: "easeOut" }}
-                >
-                  <p className="text-[10px] font-black tracking-widest uppercase mb-1.5" style={{ color: "#c2185b" }}>
-                    ✦ Did you know? ✦
-                  </p>
-                  <p className="text-sm font-semibold leading-snug" style={{ color: "#7a1256" }}>
-                    {fact.emoji} {fact.text}
-                  </p>
-                </motion.div>
-              </AnimatePresence>
-            </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="kiss"
-            className="relative z-10 flex flex-col items-center"
-            initial={{ opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.4, type: "spring", bounce: 0.4 }}
-          >
-            <div className="relative flex items-center justify-center mb-6" style={{ width: 140, height: 140 }}>
-              <motion.span
-                className="text-7xl select-none"
-                role="img"
-                aria-label="cat blowing a kiss"
-                initial={{ scale: 0.4, rotate: -8, opacity: 0 }}
-                animate={{ scale: [0.4, 1.15, 1], rotate: [-8, 4, 0], opacity: 1 }}
-                transition={{ duration: 0.6, ease: "easeOut" }}
-              >
-                😽
-              </motion.span>
-              {[0, 1, 2].map((i) => (
-                <motion.span
-                  key={i}
-                  className="absolute text-2xl select-none"
-                  style={{ left: `${34 + i * 16}%`, top: "8%" }}
-                  initial={{ y: 0, scale: 0.6, opacity: 0 }}
-                  animate={{ y: -90, scale: 1.1, opacity: [0, 1, 0] }}
-                  transition={{ duration: 1.8, delay: i * 0.25, repeat: Infinity, ease: "easeOut" }}
-                >
-                  💕
-                </motion.span>
-              ))}
-            </div>
-            <p className="text-xl font-bold mb-1" style={{ color: "#7a1256" }}>
-              Thanks for your cooperation! 💖
-            </p>
-            <p className="text-sm" style={{ color: "#9c2a6b" }}>
-              You're all set — sending a kiss your way 😘
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Progress bar */}
+      <div style={{ width: 220, height: 2, background: "rgba(245,160,8,0.14)", borderRadius: 1, overflow: "hidden" }}>
+        <div style={{
+          height: "100%",
+          background: "linear-gradient(90deg, #D97706, #F59E0B)",
+          width: `${progress * 100}%`,
+          transition: "width 1s linear",
+          boxShadow: "0 0 6px rgba(245,160,8,0.5)",
+        }}/>
+      </div>
     </div>
   );
 }
+
 
 /** Beautiful popup shown after contacts are synced. */
 function ContactsSyncedPopup({

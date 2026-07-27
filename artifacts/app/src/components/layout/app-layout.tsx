@@ -206,7 +206,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="px-5 py-5 border-b border-border/60">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-md">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-md shadow-amber-500/20">
               <ShieldCheck size={18} className="text-white" />
             </div>
             <div>
@@ -234,15 +234,15 @@ export function AppLayout({ children }: AppLayoutProps) {
                       onClick={() => setMobileMenuOpen(false)}
                       className={`group flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-all cursor-pointer ${
                         isActive
-                          ? "bg-indigo-500/10 text-indigo-400"
+                          ? "bg-amber-500/10 text-amber-400"
                           : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <item.icon size={16} className={isActive ? "text-indigo-400" : ""} />
+                        <item.icon size={16} className={isActive ? "text-amber-400" : ""} />
                         <span className={`text-sm ${isActive ? "font-semibold" : "font-medium"}`}>{item.label}</span>
                       </div>
-                      {isActive && <ChevronRight size={14} className="text-indigo-400" />}
+                      {isActive && <ChevronRight size={14} className="text-amber-400" />}
                     </div>
                   </Link>
                 );
@@ -270,7 +270,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="flex-1 flex flex-col min-w-0">
         <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-background/95 backdrop-blur border-b border-border">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-sm shadow-amber-500/20">
               <ShieldCheck size={16} className="text-white" />
             </div>
             <span className="font-bold text-base text-foreground tracking-tight">PhoneLink</span>

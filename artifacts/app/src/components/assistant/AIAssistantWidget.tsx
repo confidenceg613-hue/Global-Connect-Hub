@@ -4,15 +4,13 @@ import { AIControlPanel } from '@/components/assistant/AIControlPanel';
 import { Mic, MicOff, Bot, X } from 'lucide-react';
 
 /**
- * Floating AI Assistant Widget
- * Provides quick access to AI automation controls and voice commands
+ * Floating AI Assistant Widget — Apex amber/navy cyber theme
  */
 export function AIAssistantWidget() {
   const { microphoneActive, session, toggleMicrophone, startSession, endSession } = useAIAgent();
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(true);
 
-  // Start listening for voice commands when microphone is enabled
   useEffect(() => {
     if (!microphoneActive || !('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
       return;
@@ -24,21 +22,10 @@ export function AIAssistantWidget() {
     recognition.continuous = true;
     recognition.interimResults = true;
 
-    recognition.onstart = () => {
-      console.log('[Voice] Listening...');
-    };
-
     recognition.onresult = (event: any) => {
-      let interimTranscript = '';
-
       for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const transcript = event.results[i][0].transcript;
-
         if (event.results[i].isFinal) {
-          console.log('[Voice] Recognized:', transcript);
-          // Voice command processing would go here
-        } else {
-          interimTranscript += transcript;
+          console.log('[Voice] Recognized:', event.results[i][0].transcript);
         }
       }
     };
@@ -47,94 +34,113 @@ export function AIAssistantWidget() {
       console.warn('[Voice] Error:', event.error);
     };
 
-    if (microphoneActive) {
-      recognition.start();
-    }
-
-    return () => {
-      recognition.stop();
-    };
+    if (microphoneActive) recognition.start();
+    return () => { recognition.stop(); };
   }, [microphoneActive]);
 
   return (
     <>
-      {/* Floating Button */}
+      {/* Floating Action Button */}
       <div className="fixed bottom-4 right-4 z-40">
-        {isMinimized ? (
+        {isMinimized && (
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="w-14 h-14 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition transform hover:scale-110 flex items-center justify-center"
             title={isOpen ? 'Close AI Assistant' : 'Open AI Assistant'}
+            style={{
+              width: 56, height: 56, borderRadius: "50%",
+              background: isOpen
+                ? "linear-gradient(135deg, #D97706 0%, #B45309 100%)"
+                : "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)",
+              boxShadow: "0 0 20px rgba(245,160,8,0.45), 0 4px 12px rgba(0,0,0,0.4)",
+              border: "1px solid rgba(245,160,8,0.35)",
+              color: "#040A18",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
           >
-            <Bot className="w-6 h-6" />
+            <Bot size={24} />
           </button>
-        ) : null}
+        )}
       </div>
 
       {/* Panel */}
       {isOpen && (
-        <div className="fixed bottom-24 right-4 z-50 max-w-sm max-h-96 overflow-hidden">
-          <div className="bg-slate-950 border border-slate-700 rounded-lg shadow-2xl">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-700 bg-gradient-to-r from-indigo-600/10 to-purple-600/10">
-              <div className="flex items-center gap-2">
-                <Bot className="w-5 h-5 text-indigo-400" />
-                <span className="font-semibold text-slate-100">AI Assistant</span>
-                {session && (
-                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" title="Session active" />
-                )}
-              </div>
-
-              <button
-                onClick={() => setIsOpen(false)}
-                className="text-slate-400 hover:text-slate-200 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Quick Controls */}
-            <div className="p-4 border-b border-slate-700 flex gap-2">
-              {!session ? (
-                <button
-                  onClick={() => startSession()}
-                  className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded transition"
-                >
-                  Start Session
-                </button>
-              ) : (
-                <button
-                  onClick={() => endSession()}
-                  className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition"
-                >
-                  End Session
-                </button>
+        <div className="fixed bottom-24 right-4 z-50 w-80 max-h-96 overflow-hidden rounded-xl"
+          style={{
+            background: "#040A18",
+            border: "1px solid rgba(245,160,8,0.25)",
+            boxShadow: "0 0 30px rgba(245,160,8,0.1), 0 20px 48px rgba(0,0,0,0.6)",
+          }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3"
+            style={{
+              borderBottom: "1px solid rgba(245,160,8,0.18)",
+              background: "linear-gradient(135deg, rgba(245,160,8,0.08) 0%, rgba(217,119,6,0.05) 100%)",
+            }}
+          >
+            <div className="flex items-center gap-2.5">
+              <Bot size={18} style={{ color: "#F59E0B" }} />
+              <span style={{ fontFamily: "'Share Tech Mono', monospace", color: "#E2E5EE", fontWeight: 600, fontSize: 14, letterSpacing: "0.04em" }}>
+                AI ASSISTANT
+              </span>
+              {session && (
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#F59E0B",
+                  boxShadow: "0 0 6px rgba(245,160,8,0.8)", animation: "pulse 2s infinite" }} />
               )}
+            </div>
+            <button onClick={() => setIsOpen(false)}
+              style={{ color: "rgba(245,160,8,0.55)", background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", alignItems: "center" }}
+              onMouseEnter={e => (e.currentTarget.style.color = "#F59E0B")}
+              onMouseLeave={e => (e.currentTarget.style.color = "rgba(245,160,8,0.55)")}
+            >
+              <X size={18} />
+            </button>
+          </div>
 
-              <button
-                onClick={toggleMicrophone}
-                className={`flex-1 px-3 py-2 text-white text-sm rounded transition flex items-center justify-center gap-2 ${
-                  microphoneActive ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
-                }`}
-              >
-                {microphoneActive ? (
-                  <>
-                    <MicOff className="w-4 h-4" />
-                    Mic Off
-                  </>
-                ) : (
-                  <>
-                    <Mic className="w-4 h-4" />
-                    Mic On
-                  </>
-                )}
+          {/* Quick controls */}
+          <div className="flex gap-2 px-4 py-3" style={{ borderBottom: "1px solid rgba(245,160,8,0.12)" }}>
+            {!session ? (
+              <button onClick={() => startSession()} style={{
+                flex: 1, padding: "8px 12px",
+                background: "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)",
+                color: "#040A18", fontWeight: 700, fontSize: 13,
+                fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.05em",
+                border: "none", borderRadius: 6, cursor: "pointer",
+              }}>
+                START SESSION
               </button>
-            </div>
+            ) : (
+              <button onClick={() => endSession()} style={{
+                flex: 1, padding: "8px 12px",
+                background: "rgba(239,68,68,0.15)", color: "#EF4444",
+                border: "1px solid rgba(239,68,68,0.3)",
+                fontWeight: 700, fontSize: 13,
+                fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.05em",
+                borderRadius: 6, cursor: "pointer",
+              }}>
+                END SESSION
+              </button>
+            )}
 
-            {/* Content */}
-            <div className="p-4 overflow-y-auto max-h-64">
-              <AIControlPanel />
-            </div>
+            <button onClick={toggleMicrophone} style={{
+              flex: 1, padding: "8px 12px",
+              background: microphoneActive ? "rgba(239,68,68,0.15)" : "rgba(245,160,8,0.12)",
+              color: microphoneActive ? "#EF4444" : "#F59E0B",
+              border: microphoneActive ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(245,160,8,0.25)",
+              fontWeight: 700, fontSize: 13,
+              fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.05em",
+              borderRadius: 6, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            }}>
+              {microphoneActive ? <><MicOff size={14}/> MIC OFF</> : <><Mic size={14}/> MIC ON</>}
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
+            <AIControlPanel />
           </div>
         </div>
       )}

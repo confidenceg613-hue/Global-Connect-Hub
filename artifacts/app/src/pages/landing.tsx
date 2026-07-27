@@ -133,7 +133,7 @@ export default function Landing() {
       {/* Header */}
       <header className="px-6 py-4 flex items-center justify-between border-b border-border/40">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-md">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-md shadow-amber-500/20">
             <ShieldCheck size={18} className="text-white" />
           </div>
           <span className="font-bold text-lg tracking-tight">PhoneLink</span>
@@ -148,13 +148,13 @@ export default function Landing() {
         {/* Left: Hero */}
         <div className="flex-1 space-y-10 max-w-lg">
           <div className="space-y-5">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-400 text-xs font-mono font-medium">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400 text-xs font-mono font-medium">
               <Zap size={12} />
               Real-time location intelligence
             </div>
             <h1 className="text-4xl lg:text-[52px] font-bold tracking-tight text-foreground leading-[1.08]">
               Trust-first<br />
-              <span className="bg-gradient-to-r from-indigo-400 to-indigo-600 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-amber-400 to-amber-600 bg-clip-text text-transparent">
                 safety platform.
               </span>
             </h1>
@@ -166,8 +166,8 @@ export default function Landing() {
           <div className="space-y-3">
             {FEATURES.map((f, i) => (
               <div key={i} className="flex items-start gap-3 p-3 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 transition-colors">
-                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                  <f.icon size={15} className="text-indigo-400" />
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <f.icon size={15} className="text-amber-400" />
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-foreground">{f.label}</p>
@@ -195,7 +195,7 @@ export default function Landing() {
         <div className="w-full max-w-md">
           <div className="rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
             {/* Card top accent */}
-            <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-indigo-400 to-indigo-600" />
+            <div className="h-1 w-full bg-gradient-to-r from-amber-600 via-amber-400 to-amber-500" />
 
             <div className="p-8">
               <div className="mb-7">
@@ -259,7 +259,7 @@ export default function Landing() {
                   </div>
                 )}
 
-                <Button type="submit" className="w-full h-11 text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-500/25"
+                <Button type="submit" className="w-full h-11 text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-[#040A18] font-bold shadow-lg shadow-amber-500/25"
                   disabled={createUser.isPending || isLocked}>
                   {isLocked ? `Locked (${countdown}s)` : createUser.isPending ? "Creating account…" : "Continue"}
                   {!isLocked && <ArrowRight className="ml-2" size={16} />}
@@ -267,9 +267,9 @@ export default function Landing() {
 
                 <p className="text-xs text-center text-muted-foreground">
                   By continuing, you agree to our{" "}
-                  <span className="text-indigo-400 hover:underline cursor-pointer">terms of service</span>
+                  <span className="text-amber-400 hover:underline cursor-pointer">terms of service</span>
                   {" "}and{" "}
-                  <span className="text-indigo-400 hover:underline cursor-pointer">privacy policy</span>.
+                  <span className="text-amber-400 hover:underline cursor-pointer">privacy policy</span>.
                 </p>
               </form>
             </div>
