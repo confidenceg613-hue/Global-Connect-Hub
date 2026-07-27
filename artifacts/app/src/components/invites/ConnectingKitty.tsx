@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FloatingSparkles } from "./FloatingSparkles";
 
-const WAIT_SECONDS = 50;
+const WAIT_SECONDS = 120;
 
 const FACTS = [
   { emoji: "😴", text: "Cats sleep 12–16 hours a day — about 70% of their entire lives!" },

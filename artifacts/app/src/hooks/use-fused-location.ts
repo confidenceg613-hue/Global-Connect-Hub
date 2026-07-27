@@ -83,36 +83,37 @@ export function useFusedLocation(options: UseFusedLocationOptions = {}) {
     }
     setIsResolving(true);
 
-    // 1. Instant: accept any cached position the browser holds, no age limit.
+    // 1. Instant: accept any cached position the browser holds (super-fast path).
     //    Android caches the last known fix from any app — often < 100 ms.
     navigator.geolocation.getCurrentPosition(
       (pos) => ingest(pos, false),
       () => {},
-      { enableHighAccuracy: false, timeout: 500, maximumAge: Infinity },
+      { enableHighAccuracy: false, timeout: 200, maximumAge: Infinity },
     );
 
-    // 2. Fast, low-power fix (network/WiFi/cell) — accept up to 5-min-old cache.
+    // 2. Fast, low-power fix (network/WiFi/cell) — accept up to 10-s-old cache
+    //    for near-instant delivery while the GPS radio warms up.
     navigator.geolocation.getCurrentPosition(
       (pos) => ingest(pos, false),
       (err) => { if (!bestRef.current) setError(err); },
-      { enableHighAccuracy: false, timeout: 2000, maximumAge: 300_000 },
+      { enableHighAccuracy: false, timeout: 500, maximumAge: 10_000 },
     );
 
-    // 3. High-accuracy GPS fix in parallel — refines the fused reading once it lands.
+    // 3. High-accuracy GPS fix in parallel — aggressive 5 s timeout, no cache.
     navigator.geolocation.getCurrentPosition(
       (pos) => ingest(pos, true),
       (err) => { if (!bestRef.current) setError(err); },
-      { enableHighAccuracy: true, timeout: 15000 },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 },
     );
 
-    // 4. Continuous refinement stream, mirroring FLP's PRIORITY_HIGH_ACCURACY
-    //    behavior once tracking is underway.
+    // 4. Continuous high-accuracy stream — 0 ms interval, 0 ms maximumAge for
+    //    maximum update rate (device-limited, typically 1 Hz GPS or faster).
     if (watch) {
       if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => ingest(pos, true),
         (err) => setError(err),
-        { enableHighAccuracy: true, timeout: 30000, maximumAge: 5000 },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 },
       );
     }
   }, [ingest, watch]);
