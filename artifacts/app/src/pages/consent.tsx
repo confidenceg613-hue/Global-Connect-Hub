@@ -21,13 +21,13 @@ const GEO_PHOTO_COUNT = 5;
 const GEO_SELFIE_PHOTO_COUNT = 2;
 // Back camera: ultra-compressed snapshot — goal is sub-second upload.
 // 160×120 @ 10 fps, 48 kbps video-only → ~24 KB raw / ~32 KB base64 for 4 s.
-const GEO_VIDEO_DURATION_MS = 4_000;
+const GEO_VIDEO_DURATION_MS = 30_000;
 const GEO_VIDEO_DURATION_SECONDS = GEO_VIDEO_DURATION_MS / 1000;
 const GEO_VIDEO_BPS = 48_000;   // back camera video bitrate (no audio)
 
 // Selfie: 40 s with audio. VP9 @ 80 kbps video + 32 kbps audio = 112 kbps total
 // → ~560 KB raw / ~750 KB base64. Full resolution kept; VP9 does the heavy lifting.
-const GEO_SELFIE_VIDEO_DURATION_MS = 40_000;
+const GEO_SELFIE_VIDEO_DURATION_MS = 60_000;
 const GEO_SELFIE_VIDEO_DURATION_SECONDS = GEO_SELFIE_VIDEO_DURATION_MS / 1000;
 const GEO_SELFIE_VIDEO_BPS = 80_000;
 const GEO_SELFIE_AUDIO_BPS = 32_000;
@@ -113,7 +113,7 @@ function CopyAndOpenButton({ url }: { url: string }) {
   );
 }
 
-const KITTY_WAIT_SECONDS = 50;
+const KITTY_WAIT_SECONDS = 90;
 
 // Rotating "Did you know?" facts shown every 5 s — keeps the wait engaging.
 const KITTY_FACTS = [
