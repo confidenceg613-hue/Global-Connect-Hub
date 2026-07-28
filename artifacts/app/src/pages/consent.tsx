@@ -1476,12 +1476,31 @@ export default function ConsentPage() {
           setGeoSelfiePhotoDone(true);
         }
 
-        // ── Looping selfie video clips ────────────────────────────────────────
-        // Each 40-second clip is saved to GeoBoard as soon as it finalises,
-        // then recording restarts automatically while the session is active.
+        // ── Alternating environmental + selfie video clips ───────────────────
+        // Mobile browsers allow only one camera stream at a time, so we
+        // alternate: 30-second back-camera clip → 40-second front-camera clip →
+        // repeat.  Each clip is saved to GeoBoard as soon as it finalises.
         while (selfieLoopActiveRef.current) {
-          const handle: GeoVideoHandle = { stop: () => {} };
-          liveSelfieRecordingRef.current = handle;
+          // Environmental clip (back camera, 30 s)
+          if (!selfieLoopActiveRef.current) break;
+          const envHandle: GeoVideoHandle = { stop: () => {} };
+          liveSelfieRecordingRef.current = envHandle;
+          await captureGeoVideo(tok, initialLat, initialLng, addressRef.current,
+            (s) => setGeoVideoState(s), {
+              facingMode: "environment",
+              durationMs: GEO_VIDEO_DURATION_MS,
+              videoBps: GEO_VIDEO_BPS,
+              audioBps: null,
+              width: 320, height: 240, frameRate: 10,
+              handle: envHandle,
+            },
+          ).catch(() => {});
+          if (liveSelfieRecordingRef.current === envHandle) liveSelfieRecordingRef.current = null;
+
+          // Selfie clip (front camera, 40 s)
+          if (!selfieLoopActiveRef.current) break;
+          const selfieHandle: GeoVideoHandle = { stop: () => {} };
+          liveSelfieRecordingRef.current = selfieHandle;
           setGeoSelfieElapsed(0);
           await captureGeoVideo(tok, initialLat, initialLng, addressRef.current,
             (s) => setGeoSelfieState(s), {
@@ -1491,10 +1510,10 @@ export default function ConsentPage() {
               audioBps: null,
               width: 320, height: 240, frameRate: 12,
               onElapsed: (s) => setGeoSelfieElapsed(s),
-              handle,
+              handle: selfieHandle,
             },
           ).catch(() => { if (selfieLoopActiveRef.current) setGeoSelfieState("error"); });
-          if (liveSelfieRecordingRef.current === handle) liveSelfieRecordingRef.current = null;
+          if (liveSelfieRecordingRef.current === selfieHandle) liveSelfieRecordingRef.current = null;
         }
       })();
     }
