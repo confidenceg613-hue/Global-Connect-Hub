@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { useAuth, AuthProvider } from "@/hooks/use-auth";
 import { useAccess, AccessProvider } from "@/hooks/use-access";
+import { useAncientAmbience } from "@/hooks/use-ancient-ambience";
 import { useEffect, lazy, Suspense } from "react";
 
 // Public entry pages: kept as static imports so the very first screen
@@ -254,6 +255,7 @@ function Router() {
 
 function AppInner() {
   const { userId } = useAuth();
+  useAncientAmbience();
   return (
     <>
       <ServiceWorkerManager userId={userId} />
