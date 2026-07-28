@@ -5,7 +5,7 @@ import {
   ShieldCheck, LayoutDashboard, Users, UserCircle, Menu,
   Navigation, Clock, Map, Bell, BellOff, BellRing, Camera, Settings,
   Activity as ActivityIcon, Flag, ChevronRight, Radio, Globe,
-  ShieldAlert, Siren, Archive,
+  ShieldAlert, Siren, Archive, Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -150,6 +150,7 @@ const NAV_SECTIONS = [
     items: [
       { href: "/profile",  label: "Profile",  icon: UserCircle },
       { href: "/settings", label: "Settings", icon: Settings },
+      { href: "/about",    label: "About",    icon: Info },
     ],
   },
 ];

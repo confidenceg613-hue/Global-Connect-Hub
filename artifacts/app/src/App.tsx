@@ -46,6 +46,7 @@ const PanicLog = lazy(() => import("@/pages/panic-log"));
 const EvidenceVault = lazy(() => import("@/pages/evidence-vault"));
 const IpLookup = lazy(() => import("@/pages/ip-lookup"));
 const AmbienceTest = lazy(() => import("@/pages/ambience-test"));
+const About = lazy(() => import("@/pages/about"));
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
@@ -251,6 +252,7 @@ function Router() {
         </Suspense>
       </Route>
       <Route path="/ambience-test"><Suspense fallback={null}><AmbienceTest /></Suspense></Route>
+      <Route path="/about"><ProtectedRoute component={About} /></Route>
       <Route component={NotFound} />
     </Switch>
   );
