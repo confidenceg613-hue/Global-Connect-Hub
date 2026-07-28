@@ -52,6 +52,7 @@ import { GrantNotifier } from "@/components/grant-notifier";
 import { ErrorBoundary } from "@/components/error-boundary";
 import AssistantWidget from "@/components/assistant/AssistantWidget";
 import { AppCommandHandler } from "@/components/assistant/AppCommandHandler";
+import { AncientSky } from "@/components/ancient-sky";
 
 const queryClient = new QueryClient();
 
@@ -260,6 +261,7 @@ function AppInner() {
   useAncientAmbience();
   return (
     <>
+      <AncientSky />
       <ServiceWorkerManager userId={userId} />
       <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
         <Router />

@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useGoogleAuth } from "@/hooks/use-google-auth";
 import { useCreateUser } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowRight, ShieldAlert, CheckCircle, Lock, Globe, Zap, Eye, KeyRound, Shield } from "lucide-react";
+import { ArrowRight, ShieldAlert, CheckCircle, Lock, Globe, Zap, Eye, KeyRound, Shield, Feather } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -154,25 +154,27 @@ export default function Landing() {
 
         {/* ── Left: Hero ─────────────────────────────────────── */}
         <div className="flex-1 space-y-10 max-w-xl">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/30 bg-amber-500/8 text-amber-400 text-[11px] font-mono font-medium tracking-widest">
-            <Zap size={10} className="fill-amber-400" />
-            REAL-TIME LOCATION INTELLIGENCE
+          <div className="flex items-center gap-3">
+            <div className="landing-feather-seal"><Feather size={17} /></div>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-500/30 bg-amber-500/8 text-amber-400 text-[11px] font-mono font-medium tracking-widest">
+              <Zap size={10} className="fill-amber-400" />
+              REAL-TIME LOCATION INTELLIGENCE
+            </div>
           </div>
 
           {/* Headline */}
           <div className="space-y-4">
             <h1 className="text-5xl lg:text-[64px] font-extrabold tracking-tight leading-[0.97]"
               style={{ fontFamily: "Syne, system-ui, sans-serif" }}>
-              <span className="text-foreground">Precision.</span><br />
-              <span className="text-foreground">Consent.</span><br />
+              <span className="text-foreground">Eyes from</span><br />
+              <span className="text-foreground">the ancient</span><br />
               <span style={{ background: "linear-gradient(135deg, #F5C97A 0%, #D4891A 40%, #E8A020 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-                Control.
+                sky.
               </span>
             </h1>
             <p className="text-base text-muted-foreground leading-relaxed max-w-md">
-              Surveillance-grade location sharing — built on trust, delivered through a single link.
-              No app install. No friction. Just intelligence.
+              A timeless watchful presence for the people who matter. Consent-led location intelligence,
+              carried on a single secure link.
             </p>
           </div>
 
@@ -221,6 +223,9 @@ export default function Landing() {
             style={{ background: "linear-gradient(145deg, #1A0D04 0%, #0D0A06 100%)" }}>
             <img src="/falcon-logo.png" alt="DeepFalcon"
               className="w-full h-48 object-cover object-top opacity-90" />
+            <div className="hero-feather hero-feather--one">🪶</div>
+            <div className="hero-feather hero-feather--two">🪶</div>
+            <div className="hero-eagle-flight">🦅</div>
             {/* Overlay gradient */}
             <div className="absolute inset-0 bg-gradient-to-t from-[#0D0A06] via-transparent to-transparent" />
             {/* Bottom text */}
