@@ -15,6 +15,12 @@ import React, {
   useState,
 } from 'react';
 import { AppState, AppStateStatus, Dimensions, PixelRatio, Platform } from 'react-native';
+import {
+  BACKGROUND_LOCATION_TASK,
+  ACTIVE_SESSION_TOKEN_STORAGE_KEY,
+  TRACKING_SESSION_END_STORAGE_KEY,
+  TRACKING_TOKEN_STORAGE_KEY,
+} from '@/lib/background-location';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const LOCATION_CONFIG: Location.LocationOptions = {
@@ -22,8 +28,18 @@ const LOCATION_CONFIG: Location.LocationOptions = {
   timeInterval: 1500,
   distanceInterval: 4,
 };
-
-const TOKEN_KEY = 'phoneLink_trackingToken';
+const SHARING_DURATION_MS = 10 * 60 * 1000;
+const BACKGROUND_LOCATION_CONFIG: Location.LocationTaskOptions = {
+  accuracy: Location.Accuracy.BestForNavigation,
+  timeInterval: 3_000,
+  distanceInterval: 4,
+  foregroundService: {
+    notificationTitle: 'PhoneLink location sharing is active',
+    notificationBody: 'Sharing your location for up to 10 minutes.',
+    notificationColor: '#f59e0b',
+  },
+  pausesUpdatesAutomatically: false,
+};
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 export type TrackingStatus = 'idle' | 'requesting' | 'active' | 'error';
@@ -33,9 +49,10 @@ interface LocationTrackingContextType {
   errorMessage: string | null;
   trackingToken: string | null;
   lastLocation: Location.LocationObject | null;
+  sharingEndsAt: number | null;
   setTrackingToken: (token: string | null) => Promise<void>;
   startTracking: () => Promise<void>;
-  stopTracking: () => void;
+  stopTracking: () => Promise<void>;
 }
 
 // ─── Context ─────────────────────────────────────────────────────────────────
@@ -44,9 +61,10 @@ const LocationTrackingContext = createContext<LocationTrackingContextType>({
   errorMessage: null,
   trackingToken: null,
   lastLocation: null,
+  sharingEndsAt: null,
   setTrackingToken: async () => {},
   startTracking: async () => {},
-  stopTracking: () => {},
+  stopTracking: async () => {},
 });
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
@@ -226,41 +244,107 @@ async function pushLocationToApi(
   }
 }
 
+async function createTimedSession(
+  inviteToken: string,
+  location: Location.LocationObject,
+): Promise<string> {
+  const response = await fetch(`${buildApiBase()}/api/invites/by-token/${encodeURIComponent(inviteToken)}/grant`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error('Unable to start a location-sharing session for this invite.');
+  }
+
+  const body = await response.json() as { sessionToken?: string };
+  if (!body.sessionToken) {
+    throw new Error('Location-sharing session was not created.');
+  }
+  return body.sessionToken;
+}
+
 // ─── Provider ─────────────────────────────────────────────────────────────────
 export function LocationTrackingProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus]             = useState<TrackingStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [trackingToken, setTrackingTokenState] = useState<string | null>(null);
   const [lastLocation, setLastLocation] = useState<Location.LocationObject | null>(null);
+  const [sharingEndsAt, setSharingEndsAt] = useState<number | null>(null);
 
   const subscriptionRef = useRef<Location.LocationSubscription | null>(null);
   const appStateRef     = useRef<AppStateStatus>(AppState.currentState);
   const startingRef     = useRef(false);
+  const sharingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Cache device info so we only re-collect it periodically (every ~60 s)
   const deviceInfoCache = useRef<{ info: Record<string, unknown>; ts: number } | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(TOKEN_KEY).then((val) => {
-      if (val) setTrackingTokenState(val);
-    });
+    const restoreBackgroundSession = async () => {
+      const [token, endValue] = await AsyncStorage.multiGet([
+        TRACKING_TOKEN_STORAGE_KEY,
+        TRACKING_SESSION_END_STORAGE_KEY,
+      ]);
+      if (token[1]) setTrackingTokenState(token[1]);
+
+      const restoredEnd = Number(endValue[1] ?? 0);
+      if (!restoredEnd || restoredEnd <= Date.now()) {
+        await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {});
+        await AsyncStorage.multiRemove([
+          ACTIVE_SESSION_TOKEN_STORAGE_KEY,
+          TRACKING_SESSION_END_STORAGE_KEY,
+        ]);
+        return;
+      }
+
+      setSharingEndsAt(restoredEnd);
+      if (Platform.OS !== 'web' && await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK)) {
+        setStatus('active');
+      }
+    };
+    restoreBackgroundSession().catch(() => {});
   }, []);
 
   const setTrackingToken = useCallback(async (token: string | null) => {
     if (token) {
-      await AsyncStorage.setItem(TOKEN_KEY, token);
+      await AsyncStorage.setItem(TRACKING_TOKEN_STORAGE_KEY, token);
     } else {
-      await AsyncStorage.removeItem(TOKEN_KEY);
+      await AsyncStorage.multiRemove([
+        TRACKING_TOKEN_STORAGE_KEY,
+        ACTIVE_SESSION_TOKEN_STORAGE_KEY,
+        TRACKING_SESSION_END_STORAGE_KEY,
+      ]);
     }
     setTrackingTokenState(token);
   }, []);
 
-  const stopTracking = useCallback(() => {
+  const stopTracking = useCallback(async () => {
     subscriptionRef.current?.remove();
     subscriptionRef.current = null;
     startingRef.current = false;
-    if (trackingToken) {
-      pushLocationToApi(trackingToken, lastLocation, 'offline').catch(() => {});
+    if (sharingTimerRef.current) {
+      clearTimeout(sharingTimerRef.current);
+      sharingTimerRef.current = null;
     }
+    if (Platform.OS !== 'web') {
+      await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => {});
+    }
+    const [sessionToken, storedSessionEnd] = await AsyncStorage.multiGet([
+      ACTIVE_SESSION_TOKEN_STORAGE_KEY,
+      TRACKING_SESSION_END_STORAGE_KEY,
+    ]);
+    const sessionIsStillLive = Number(storedSessionEnd[1] ?? 0) > Date.now();
+    await AsyncStorage.multiRemove([
+      ACTIVE_SESSION_TOKEN_STORAGE_KEY,
+      TRACKING_SESSION_END_STORAGE_KEY,
+    ]);
+    if (sessionToken[1] && sessionIsStillLive) {
+      pushLocationToApi(sessionToken[1], lastLocation, 'offline').catch(() => {});
+    }
+    setSharingEndsAt(null);
     setStatus('idle');
   }, [trackingToken, lastLocation]);
 
@@ -291,6 +375,40 @@ export function LocationTrackingProvider({ children }: { children: React.ReactNo
         return;
       }
 
+      if (Platform.OS !== 'web') {
+        const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+        if (backgroundStatus !== 'granted') {
+          setErrorMessage('Allow location access all the time so PhoneLink can share while you use other apps.');
+          setStatus('error');
+          startingRef.current = false;
+          return;
+        }
+      }
+
+      const initialLocation = await Location.getCurrentPositionAsync(LOCATION_CONFIG);
+      setLastLocation(initialLocation);
+
+      const storedSession = await AsyncStorage.getItem(ACTIVE_SESSION_TOKEN_STORAGE_KEY);
+      const storedSessionEnd = Number(await AsyncStorage.getItem(TRACKING_SESSION_END_STORAGE_KEY) ?? 0);
+      const activeSessionToken = storedSession && storedSessionEnd > Date.now()
+        ? storedSession
+        : await createTimedSession(tokenSnapshot, initialLocation);
+
+      const sessionEnd = storedSessionEnd > Date.now()
+        ? storedSessionEnd
+        : Date.now() + SHARING_DURATION_MS;
+      await AsyncStorage.setItem(ACTIVE_SESSION_TOKEN_STORAGE_KEY, activeSessionToken);
+      await AsyncStorage.setItem(TRACKING_SESSION_END_STORAGE_KEY, String(sessionEnd));
+      setSharingEndsAt(sessionEnd);
+
+      if (Platform.OS !== 'web') {
+        const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        if (alreadyStarted) {
+          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        }
+        await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, BACKGROUND_LOCATION_CONFIG);
+      }
+
       subscriptionRef.current = await Location.watchPositionAsync(
         LOCATION_CONFIG,
         async (loc) => {
@@ -301,12 +419,16 @@ export function LocationTrackingProvider({ children }: { children: React.ReactNo
             if (!deviceInfoCache.current || now - deviceInfoCache.current.ts > 60_000) {
               deviceInfoCache.current = { info: await collectDeviceInfo(), ts: now };
             }
-            await pushLocationToApi(tokenSnapshot, loc, 'active', deviceInfoCache.current.info);
+            await pushLocationToApi(activeSessionToken, loc, 'active', deviceInfoCache.current.info);
           } catch {
             // Non-fatal: keep watching even if a single push fails
           }
         },
       );
+      if (sharingTimerRef.current) clearTimeout(sharingTimerRef.current);
+      sharingTimerRef.current = setTimeout(() => {
+        stopTracking().catch(() => {});
+      }, SHARING_DURATION_MS);
       setStatus('active');
     } catch (err: any) {
       setErrorMessage(err?.message ?? 'Failed to start location tracking.');
@@ -314,22 +436,16 @@ export function LocationTrackingProvider({ children }: { children: React.ReactNo
     } finally {
       startingRef.current = false;
     }
-  }, [trackingToken]);
+  }, [trackingToken, stopTracking]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       const prev = appStateRef.current;
       appStateRef.current = nextState;
 
-      const wasActive        = prev === 'active' || prev === 'inactive';
-      const goingToBackground = nextState === 'background';
       const comingToForeground = nextState === 'active' && prev === 'background';
 
-      if (wasActive && goingToBackground) {
-        if (trackingToken) {
-          pushLocationToApi(trackingToken, lastLocation, 'offline').catch(() => {});
-        }
-      } else if (comingToForeground) {
+      if (comingToForeground) {
         if (status === 'active' && !subscriptionRef.current && !startingRef.current) {
           startTracking().catch(() => {});
         }
@@ -337,9 +453,12 @@ export function LocationTrackingProvider({ children }: { children: React.ReactNo
     });
 
     return () => sub.remove();
-  }, [trackingToken, lastLocation, status, startTracking]);
+  }, [status, startTracking]);
 
-  useEffect(() => () => { subscriptionRef.current?.remove(); }, []);
+  useEffect(() => () => {
+    subscriptionRef.current?.remove();
+    if (sharingTimerRef.current) clearTimeout(sharingTimerRef.current);
+  }, []);
 
   return (
     <LocationTrackingContext.Provider
@@ -348,6 +467,7 @@ export function LocationTrackingProvider({ children }: { children: React.ReactNo
         errorMessage,
         trackingToken,
         lastLocation,
+        sharingEndsAt,
         setTrackingToken,
         startTracking,
         stopTracking,

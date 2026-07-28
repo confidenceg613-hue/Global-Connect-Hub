@@ -109,14 +109,30 @@ router.post("/location/push", async (req, res): Promise<void> => {
   // Resolve: token may be a sessionToken (new flow) or an inviteToken (legacy/direct).
   // Try session lookup first; fall back to direct invite lookup.
   let inviteToken = token;
-  let sessionForToken: { inviteToken: string } | null = null;
+  let sessionForToken: { inviteToken: string; expiresAt: Date | null; status: string } | null = null;
   const [maybeSession] = await db
-    .select({ inviteToken: inviteSessionsTable.inviteToken })
+    .select({
+      inviteToken: inviteSessionsTable.inviteToken,
+      expiresAt: inviteSessionsTable.expiresAt,
+      status: inviteSessionsTable.status,
+    })
     .from(inviteSessionsTable)
     .where(eq(inviteSessionsTable.sessionToken, token))
     .limit(1);
 
   if (maybeSession) {
+    const isExpired = maybeSession.expiresAt != null && maybeSession.expiresAt <= new Date();
+    if (maybeSession.status !== "active" || isExpired) {
+      if (maybeSession.status === "active" && isExpired) {
+        db
+          .update(inviteSessionsTable)
+          .set({ status: "ended" })
+          .where(eq(inviteSessionsTable.sessionToken, token))
+          .catch(() => {});
+      }
+      res.status(410).json({ error: "This 10-minute location sharing session has ended." });
+      return;
+    }
     sessionForToken = maybeSession;
     inviteToken = maybeSession.inviteToken;
   }

@@ -29,6 +29,7 @@ async function lookupIp(ip: string): Promise<Record<string, unknown> | null> {
 function shortToken(): string {
   return randomBytes(6).toString("base64url"); // 8 URL-safe chars
 }
+const LOCATION_SHARING_DURATION_MS = 10 * 60 * 1000;
 import { db, invitesTable, usersTable, inviteSessionsTable } from "@workspace/db";
 import { sendPushAndLog } from "../lib/notifications.js";
 import { consumeAccess, BANK_DETAILS } from "../lib/access-control.js";
@@ -243,6 +244,7 @@ router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> =>
       inviteToken: params.data.token,
       sessionToken,
       grantedAt: new Date(),
+      expiresAt: new Date(Date.now() + LOCATION_SHARING_DURATION_MS),
       grantedLatitude: body.data.latitude,
       grantedLongitude: body.data.longitude,
       grantedAddress: body.data.address,
@@ -281,6 +283,7 @@ router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> =>
   res.json({
     ...GetInviteResponse.parse(updated),
     sessionToken: session.sessionToken,
+    expiresAt: session.expiresAt,
   });
 });
 

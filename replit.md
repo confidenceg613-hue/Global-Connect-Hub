@@ -101,6 +101,11 @@ The live map's Street View button resolves nearby crowdsourced imagery via Mapil
 ### IP Target Locator — Best Estimate is now real-time IP only
 The "Best Estimate" in the IP Target Locator (`/ip-lookup`) was changed to always use the live IP geolocation consensus (4 external APIs) instead of stored GPS data from PhoneLink contacts. This means searching an IP always reflects its current geolocation — not a contact's last recorded position.
 
+### Ten-minute GPS sharing
+- Every consent grant creates a server-enforced **10-minute** sharing session. The API rejects new location updates after the session expires, even if a client is still running.
+- The consent web page displays the remaining session time and stops its browser GPS watcher when the ten minutes end. Browsers cannot reliably keep sharing after Chrome itself is removed from Android's recent apps; Android terminates the browser process.
+- The native mobile app uses Android's visible foreground-location notification to keep sending updates while the user uses other apps for the same ten-minute window. This requires an installed native/development build and **Allow all the time** location permission; Expo Go cannot provide background location.
+
 ## User preferences
 
 - Keep the existing monorepo structure and stack; do not restructure or migrate.

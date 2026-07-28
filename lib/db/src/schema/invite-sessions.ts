@@ -21,6 +21,9 @@ export const inviteSessionsTable = pgTable("invite_sessions", {
   grantedLongitude: doublePrecision("granted_longitude"),
   grantedAddress: text("granted_address"),
   grantedIp: text("granted_ip"),
+  // GPS sharing is intentionally short-lived. The API refuses further pushes
+  // against this session after this moment, even if a client stays running.
+  expiresAt: timestamp("expires_at"),
   status: text("status", { enum: ["active", "ended"] })
     .notNull()
     .default("active"),

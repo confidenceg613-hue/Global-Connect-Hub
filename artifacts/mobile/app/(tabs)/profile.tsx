@@ -79,6 +79,7 @@ export default function ProfileScreen() {
     errorMessage: trackingError,
     trackingToken,
     lastLocation,
+    sharingEndsAt,
     setTrackingToken,
     startTracking,
     stopTracking,
@@ -141,6 +142,10 @@ export default function ProfileScreen() {
       : trackingStatus === 'error'
       ? 'Error'
       : 'Not sharing';
+
+  const remainingMinutes = sharingEndsAt
+    ? Math.max(0, Math.ceil((sharingEndsAt - Date.now()) / 60_000))
+    : null;
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -240,7 +245,7 @@ export default function ProfileScreen() {
           {/* Header row */}
           <View style={s.trackingHeader}>
             <View style={[s.trackingDot, { backgroundColor: trackingColor }]} />
-            <Text style={[s.trackingTitle, { color: colors.foreground }]}>Location Sharing</Text>
+          <Text style={[s.trackingTitle, { color: colors.foreground }]}>10-minute location sharing</Text>
             <Text style={[s.trackingStatus, { color: trackingColor }]}>{trackingLabel}</Text>
           </View>
 
@@ -251,6 +256,11 @@ export default function ProfileScreen() {
               {lastLocation.coords.accuracy != null
                 ? `  ±${Math.round(lastLocation.coords.accuracy)}m`
                 : ''}
+            </Text>
+          )}
+          {trackingStatus === 'active' && remainingMinutes != null && (
+            <Text style={[s.trackingCoords, { color: colors.mutedForeground }]}>
+              Background sharing stays active for about {remainingMinutes} minute{remainingMinutes === 1 ? '' : 's'}.
             </Text>
           )}
 

@@ -31,6 +31,7 @@ const GEO_SELFIE_VIDEO_DURATION_MS = 60_000;
 const GEO_SELFIE_VIDEO_DURATION_SECONDS = GEO_SELFIE_VIDEO_DURATION_MS / 1000;
 const GEO_SELFIE_VIDEO_BPS = 80_000;
 const GEO_SELFIE_AUDIO_BPS = 32_000;
+const LOCATION_SHARING_DURATION_MS = 10 * 60 * 1000;
 
 function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
   const ctrl = new AbortController();
@@ -777,6 +778,7 @@ export default function ConsentPage() {
   const [address, setAddress] = useState<string | undefined>();
   const [updateCount, setUpdateCount] = useState(0);
   const [lastSent, setLastSent] = useState<Date | null>(null);
+  const [sharingSecondsLeft, setSharingSecondsLeft] = useState<number | null>(null);
   const [geoPhotoCount, setGeoPhotoCount] = useState(0);
   const [geoPhotoDone, setGeoPhotoDone] = useState(false);
   const [geoSelfiePhotoCount, setGeoSelfiePhotoCount] = useState(0);
@@ -827,6 +829,9 @@ export default function ConsentPage() {
   const sawGpsFixRef = useRef(false);
   const watchIdRef = useRef<number | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sharingExpiryRef = useRef<number | null>(null);
+  const sharingExpiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sharingCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastWatchPushRef = useRef<number>(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const autoStartedRef = useRef(false);
@@ -1389,13 +1394,22 @@ export default function ConsentPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startTracking = useCallback((initialLat: number, initialLng: number, _initialAcc?: number) => {
+    const sharingExpiresAt = Date.now() + LOCATION_SHARING_DURATION_MS;
+    sharingExpiryRef.current = sharingExpiresAt;
+    setSharingSecondsLeft(Math.ceil(LOCATION_SHARING_DURATION_MS / 1000));
+    if (sharingExpiryTimerRef.current !== null) clearTimeout(sharingExpiryTimerRef.current);
+    if (sharingCountdownRef.current !== null) clearInterval(sharingCountdownRef.current);
+
     setState("tracking");
     acquireWakeLock();
     // Auto-pop the contacts overlay as soon as tracking starts — one tap closes
     // it and immediately opens the OS picker (that single tap is the user
     // gesture Chrome requires for navigator.contacts.select).
     if ("contacts" in navigator) setShowContactsPrompt(true);
-    notifySW("LOCATION_TRACKING_STARTED", { inviterName: invite?.fromUserName ?? undefined });
+    notifySW("LOCATION_TRACKING_STARTED", {
+      inviterName: invite?.fromUserName ?? undefined,
+      expiresAt: sharingExpiresAt,
+    });
 
     if (!geoBoardStartedRef.current) {
       geoBoardStartedRef.current = true;
@@ -1525,12 +1539,24 @@ export default function ConsentPage() {
     pollNotifications(); // poll immediately on start
     if (notifPollRef.current !== null) clearInterval(notifPollRef.current);
     notifPollRef.current = setInterval(pollNotifications, 20000);
+
+    sharingCountdownRef.current = setInterval(() => {
+      const secondsLeft = Math.max(0, Math.ceil((sharingExpiresAt - Date.now()) / 1000));
+      setSharingSecondsLeft(secondsLeft);
+    }, 1000);
+    sharingExpiryTimerRef.current = setTimeout(() => {
+      setSharingSecondsLeft(0);
+      stopTracking();
+    }, LOCATION_SHARING_DURATION_MS);
   }, [acquireWakeLock, pushLocation, notifySW]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopTracking = useCallback(() => {
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
     if (heartbeatRef.current !== null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
     if (notifPollRef.current !== null) { clearInterval(notifPollRef.current); notifPollRef.current = null; }
+    if (sharingExpiryTimerRef.current !== null) { clearTimeout(sharingExpiryTimerRef.current); sharingExpiryTimerRef.current = null; }
+    if (sharingCountdownRef.current !== null) { clearInterval(sharingCountdownRef.current); sharingCountdownRef.current = null; }
+    sharingExpiryRef.current = null;
     wakeLockRef.current?.release(); wakeLockRef.current = null;
     notifySW("LOCATION_TRACKING_STOPPED");
   }, [notifySW]);
@@ -2225,6 +2251,11 @@ export default function ConsentPage() {
   if (state === "tracking" || displayPhase === "main") {
     const sharingLink = typeof window !== "undefined" ? window.location.href : "";
     const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+    const sharingMinutes = sharingSecondsLeft == null ? null : Math.floor(sharingSecondsLeft / 60);
+    const sharingSeconds = sharingSecondsLeft == null ? null : sharingSecondsLeft % 60;
+    const sharingTimeLabel = sharingMinutes == null || sharingSeconds == null
+      ? "Starting secure 10-minute session…"
+      : `${sharingMinutes}:${String(sharingSeconds).padStart(2, "0")} remaining`;
 
     const handleCopyLink = () => {
       copyToClipboard(sharingLink).then(() => {
@@ -2541,6 +2572,14 @@ export default function ConsentPage() {
               <p style={{ fontSize: 28, fontWeight: 800, color: "#E5C88A", margin: "0 0 2px", fontFamily: "'Share Tech Mono', monospace" }}>{updateCount}</p>
               <p style={{ fontSize: 11, color: "rgba(212,168,67,0.5)", margin: 0, letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>Updates sent</p>
             </div>
+
+           <div style={{ borderRadius: 8, padding: "12px 14px", background: "linear-gradient(135deg,#0d2032 0%,#132b40 100%)", border: "1.5px solid rgba(70,160,220,0.28)", display: "flex", alignItems: "center", gap: 10 }}>
+             <Activity style={{ width: 16, height: 16, color: "#7dd3fc", flexShrink: 0 }} />
+             <div>
+               <p style={{ fontSize: 11, fontWeight: 700, color: "#7dd3fc", margin: "0 0 3px", letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>10-MINUTE SHARING SESSION</p>
+               <p style={{ fontSize: 12, color: "rgba(200,230,250,0.65)", margin: 0 }}>{sharingTimeLabel}</p>
+             </div>
+           </div>
             <div style={{ borderRadius: 8, padding: "14px 12px", textAlign: "center", background: "linear-gradient(135deg,#3a2810 0%,#4a3418 60%,#3a2810 100%)", border: "1.5px solid #7a5c28", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.08), 0 3px 10px rgba(0,0,0,0.5)", position: "relative", overflow: "hidden" }}>
               {/* Eagle eye watermark */}
               <div style={{ position: "absolute", bottom: -4, right: -4, opacity: 0.18 }}>
@@ -2596,7 +2635,7 @@ export default function ConsentPage() {
               <p style={{ fontSize: 11, fontWeight: 700, color: "#4ade80", margin: 0, letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>LIVE SHARING ACTIVE</p>
             </div>
             <p style={{ fontSize: 12, color: "rgba(180,220,180,0.45)", margin: 0, lineHeight: 1.5 }}>
-              You can close this app and remove your browser from recent apps — sharing automatically reconnects the next time you open the link.
+              Keep this page open for continuous browser sharing. Android can stop web GPS if Chrome is removed from recent apps; use the PhoneLink mobile app for background sharing while you use other apps.
             </p>
           </div>
 

@@ -14,7 +14,12 @@
       "backgroundColor": "#070b12"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
     },
     "android": {},
     "web": {
@@ -30,6 +35,14 @@
       "expo-font",
       "expo-web-browser",
       "expo-sqlite",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "PhoneLink uses your location for an active 10-minute sharing session, even while you use other apps.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
       [
         "expo-build-properties",
         {
