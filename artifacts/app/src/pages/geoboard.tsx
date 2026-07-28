@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useRef, type CSSProperties } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { MapCloudReveal } from "@/components/map-cloud-reveal";
 import {
   Camera, MapPin, Clock, User, ChevronDown, ChevronUp,
   ImageOff, LayoutGrid, Map as MapIcon, X, Video,
@@ -631,6 +632,7 @@ export default function GeoBoard() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <MapCloudReveal />
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">

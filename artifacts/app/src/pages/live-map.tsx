@@ -5,6 +5,7 @@ import type { Invite } from "@workspace/api-client-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { makeEagleMarker } from "@/lib/eagle-map-marker";
+import { MapCloudReveal } from "@/components/map-cloud-reveal";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
@@ -1468,6 +1469,7 @@ export default function LiveMap() {
       className={`relative -m-4 md:-m-8 ${compassMode ? "pl-compass-mode" : ""}`}
       style={{ height: "calc(100vh - 64px)", minHeight: 400 }}
     >
+      <MapCloudReveal />
       {/* ── Full-bleed map canvas ── */}
       <div ref={mapRef} className="pl-map-rotor absolute inset-0" style={mapRotorStyle} />
 

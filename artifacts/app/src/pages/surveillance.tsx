@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { Camera, Crosshair, AlertCircle, Radio } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { makeEagleMarker } from "@/lib/eagle-map-marker";
+import { MapCloudReveal } from "@/components/map-cloud-reveal";
 
 const API_BASE      = import.meta.env.BASE_URL.replace(/\/$/, "");
 const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}";
@@ -357,6 +358,7 @@ export default function Surveillance() {
 
   return (
     <div className="relative -m-4 md:-m-8" style={{ height:"calc(100vh - 64px)" }}>
+      <MapCloudReveal />
       <div ref={mapRef} className="absolute inset-0" style={{ zIndex:0 }} />
 
       {/* HUD */}

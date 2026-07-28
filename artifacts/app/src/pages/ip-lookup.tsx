@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { MapCloudReveal } from "@/components/map-cloud-reveal";
 import { formatDistanceToNow, format } from "date-fns";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -546,6 +547,7 @@ export default function IpLookupPage() {
 
   return (
     <div className="space-y-5 animate-in fade-in slide-in-from-bottom-3 duration-400">
+      <MapCloudReveal />
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-start gap-3">

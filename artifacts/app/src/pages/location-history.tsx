@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { makeEagleMarker } from "@/lib/eagle-map-marker";
+import { MapCloudReveal } from "@/components/map-cloud-reveal";
 import {
   Clock, MapPin, User, Navigation, ChevronDown, BarChart3,
   ExternalLink, Copy, Wifi, WifiOff, Route, CalendarDays,
@@ -404,6 +405,7 @@ export default function LocationHistory() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
+      <MapCloudReveal />
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">

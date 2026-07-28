@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { makeEagleMarker } from "@/lib/eagle-map-marker";
+import { MapCloudReveal } from "@/components/map-cloud-reveal";
 import {
   Users, Plus, Trash2, Copy, Check, Radio,
   MapPin, ChevronRight, Loader2, X, Battery, BatteryCharging,
@@ -436,6 +437,7 @@ export default function GMapPage() {
 
   return (
     <div className="flex flex-col gap-5">
+      <MapCloudReveal />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

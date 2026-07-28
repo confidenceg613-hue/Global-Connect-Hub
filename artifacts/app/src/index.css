@@ -322,8 +322,25 @@
 @keyframes hero-feather { 50% { transform:translate(10px, 18px) rotate(28deg); opacity:.95; } }
 @keyframes hero-flight { 0% { transform:translateX(0) translateY(7px) rotate(-7deg); } 52% { transform:translateX(500px) translateY(-12px) rotate(4deg); opacity:.94; } 100% { transform:translateX(780px) translateY(10px) rotate(-5deg); opacity:0; } }
 
+/* ── Map entry — three seconds through the clouds ─────────────────────────── */
+.map-cloud-reveal { position:fixed; inset:0; z-index:9999; overflow:hidden; pointer-events:none; background:linear-gradient(145deg,#22150c 0%,#b86d20 30%,#e5b05e 50%,#47311c 100%); animation:cloud-reveal-out 3s forwards; }
+.map-cloud-reveal__veil { position:absolute; border-radius:50%; background:radial-gradient(ellipse at center,rgba(255,247,226,.98) 0%,rgba(255,229,185,.83) 35%,rgba(162,99,43,.2) 69%,transparent 72%); filter:blur(12px); mix-blend-mode:screen; }
+.map-cloud-reveal__veil--one { width:110vw; height:72vh; top:-16vh; left:-42vw; animation:cloud-drift-one 3s ease-in forwards; }
+.map-cloud-reveal__veil--two { width:96vw; height:82vh; right:-38vw; bottom:-22vh; animation:cloud-drift-two 3s ease-in forwards; }
+.map-cloud-reveal__veil--three { width:86vw; height:48vh; left:11vw; top:28vh; opacity:.84; animation:cloud-drift-three 3s ease-in forwards; }
+.map-cloud-reveal__sun { position:absolute; width:18vw; height:18vw; min-width:160px; min-height:160px; top:17%; left:50%; border-radius:50%; background:radial-gradient(circle,rgba(255,249,205,.98) 0%,rgba(255,202,92,.78) 22%,rgba(211,123,29,.28) 56%,transparent 71%); transform:translateX(-50%); filter:blur(4px); animation:cloud-sun 3s ease-out forwards; }
+.map-cloud-reveal__eagle { position:absolute; top:42%; left:50%; font-size:42px; filter:drop-shadow(0 8px 8px rgba(39,20,5,.52)); animation:cloud-eagle 2.45s cubic-bezier(.2,.75,.3,1) forwards; }
+.map-cloud-reveal__label { position:absolute; top:calc(50% + 54px); left:0; right:0; text-align:center; color:#4a270d; font:700 11px/1 'Share Tech Mono',monospace; letter-spacing:.32em; text-shadow:0 1px 0 rgba(255,255,255,.46); animation:cloud-label 2.5s ease-out forwards; }
+@keyframes cloud-reveal-out { 0%,76% { opacity:1; } 100% { opacity:0; visibility:hidden; } }
+@keyframes cloud-drift-one { to { transform:translate3d(-62vw,-35vh,0) scale(1.25); opacity:0; } }
+@keyframes cloud-drift-two { to { transform:translate3d(66vw,38vh,0) scale(1.3); opacity:0; } }
+@keyframes cloud-drift-three { to { transform:translate3d(0,58vh,0) scale(1.45); opacity:0; } }
+@keyframes cloud-sun { 0% { opacity:0; transform:translateX(-50%) scale(.35); } 28% { opacity:1; } 100% { opacity:0; transform:translateX(-50%) scale(2.7); } }
+@keyframes cloud-eagle { 0% { opacity:0; transform:translate(-90vw,15vh) scale(.45) rotate(-12deg); } 30% { opacity:1; } 100% { opacity:0; transform:translate(91vw,-16vh) scale(1.45) rotate(8deg); } }
+@keyframes cloud-label { 0%,25% { opacity:0; transform:translateY(8px); } 42%,67% { opacity:1; transform:translateY(0); } 100% { opacity:0; transform:translateY(-7px); } }
+
 @media (prefers-reduced-motion: reduce) {
-  .ancient-sky, .hero-feather, .hero-eagle-flight, .landing-feather-seal { animation: none !important; }
+  .ancient-sky, .hero-feather, .hero-eagle-flight, .landing-feather-seal, .map-cloud-reveal { animation: none !important; display:none; }
 }
 
 /* ── Monospace data values ──────────────────────────────────────────────────── */

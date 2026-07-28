@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { MapCloudReveal } from "@/components/map-cloud-reveal";
 import { Siren, MapPin, Clock, Trash2, CheckCheck, Phone } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -176,6 +177,7 @@ export default function PanicLog() {
 
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
+      <MapCloudReveal />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
