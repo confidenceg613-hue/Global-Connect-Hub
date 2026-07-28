@@ -284,6 +284,27 @@ function scheduleFrame(ctx: AudioContext, dest: AudioNode, startTime: number, vo
   src.start(startTime);
 }
 
+/** A restrained eagle-like cry: two gliding, lightly distorted upper notes. */
+function scheduleEagleCall(ctx: AudioContext, dest: AudioNode, startTime: number, vol = 0.045) {
+  for (const offset of [0, 0.34]) {
+    const osc = ctx.createOscillator();
+    const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(offset ? 1440 : 1780, startTime + offset);
+    osc.frequency.exponentialRampToValueAtTime(offset ? 920 : 1040, startTime + offset + 0.28);
+    filter.type = "bandpass";
+    filter.frequency.value = 1850;
+    filter.Q.value = 3.2;
+    gain.gain.setValueAtTime(0.001, startTime + offset);
+    gain.gain.exponentialRampToValueAtTime(vol, startTime + offset + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + offset + 0.32);
+    osc.connect(filter); filter.connect(gain); gain.connect(dest);
+    osc.start(startTime + offset);
+    osc.stop(startTime + offset + 0.34);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Section schedulers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -360,6 +381,7 @@ function scheduleSong(
   scheduleMelody(ctx, melodyDest, MELODY_B, t, 0.2);
   scheduleHarmony(ctx, chordDest, bassDest, CHORDS_B, BASS_B, t);
   schedulePercussion(ctx, percDest, t, 8, 1.0);
+  scheduleEagleCall(ctx, melodyDest, t + BAR * 2.5);
   t += 8 * BAR;
 
   // ── Bridge (4 bars) ────────────────────────────────────────────────────────

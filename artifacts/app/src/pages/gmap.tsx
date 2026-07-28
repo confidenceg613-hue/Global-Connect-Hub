@@ -14,6 +14,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { motion, AnimatePresence } from "framer-motion";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { makeEagleMarker } from "@/lib/eagle-map-marker";
 import {
   Users, Plus, Trash2, Copy, Check, Radio,
   MapPin, ChevronRight, Loader2, X, Battery, BatteryCharging,
@@ -76,23 +77,6 @@ const MEMBER_COLORS = [
 
 function memberColor(index: number): string {
   return MEMBER_COLORS[index % MEMBER_COLORS.length];
-}
-
-function makeDotIcon(color: string, label: string, lowBattery = false): L.DivIcon {
-  const initials = label.slice(0, 2).toUpperCase() || "?";
-  const batteryBadge = lowBattery
-    ? `<div style="position:absolute;bottom:-3px;right:-3px;width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #0a0a0a;display:flex;align-items:center;justify-content:center;font-size:8px;line-height:1;">🪫</div>`
-    : "";
-  return L.divIcon({
-    className: "",
-    iconSize: [38, 38],
-    iconAnchor: [19, 19],
-    html: `
-      <div style="position:relative;width:38px;height:38px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:700;font-family:system-ui,sans-serif;">
-        ${initials}${batteryBadge}
-      </div>
-    `,
-  });
 }
 
 // ─── Copy-link button ─────────────────────────────────────────────────────────
@@ -251,7 +235,7 @@ export default function GMapPage() {
     const label = displayName ?? "?";
     const lowBattery = batteryLevel != null && batteryLevel < 15 && !batteryCharging;
 
-    const icon = makeDotIcon(color, label, lowBattery);
+    const icon = makeEagleMarker(label, { accent: color, lowBattery });
     const popupHtml = `
       <div style="min-width:140px">
         <div style="font-weight:700;font-size:13px;margin-bottom:4px">${label}</div>

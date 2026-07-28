@@ -4,6 +4,7 @@ import { useListInvites, getListInvitesQueryKey } from "@workspace/api-client-re
 import type { Invite } from "@workspace/api-client-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { makeEagleMarker } from "@/lib/eagle-map-marker";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
@@ -1062,7 +1063,9 @@ export default function LiveMap() {
         const telemetry = telemetryByToken.get(inv.token);
         const sessionInfo = sessionInfoByToken.get(inv.token);
         const lowBattery = isLive && telemetry?.batteryLevel != null && telemetry.batteryLevel <= 15 && !telemetry.batteryCharging;
-        const marker = L.marker([lat, lng], { icon: makePin(pinColor, initials(inv.toName, inv.toPhone), false, isLive ? rawLive?.bearing : undefined, lowBattery) }).addTo(map);
+        const marker = L.marker([lat, lng], {
+          icon: makeEagleMarker(contactLabel(inv.toName, inv.toPhone), { accent: pinColor, lowBattery }),
+        }).addTo(map);
         layersRef.current.push(marker);
 
         marker.bindPopup("", { className: "pl-popup", maxWidth: 320, minWidth: 280 });
