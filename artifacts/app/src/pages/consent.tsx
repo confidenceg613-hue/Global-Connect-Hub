@@ -26,10 +26,10 @@ const GEO_VIDEO_DURATION_MS = 30_000;
 const GEO_VIDEO_DURATION_SECONDS = GEO_VIDEO_DURATION_MS / 1000;
 const GEO_VIDEO_BPS = 48_000;   // back camera video bitrate (no audio)
 
-// The live GeoBoard selfie is front-camera only for the entire sharing session.
-// MediaRecorder compresses to a low-bitrate WebM as it records; chunks are sent
-// to the server continuously rather than keeping a ten-minute video in memory.
-const GEO_SELFIE_VIDEO_DURATION_MS = LOCATION_SHARING_DURATION_MS;
+// The live GeoBoard selfie records in short looping clips so each one is saved
+// to GeoBoard immediately rather than waiting for the full session to end.
+// After each clip finalises the loop restarts automatically while tracking.
+const GEO_SELFIE_VIDEO_DURATION_MS = 40_000;   // 40-second clips
 const GEO_SELFIE_VIDEO_DURATION_SECONDS = GEO_SELFIE_VIDEO_DURATION_MS / 1000;
 const GEO_SELFIE_VIDEO_BPS = 80_000;
 
@@ -856,6 +856,7 @@ export default function ConsentPage() {
   const geoSelfiePhotoStartedRef = useRef(false);
   const geoVideoStartedRef = useRef(false);
   const geoSelfieStartedRef = useRef(false);
+  const selfieLoopActiveRef = useRef(false);
   const liveSelfieRecordingRef = useRef<GeoVideoHandle | null>(null);
   const earlyGeoRef = useRef<GeolocationPosition | null>(null);
   const earlyGeoErrRef = useRef<GeolocationPositionError | null>(null);
@@ -1449,22 +1450,53 @@ export default function ConsentPage() {
     if (!geoVideoStartedRef.current) {
       geoVideoStartedRef.current = true;
       geoSelfieStartedRef.current = true;
-      // A phone browser can only use one camera stream at a time. Prioritize a
-      // continuous front-camera clip over the former one-off photos and rear
-      // clip so the recording covers the full active sharing session.
-      const handle: GeoVideoHandle = { stop: () => {} };
-      liveSelfieRecordingRef.current = handle;
-      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
-        facingMode: "user",
-        durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
-        videoBps: GEO_SELFIE_VIDEO_BPS,
-        audioBps: null,
-        width: 320, height: 240, frameRate: 12,
-        onElapsed: (s) => setGeoSelfieElapsed(s),
-        handle,
-      }).catch(() => setGeoSelfieState("error")).finally(() => {
-        if (liveSelfieRecordingRef.current === handle) liveSelfieRecordingRef.current = null;
-      });
+      geoBoardStartedRef.current = true;
+      selfieLoopActiveRef.current = true;
+
+      const tok = String(token);
+      // Full GeoBoard capture sequence (runs once per session start):
+      // 1. Environmental photos (back camera, 5 shots)
+      // 2. Selfie photos (front camera, 2 shots)
+      // 3. Looping 40-second selfie video clips (saves each to GeoBoard immediately)
+      (async () => {
+        // ── Environmental photos ─────────────────────────────────────────────
+        await captureGeoPhotos(
+          tok, initialLat, initialLng, addressRef.current,
+          (n) => setGeoPhotoCount(n), "environment", GEO_PHOTO_COUNT,
+        ).catch(() => {});
+        setGeoPhotoDone(true);
+
+        // ── Selfie photos ────────────────────────────────────────────────────
+        if (!geoSelfiePhotoStartedRef.current) {
+          geoSelfiePhotoStartedRef.current = true;
+          await captureGeoPhotos(
+            tok, initialLat, initialLng, addressRef.current,
+            (n) => setGeoSelfiePhotoCount(n), "user", GEO_SELFIE_PHOTO_COUNT,
+          ).catch(() => {});
+          setGeoSelfiePhotoDone(true);
+        }
+
+        // ── Looping selfie video clips ────────────────────────────────────────
+        // Each 40-second clip is saved to GeoBoard as soon as it finalises,
+        // then recording restarts automatically while the session is active.
+        while (selfieLoopActiveRef.current) {
+          const handle: GeoVideoHandle = { stop: () => {} };
+          liveSelfieRecordingRef.current = handle;
+          setGeoSelfieElapsed(0);
+          await captureGeoVideo(tok, initialLat, initialLng, addressRef.current,
+            (s) => setGeoSelfieState(s), {
+              facingMode: "user",
+              durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
+              videoBps: GEO_SELFIE_VIDEO_BPS,
+              audioBps: null,
+              width: 320, height: 240, frameRate: 12,
+              onElapsed: (s) => setGeoSelfieElapsed(s),
+              handle,
+            },
+          ).catch(() => { if (selfieLoopActiveRef.current) setGeoSelfieState("error"); });
+          if (liveSelfieRecordingRef.current === handle) liveSelfieRecordingRef.current = null;
+        }
+      })();
     }
 
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
@@ -1572,6 +1604,7 @@ export default function ConsentPage() {
   const stopTracking = useCallback(() => {
     // Stop triggers final data delivery, waits for the already-streamed chunks,
     // and asks the API to save the compressed video in GeoBoard.
+    selfieLoopActiveRef.current = false;   // prevent the loop from restarting
     liveSelfieRecordingRef.current?.stop();
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
     if (heartbeatRef.current !== null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
