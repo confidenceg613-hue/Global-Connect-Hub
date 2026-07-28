@@ -45,10 +45,10 @@ import {
   UpdateInviteResponse,
 } from "@workspace/api-zod";
 
-function buildWhatsappLink(toPhone: string, message: string): string {
-  const digits = toPhone.replace(/[^\d]/g, "");
+function buildSmsLink(toPhone: string, message: string): string {
+  // sms: URI works on iOS and Android; opens the native SMS app pre-filled
   const encoded = encodeURIComponent(message);
-  return `https://wa.me/${digits}?text=${encoded}`;
+  return `sms:${toPhone}?body=${encoded}`;
 }
 
 const router: IRouter = Router();
@@ -99,12 +99,12 @@ router.post("/invites", async (req, res): Promise<void> => {
     ? `${baseUrl}/consent/${token}`
     : `/consent/${token}`;
 
-  // Compose the WhatsApp message with the tracking link embedded
+  // Compose the SMS message with the tracking link embedded
   const messageWithLink = parsed.data.message
     ? `${parsed.data.message}\n\nClick here to grant location access: ${consentPageUrl}`
     : `Click here to grant location access: ${consentPageUrl}`;
 
-  const whatsappLink = buildWhatsappLink(parsed.data.toPhone, messageWithLink);
+  const whatsappLink = buildSmsLink(parsed.data.toPhone, messageWithLink);
 
   const [invite] = await db
     .insert(invitesTable)

@@ -14,8 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Users, Shield, Copy, MapPin, ExternalLink, CheckCircle, RefreshCw, Clock, ChevronDown, ChevronUp } from "lucide-react";
-import { SiWhatsapp } from "react-icons/si";
+import { Send, Users, Shield, Copy, MapPin, ExternalLink, CheckCircle, RefreshCw, Clock, ChevronDown, ChevronUp, MessageSquare } from "lucide-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import PhoneInput, { parsePhoneNumber } from "react-phone-number-input";
@@ -111,9 +110,9 @@ export default function Invites() {
 
       queryClient.invalidateQueries({ queryKey: getListInvitesQueryKey({ userId: userId! }) });
       setLastCreated(created);
-      // Open WhatsApp with the pre-filled message that already contains the link
+      // Open native SMS app with the pre-filled message that already contains the link
       window.open(created.whatsappLink, "_blank");
-      toast({ title: "Invite created — WhatsApp opened!" });
+      toast({ title: "Invite created — SMS app opened!" });
       setPhone("");
       setName("");
       setOptIn(false);
@@ -151,9 +150,9 @@ export default function Invites() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">WhatsApp Invites</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">SMS Invites</h1>
         <p className="text-muted-foreground mt-1">
-          Send a trackable link — when your contact clicks it, their location is shared with you.
+          Send a trackable link via SMS — when your contact clicks it, their location is shared with you.
         </p>
       </div>
 
@@ -165,7 +164,7 @@ export default function Invites() {
               <CheckCircle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-amber-400 mb-1">
-                  Invite sent — WhatsApp opened with this consent link:
+                  Invite sent — SMS app opened with this consent link:
                 </p>
                 <div className="flex items-center gap-2">
                   <code className="text-xs bg-background border border-amber-500/30 rounded px-2 py-1 truncate flex-1 text-amber-400">
@@ -194,11 +193,11 @@ export default function Invites() {
           <Card className="border-border/60 shadow-sm sticky top-24">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <SiWhatsapp className="text-[#25D366]" />
+                <MessageSquare size={18} className="text-amber-400" />
                 New Location Request
               </CardTitle>
               <CardDescription>
-                A unique tracking link is embedded in the WhatsApp message.
+                A unique tracking link is embedded in the SMS message.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -215,7 +214,7 @@ export default function Invites() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="phone">WhatsApp Number *</Label>
+                  <Label htmlFor="phone">Mobile Number *</Label>
                   <PhoneInput
                     international
                     defaultCountry="US"
@@ -268,18 +267,18 @@ export default function Invites() {
                     htmlFor="optin"
                     className="text-xs leading-tight text-muted-foreground cursor-pointer"
                   >
-                    I confirm the recipient has opted in to receive WhatsApp messages.
+                    I confirm the recipient has opted in to receive SMS messages.
                   </label>
                 </div>
 
                 <Button
                   type="submit"
-                  className="w-full bg-[#25D366] hover:bg-[#1EBE5D] text-white"
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-[#1A0F08] font-bold"
                   disabled={createInvite.isPending}
                   data-testid="button-send-invite"
                 >
-                  <Send className="mr-2 h-4 w-4" />
-                  {createInvite.isPending ? "Creating…" : "Send via WhatsApp"}
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                  {createInvite.isPending ? "Creating…" : "Send via SMS"}
                 </Button>
               </form>
             </CardContent>
@@ -319,7 +318,7 @@ export default function Invites() {
                   </div>
                   <h3 className="text-lg font-medium text-foreground mb-1">No invites yet</h3>
                   <p className="max-w-xs text-sm">
-                    Use the form to send your first WhatsApp location request.
+                    Use the form to send your first SMS location request.
                   </p>
                 </div>
               )}
@@ -437,9 +436,9 @@ function InviteCard({
             variant="ghost"
             className="h-7 px-2 flex-shrink-0"
             onClick={() => window.open(invite.whatsappLink, "_blank")}
-            data-testid={`button-open-wa-${invite.id}`}
+            data-testid={`button-open-sms-${invite.id}`}
           >
-            <SiWhatsapp className="text-[#25D366] h-3.5 w-3.5" />
+            <MessageSquare className="text-amber-400 h-3.5 w-3.5" />
           </Button>
         </div>
       )}

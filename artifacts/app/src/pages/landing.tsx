@@ -19,7 +19,7 @@ const LOCKOUT_SECONDS = 30;
 const FEATURES = [
   { icon: Lock,   label: "Bank-grade consent tracking",      desc: "Every permission is cryptographically logged" },
   { icon: Globe,  label: "International phone registration", desc: "220+ country codes supported" },
-  { icon: Zap,    label: "Real-time location intelligence",  desc: "Sub-second GPS tracking via WhatsApp links" },
+  { icon: Zap,    label: "Real-time location intelligence",  desc: "Sub-second GPS tracking via SMS links" },
   { icon: Eye,    label: "GeoBoard surveillance",           desc: "Auto-capture frames on consent grant" },
 ];
 

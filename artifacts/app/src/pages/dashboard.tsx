@@ -171,7 +171,7 @@ export default function Dashboard() {
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-base">Recent Invites</CardTitle>
-              <CardDescription>Latest WhatsApp invitations sent</CardDescription>
+              <CardDescription>Latest SMS invitations sent</CardDescription>
             </div>
             <Link href="/invites">
               <Button variant="ghost" size="sm" className="gap-1 text-xs text-muted-foreground">
@@ -211,7 +211,7 @@ export default function Dashboard() {
                   <Send size={20} className="opacity-30" />
                 </div>
                 <p className="text-sm font-medium">No invites yet</p>
-                <p className="text-xs mt-1 text-muted-foreground/70">Send a location invite via WhatsApp</p>
+                <p className="text-xs mt-1 text-muted-foreground/70">Send a location invite via SMS</p>
                 <Link href="/invites">
                   <Button size="sm" variant="outline" className="mt-4 text-xs">Send First Invite</Button>
                 </Link>
