@@ -1,4 +1,4 @@
-import { Feather, Copyright, Atom, MapPinned, ShieldCheck, Sparkles } from "lucide-react";
+import { Feather, Copyright, Atom, MapPinned, ShieldCheck, Sparkles, Mail, Phone, MessageCircle } from "lucide-react";
 
 const DEV_PHOTO = "/godwin-confidence.jpg";
 
@@ -52,6 +52,31 @@ export default function AboutPage() {
           <InfoCard icon={MapPinned} title="Coordination with purpose" text="Geographical intelligence designed to bring people closer, responsibly." />
           <InfoCard icon={ShieldCheck} title="Consent first" text="Useful technology should respect the person behind every location." />
         </aside>
+      </section>
+
+      <section className="rounded-2xl border border-amber-500/20 bg-card/65 p-6 shadow-xl shadow-black/10 sm:p-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-amber-400/25 bg-amber-400/10 text-amber-400">
+              <MessageCircle size={22} />
+            </div>
+            <div>
+              <p className="font-mono text-[10px] font-bold tracking-[.18em] text-amber-400">CUSTOMER SUPPORT</p>
+              <h2 className="mt-1 text-xl font-bold text-foreground">Need help with DeepFalcon?</h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">Reach Godwin Confidence directly for support, feedback, or questions about the platform.</p>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:min-w-[250px]">
+            <a href="mailto:confidenceg613@gmail.com?subject=DeepFalcon%20Support%20Request"
+              className="flex items-center gap-3 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-200 transition-colors hover:bg-amber-400/20">
+              <Mail size={17} /> confidenceg613@gmail.com
+            </a>
+            <a href="tel:+2349160547567"
+              className="flex items-center gap-3 rounded-xl border border-border bg-secondary/40 px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-secondary">
+              <Phone size={17} className="text-amber-400" /> +234 916 054 7567
+            </a>
+          </div>
+        </div>
       </section>
 
       <footer className="flex flex-col gap-3 rounded-2xl border border-amber-500/15 bg-amber-500/[.045] px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
