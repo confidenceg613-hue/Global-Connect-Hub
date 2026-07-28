@@ -41,7 +41,7 @@ const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 const WELCOME: Message = {
   role: "assistant",
-  content: "Hey! 👋 I'm your **Falcon AI** — powered by GPT-4o.\n\nI can conduct high-altitude surveillance, deploy real-time geospatial mapping, analyze global data streams, and much more.",
+  content: "Welcome to **Falcon AI** — the modern keeper of the ancient sky.\n\nOld sky-watchers read wind, stars, and flight to guide those below. I carry that watchful spirit into real-time maps and practical answers — always grounded in your live data and the facts.",
 };
 
 const QUICK_ACTIONS_DEFAULT = ["Show Abuja high-res scan", "Track Lagos air traffic", "Analyze regional geofence", "Generate global heatmap"];
@@ -768,6 +768,9 @@ export default function AssistantWidget() {
                 </span>
               )}
             </div>
+             <span className="hidden sm:block text-[8px] uppercase tracking-[0.18em] text-amber-200/45 font-mono">
+               Keeper of the ancient sky
+             </span>
             <div className="flex items-center gap-1">
               <button onClick={() => setDebateMode(v => !v)} aria-label="Toggle cross-check mode"
                 title={debateMode ? "Cross-check mode on — two AIs answer and reconcile (slower)" : "Enable cross-check: two AIs answer independently, then reconcile"}
