@@ -48,7 +48,7 @@ function setupVapid() {
   const priv = process.env.VAPID_PRIVATE_KEY;
   if (!pub || !priv) return false;
   webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT ?? "mailto:app@phonelink.local",
+    process.env.VAPID_SUBJECT ?? "mailto:app@deepfalcon.local",
     pub,
     priv,
   );

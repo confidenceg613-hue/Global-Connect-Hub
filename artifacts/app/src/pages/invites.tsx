@@ -40,8 +40,8 @@ export default function Invites() {
       if (p) setPhone(p);
       if (n) setName(n);
     };
-    window.addEventListener("phonelink:prefill-invite", handler);
-    return () => window.removeEventListener("phonelink:prefill-invite", handler);
+    window.addEventListener("deepfalcon:prefill-invite", handler);
+    return () => window.removeEventListener("deepfalcon:prefill-invite", handler);
   }, []);
 
   const [message, setMessage] = useState("");

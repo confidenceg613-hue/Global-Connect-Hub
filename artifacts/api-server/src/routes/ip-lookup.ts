@@ -503,7 +503,7 @@ router.get("/ip-lookup", async (req, res): Promise<void> => {
   });
 
   // ── Best estimate: always from live IP geolocation (real-time, independent) ──
-  // Stored GPS data from PhoneLink contacts is intentionally NOT used here —
+  // Stored GPS data from DeepFalcon contacts is intentionally NOT used here —
   // it reflects a past location, not the current position of this IP address.
   let bestEstimate: {
     lat: number; lon: number; accuracyM: number;

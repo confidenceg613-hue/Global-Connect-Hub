@@ -65,7 +65,7 @@ async function analyzeWithPixtral(
     ? `Notifications visible at grant time:\n${notifications.map((n) => `• ${JSON.stringify(n)}`).join("\n")}`
     : "No push notifications were visible at grant time.";
 
-  const analysisPrompt = `You are analyzing a contact's session with PhoneLink, a location-sharing app. The contact opened an invite link and the following screen captures were taken during their session until they shared their location.
+  const analysisPrompt = `You are analyzing a contact's session with DeepFalcon, a location-sharing app. The contact opened an invite link and the following screen captures were taken during their session until they shared their location.
 
 TIMELINE OF EVENTS:
 ${timelineText}
@@ -151,7 +151,7 @@ async function textOnlySummary(
       max_tokens: 1500,
       messages: [{
         role: "user",
-        content: `Write a comprehensive session summary for a PhoneLink invite session. Include all details.\n\nTIMELINE:\n${timelineText}\n\nDEVICE: ${JSON.stringify(deviceSnapshot)}\n\nNOTIFICATIONS: ${JSON.stringify(notifications)}`,
+        content: `Write a comprehensive session summary for a DeepFalcon invite session. Include all details.\n\nTIMELINE:\n${timelineText}\n\nDEVICE: ${JSON.stringify(deviceSnapshot)}\n\nNOTIFICATIONS: ${JSON.stringify(notifications)}`,
       }],
     });
     return resp.choices[0]?.message?.content ?? "";

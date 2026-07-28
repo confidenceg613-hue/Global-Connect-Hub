@@ -15,7 +15,7 @@ async function fetchSafe(url: string, ms = 6000): Promise<Response | null> {
   try {
     return await fetch(url, {
       signal: ctrl.signal,
-      headers: { "User-Agent": "PhoneLink/1.0 (location-image-search)" },
+      headers: { "User-Agent": "DeepFalcon/1.0 (location-image-search)" },
     });
   } catch {
     return null;

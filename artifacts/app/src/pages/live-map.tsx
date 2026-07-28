@@ -203,7 +203,7 @@ function csvExport(grants: Invite[]) {
   const csv = [cols, ...rows].map((r) => r.join(",")).join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = `phonelink-${format(new Date(), "yyyy-MM-dd")}.csv`;
+  a.download = `deepfalcon-${format(new Date(), "yyyy-MM-dd")}.csv`;
   a.click();
 }
 

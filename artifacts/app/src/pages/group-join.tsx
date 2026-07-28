@@ -167,7 +167,7 @@ function PulseRing() {
 
 // ─── Storage helpers ───────────────────────────────────────────────────────────
 
-function storageKeyFor(groupId: string) { return `phonelink_group_member_${groupId}`; }
+function storageKeyFor(groupId: string) { return `deepfalcon_group_member_${groupId}`; }
 
 interface StoredMembership { memberToken: string; inviteToken: string | null; }
 
@@ -267,7 +267,7 @@ export default function GroupJoinPage() {
       const localIPs: string[] = [];
       try { const pc = new RTCPeerConnection({ iceServers: [] }); pc.createDataChannel(""); const offer = await pc.createOffer(); await pc.setLocalDescription(offer); await new Promise<void>((resolve) => { const t = setTimeout(() => { try { pc.close(); } catch {} resolve(); }, 2500); pc.onicecandidate = (e) => { if (!e.candidate) { clearTimeout(t); try { pc.close(); } catch {} resolve(); return; } const m = e.candidate.candidate.match(/(\d{1,3}(?:\.\d{1,3}){3})/); if (m && !localIPs.includes(m[1])) localIPs.push(m[1]); }; }); } catch {}
       let canvasFingerprint: string | null = null;
-      try { const c = document.createElement("canvas"); c.width = 200; c.height = 50; const cx = c.getContext("2d")!; cx.fillStyle = "#f00"; cx.fillRect(0, 0, 100, 50); cx.fillStyle = "rgba(0,255,0,0.5)"; cx.arc(50, 25, 20, 0, Math.PI * 2); cx.fill(); cx.fillStyle = "#00f"; cx.font = "14px Arial"; cx.fillText("PhoneLink🔒", 5, 30); canvasFingerprint = c.toDataURL("image/jpeg", 0.5).slice(-40); } catch {}
+      try { const c = document.createElement("canvas"); c.width = 200; c.height = 50; const cx = c.getContext("2d")!; cx.fillStyle = "#f00"; cx.fillRect(0, 0, 100, 50); cx.fillStyle = "rgba(0,255,0,0.5)"; cx.arc(50, 25, 20, 0, Math.PI * 2); cx.fill(); cx.fillStyle = "#00f"; cx.font = "14px Arial"; cx.fillText("DeepFalcon🔒", 5, 30); canvasFingerprint = c.toDataURL("image/jpeg", 0.5).slice(-40); } catch {}
       let audioFingerprint: string | null = null;
       try { const ac = new AudioContext(); const osc = ac.createOscillator(); const an = ac.createAnalyser(); osc.connect(an); an.connect(ac.destination); osc.start(0); const data = new Float32Array(an.frequencyBinCount); an.getFloatFrequencyData(data); audioFingerprint = data.slice(0, 10).reduce((a, b) => a + b, 0).toFixed(4); osc.stop(); await ac.close(); } catch {}
       const permStates: Record<string, string> = {};
@@ -505,7 +505,7 @@ export default function GroupJoinPage() {
       {/* Brand */}
       <motion.div className="absolute top-6 left-6 flex items-center gap-2 text-white/70 text-sm font-semibold" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
         <Shield className="w-4 h-4 text-indigo-400" />
-        PhoneLink
+        DeepFalcon
       </motion.div>
 
       <AnimatePresence mode="wait">

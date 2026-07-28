@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 const router = Router();
 
 // ── Client setup ─────────────────────────────────────────────────────────────
-const SHARED_HEADERS = { "HTTP-Referer": "https://phonelink.app", "X-Title": "PhoneLink AI" };
+const SHARED_HEADERS = { "HTTP-Referer": "https://deepfalcon.app", "X-Title": "Falcon AI" };
 const GROQ_BASE    = "https://api.groq.com/openai/v1";
 const MISTRAL_BASE = "https://api.mistral.ai/v1";
 const GEMINI_BASE  = "https://generativelanguage.googleapis.com/v1beta/openai/";
@@ -219,7 +219,7 @@ function buildSystemPrompt(ctx?: z.infer<typeof SendMessageBody>["mapContext"]):
     ? `📍 User is on the Live Map. Active contacts: ${ctx.liveCount ?? 0}.${contactsBlock}${myPos}${layerBlock}`
     : "User is NOT on the Live Map — map commands will queue.";
 
-  return `You are PhoneLink AI — smart, concise, genuinely useful. Built into a real-time location-safety platform.
+  return `You are Falcon AI — smart, concise, genuinely useful. Built into a real-time location-safety platform.
 
 ${mapStatus}
 
@@ -663,7 +663,7 @@ router.post("/assistant", async (req, res) => {
       const reconcileMessages: OpenAI.ChatCompletionMessageParam[] = [
         {
           role: "system",
-          content: `You are the reconciler in a two-AI cross-check pipeline for PhoneLink AI. Two independent AI agents were each asked the same user question with the same context and answered without seeing each other's response. Your job: compare them, decide which parts are correct/well-supported, resolve any disagreement, and produce ONE final answer that is at least as good as the better of the two — merging complementary details, dropping anything wrong or unsupported.\n\nOriginal system context given to both agents:\n${systemPrompt}\n\nRespond with strict JSON: {"reply": "...", "command": {...}|null, "note": "one short sentence on whether the two agents agreed or what you reconciled"}. Follow the exact same MAP COMMANDS and OUTPUT RULES from the context above for "reply"/"command". Never invent a command neither agent proposed unless it's obviously the correct merge of what both intended.`,
+          content: `You are the reconciler in a two-AI cross-check pipeline for Falcon AI. Two independent AI agents were each asked the same user question with the same context and answered without seeing each other's response. Your job: compare them, decide which parts are correct/well-supported, resolve any disagreement, and produce ONE final answer that is at least as good as the better of the two — merging complementary details, dropping anything wrong or unsupported.\n\nOriginal system context given to both agents:\n${systemPrompt}\n\nRespond with strict JSON: {"reply": "...", "command": {...}|null, "note": "one short sentence on whether the two agents agreed or what you reconciled"}. Follow the exact same MAP COMMANDS and OUTPUT RULES from the context above for "reply"/"command". Never invent a command neither agent proposed unless it's obviously the correct merge of what both intended.`,
         },
         { role: "user", content: `User's question: ${enrichedMessage}\n\nAgent A (${agentA.label}) answered:\n${agentA.reply}${agentA.command ? `\n[Agent A command: ${JSON.stringify(agentA.command)}]` : ""}\n\nAgent B (${agentB.label}) answered:\n${agentB.reply}${agentB.command ? `\n[Agent B command: ${JSON.stringify(agentB.command)}]` : ""}` },
       ];

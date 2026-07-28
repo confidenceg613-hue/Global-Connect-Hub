@@ -66,7 +66,7 @@ router.post("/auth/google", async (req, res): Promise<void> => {
       // The Google account is already tied to a different, real account —
       // never silently merge real user data.
       res.status(409).json({
-        error: "This Google account is already connected to a different PhoneLink account.",
+        error: "This Google account is already connected to a different DeepFalcon account.",
       });
       return;
     }

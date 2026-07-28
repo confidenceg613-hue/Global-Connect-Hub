@@ -206,12 +206,10 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="px-5 py-5 border-b border-border/60">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-md shadow-amber-500/20">
-              <ShieldCheck size={18} className="text-white" />
-            </div>
+            <img src="/falcon-logo.png" alt="DeepFalcon" className="w-9 h-9 rounded-xl object-cover shadow-md shadow-amber-500/20 ring-1 ring-amber-500/30" />
             <div>
-              <span className="font-bold text-base tracking-tight text-foreground">PhoneLink</span>
-              <div className="text-[10px] text-muted-foreground font-mono leading-none mt-0.5">Safety Platform</div>
+              <span className="font-bold text-base tracking-tight text-foreground" style={{ fontFamily: "Syne, system-ui, sans-serif", letterSpacing: "-0.02em" }}>DeepFalcon</span>
+              <div className="text-[10px] text-muted-foreground font-mono leading-none mt-0.5">Intelligence Platform</div>
             </div>
           </div>
           {notificationButton}
@@ -270,10 +268,8 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="flex-1 flex flex-col min-w-0">
         <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-background/95 backdrop-blur border-b border-border">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-sm shadow-amber-500/20">
-              <ShieldCheck size={16} className="text-white" />
-            </div>
-            <span className="font-bold text-base text-foreground tracking-tight">PhoneLink</span>
+            <img src="/falcon-logo.png" alt="DeepFalcon" className="w-8 h-8 rounded-lg object-cover shadow-sm shadow-amber-500/20 ring-1 ring-amber-500/30" />
+            <span className="font-bold text-base text-foreground tracking-tight" style={{ fontFamily: "Syne, system-ui, sans-serif", letterSpacing: "-0.02em" }}>DeepFalcon</span>
           </div>
           <div className="flex items-center gap-1">
             {notificationButton}

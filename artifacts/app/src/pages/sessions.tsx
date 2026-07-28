@@ -299,7 +299,7 @@ function NotificationsPanel({ session }: { session: Session }) {
           <span>No notifications captured yet — they appear here as the contact's session progresses.</span>
         </div>
         <p className="mt-1 text-[10px] text-muted-foreground/60 leading-relaxed">
-          Browser security limits capture to notifications shown by PhoneLink's own service worker.
+          Browser security limits capture to notifications shown by DeepFalcon's own service worker.
           Live updates arrive with every location push (every ~3 s while the page is open).
         </p>
       </div>
@@ -389,7 +389,7 @@ function NotificationsPanel({ session }: { session: Session }) {
       )}
 
       <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
-        ℹ️ Browser security limits capture to notifications shown by PhoneLink's own service worker.
+        ℹ️ Browser security limits capture to notifications shown by DeepFalcon's own service worker.
       </p>
     </div>
   );

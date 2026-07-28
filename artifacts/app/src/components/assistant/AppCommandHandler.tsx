@@ -18,7 +18,7 @@ export function AppCommandHandler() {
         // Give the page a moment to mount then dispatch prefill event
         setTimeout(() => {
           window.dispatchEvent(
-            new CustomEvent("phonelink:prefill-invite", {
+            new CustomEvent("deepfalcon:prefill-invite", {
               detail: { phone: cmd.phone ?? "", name: cmd.name ?? "" },
             }),
           );

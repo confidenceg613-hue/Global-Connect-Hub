@@ -113,7 +113,7 @@ export default function Subscription() {
           </div>
           <h2 className="text-xl font-bold mb-2 tracking-tight">Unlimited Access</h2>
           <p className="text-muted-foreground mb-8 text-sm">
-            Your clearance level grants unrestricted access to all PhoneLink features.
+            Your clearance level grants unrestricted access to all DeepFalcon features.
           </p>
           <Button className="w-full bg-amber-600 hover:bg-amber-500 text-white border-0 shadow-lg shadow-amber-900/20 transition-all hover:-translate-y-0.5" onClick={() => setLocation("/dashboard")}>
             Enter Console <ArrowRight className="ml-2" size={16} />
@@ -283,7 +283,7 @@ export default function Subscription() {
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-[0_0_30px_rgba(99,102,241,0.3)] mb-4 ring-1 ring-white/10">
             <ShieldCheck size={28} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">PhoneLink Console</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">DeepFalcon Console</h1>
           <p className="text-muted-foreground text-xs uppercase tracking-widest mt-2 font-mono">Access Checkpoint</p>
         </div>
 

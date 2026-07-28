@@ -177,7 +177,7 @@ function AccountSection() {
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold">Account</h2>
-        <p className="text-sm text-muted-foreground">Manage your identity on PhoneLink.</p>
+        <p className="text-sm text-muted-foreground">Manage your identity on DeepFalcon.</p>
       </div>
 
       <Card>
@@ -449,7 +449,7 @@ function NotificationsSection() {
               ? "Your browser is authorised to deliver push alerts."
               : permState === "denied"
               ? "Notifications are blocked. Open browser settings → Site permissions to unblock."
-              : "Grant permission so PhoneLink can alert you in real time."}
+              : "Grant permission so DeepFalcon can alert you in real time."}
           </CardDescription>
         </CardHeader>
         {permState !== "granted" && permState !== "denied" && (
@@ -630,7 +630,7 @@ function AppearanceSection() {
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold">Appearance</h2>
-        <p className="text-sm text-muted-foreground">Customise how PhoneLink looks.</p>
+        <p className="text-sm text-muted-foreground">Customise how DeepFalcon looks.</p>
       </div>
 
       <Card>
@@ -817,7 +817,7 @@ function DataSection() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `phonelink-export-${Date.now()}.json`;
+      a.download = `deepfalcon-export-${Date.now()}.json`;
       a.click();
       URL.revokeObjectURL(url);
       toast({ title: "Export downloaded" });

@@ -352,7 +352,7 @@ function Dashboard({ admin }: { admin: ReturnType<typeof useAdmin> }) {
           </div>
           <div>
             <p className="font-bold text-lg tracking-tight leading-none">Admin HQ</p>
-            <p className="text-[11px] text-muted-foreground font-mono mt-0.5">PhoneLink command console</p>
+            <p className="text-[11px] text-muted-foreground font-mono mt-0.5">DeepFalcon command console</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
