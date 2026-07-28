@@ -7,6 +7,7 @@ import { useAuth, AuthProvider } from "@/hooks/use-auth";
 import { useAccess, AccessProvider } from "@/hooks/use-access";
 import { useAncientAmbience } from "@/hooks/use-ancient-ambience";
 import { useEffect, lazy, Suspense } from "react";
+import { Volume2, VolumeX } from "lucide-react";
 
 // Public entry pages: kept as static imports so the very first screen
 // (sign-in / consent link) shows up as fast as possible, with no extra
@@ -260,10 +261,19 @@ function Router() {
 
 function AppInner() {
   const { userId } = useAuth();
-  useAncientAmbience();
+  const { soundOn, toggleSound } = useAncientAmbience();
   return (
     <>
       <AncientSky />
+      <button
+        onClick={toggleSound}
+        aria-label={soundOn ? "Pause DeepFalcon soundscape" : "Play DeepFalcon soundscape"}
+        title={soundOn ? "Soundscape on — click to pause" : "Play eagle calls and forest soundscape"}
+        className="fixed bottom-6 left-6 z-50 flex items-center gap-2 rounded-full border border-amber-400/35 bg-[#1b1009]/90 px-3.5 py-2.5 text-xs font-semibold text-amber-100 shadow-xl shadow-black/40 backdrop-blur transition-all hover:scale-105 hover:bg-[#2a190e]"
+      >
+        {soundOn ? <Volume2 size={16} className="text-amber-400" /> : <VolumeX size={16} className="text-amber-400" />}
+        <span className="hidden sm:inline">{soundOn ? "Forest sound on" : "Play forest sound"}</span>
+      </button>
       <ServiceWorkerManager userId={userId} />
       <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
         <Router />

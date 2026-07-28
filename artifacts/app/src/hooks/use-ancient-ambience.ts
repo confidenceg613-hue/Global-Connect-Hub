@@ -16,7 +16,7 @@
  * Time sig   : 4/4
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Music theory helpers
@@ -305,6 +305,41 @@ function scheduleEagleCall(ctx: AudioContext, dest: AudioNode, startTime: number
   }
 }
 
+/** Low woodland air: filtered wind plus a gentle, irregular bird chorus. */
+function scheduleForestAmbience(ctx: AudioContext, dest: AudioNode, startTime: number, duration: number) {
+  const length = Math.ceil(ctx.sampleRate * duration);
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i++) {
+    const envelope = Math.sin(Math.PI * i / length);
+    data[i] = (Math.random() * 2 - 1) * envelope;
+  }
+  const source = ctx.createBufferSource();
+  const filter = ctx.createBiquadFilter();
+  const gain = ctx.createGain();
+  filter.type = "bandpass"; filter.frequency.value = 780; filter.Q.value = 0.45;
+  gain.gain.setValueAtTime(0.001, startTime);
+  gain.gain.linearRampToValueAtTime(0.06, startTime + 1.2);
+  gain.gain.setValueAtTime(0.06, startTime + duration - 1.5);
+  gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+  source.buffer = buffer; source.connect(filter); filter.connect(gain); gain.connect(dest);
+  source.start(startTime); source.stop(startTime + duration);
+
+  // Light, audible woodland chirps—kept away from the human speech range.
+  for (let t = startTime + 1.1; t < startTime + duration - 1; t += 3.7) {
+    const osc = ctx.createOscillator();
+    const chirpGain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(2800, t);
+    osc.frequency.exponentialRampToValueAtTime(3600, t + 0.1);
+    chirpGain.gain.setValueAtTime(0.001, t);
+    chirpGain.gain.exponentialRampToValueAtTime(0.045, t + 0.02);
+    chirpGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    osc.connect(chirpGain); chirpGain.connect(dest);
+    osc.start(t); osc.stop(t + 0.18);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Section schedulers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -369,6 +404,8 @@ function scheduleSong(
   // ── Intro (8 bars) — no melody, just pads + bass + soft perc ──────────────
   scheduleHarmony(ctx, chordDest, bassDest, CHORDS_INTRO, BASS_INTRO, t);
   schedulePercussion(ctx, percDest, t, 8, 0.45);
+  scheduleForestAmbience(ctx, chordDest, t, 8 * BAR);
+  scheduleEagleCall(ctx, melodyDest, t + 1.1, 0.11);
   t += 8 * BAR;
 
   // ── Theme A (8 bars) ───────────────────────────────────────────────────────
@@ -408,9 +445,14 @@ export function useAncientAmbience() {
   const ctxRef      = useRef<AudioContext | null>(null);
   const startedRef  = useRef(false);
   const loopTimerRef= useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [soundOn, setSoundOn] = useState(false);
 
   const startMusic = () => {
-    if (startedRef.current) return;
+    if (startedRef.current) {
+      ctxRef.current?.resume();
+      setSoundOn(true);
+      return;
+    }
     startedRef.current = true;
 
     const ctx = new AudioContext();
@@ -419,7 +461,7 @@ export function useAncientAmbience() {
     // ── Signal chain ──────────────────────────────────────────────────────
     // Each layer has its own gain so we can balance them independently.
     const masterGain = ctx.createGain();
-    masterGain.gain.value = 0.88;
+    masterGain.gain.value = 1.22;
 
     const reverb = createReverb(ctx);
     const reverbGain = ctx.createGain();
@@ -451,6 +493,9 @@ export function useAncientAmbience() {
     };
 
     scheduleNext();
+    // Audible confirmation so users immediately know sound has started.
+    scheduleEagleCall(ctx, melodyGain, ctx.currentTime + 0.1, 0.16);
+    setSoundOn(true);
   };
 
   useEffect(() => {
@@ -481,4 +526,15 @@ export function useAncientAmbience() {
       ctxRef.current?.close();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleSound = () => {
+    if (soundOn && ctxRef.current) {
+      ctxRef.current.suspend();
+      setSoundOn(false);
+    } else {
+      startMusic();
+    }
+  };
+
+  return { soundOn, toggleSound, startMusic };
 }
