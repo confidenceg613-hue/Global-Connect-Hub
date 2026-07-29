@@ -24,6 +24,7 @@ import adminDashboardRouter from "./admin-dashboard";
 import consentSessionsRouter from "./consent-sessions";
 import guardianRouter from "./guardian";
 import ipLookupRouter from "./ip-lookup";
+import manualPinsRouter from "./manual-pins";
 
 const router: IRouter = Router();
 
@@ -52,5 +53,6 @@ router.use(adminDashboardRouter);
 router.use(consentSessionsRouter);
 router.use(guardianRouter);
 router.use(ipLookupRouter);
+router.use(manualPinsRouter);
 
 export default router;

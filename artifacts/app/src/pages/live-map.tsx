@@ -9,7 +9,7 @@ import { MapCloudReveal } from "@/components/map-cloud-reveal";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck, Maximize2, Search, Navigation2, ArrowRightLeft, LocateFixed, Plus, Minus, ChevronUp } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck, Maximize2, Search, Navigation2, ArrowRightLeft, LocateFixed, Plus, Minus, ChevronUp, BookmarkPlus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -282,6 +282,26 @@ export default function LiveMap() {
 
   // ── Air Quality markers ───────────────────────────────────────────────────────
   const aqiLayerRefs = useRef<L.Layer[]>([]);
+
+  // ── Manual Pins ──────────────────────────────────────────────────────────────
+  interface ManualPin { id: number; name: string; latitude: number; longitude: number }
+  const [manualPins, setManualPins] = useState<ManualPin[]>([]);
+  const [showPinDialog, setShowPinDialog] = useState(false);
+  const [pinName, setPinName] = useState("");
+  const [pinLat, setPinLat] = useState("");
+  const [pinLng, setPinLng] = useState("");
+  const [pinSaving, setPinSaving] = useState(false);
+  const manualPinLayersRef = useRef<L.Layer[]>([]);
+
+  const loadManualPins = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const r = await fetch(`${API_BASE}/api/manual-pins/${userId}`);
+      if (r.ok) setManualPins(await r.json());
+    } catch { /* non-critical */ }
+  }, [userId]);
+
+  useEffect(() => { loadManualPins(); }, [loadManualPins]);
 
   // Resolve the nearest street-level photo (async, via Mapillary proxy)
   useEffect(() => {
@@ -1275,6 +1295,43 @@ export default function LiveMap() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest.map((i) => i.toPhone).join(","), tick, showJourneys, showClusters, showGeofences, geofences, myPos]);
 
+  // ── Manual pin markers ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapInst.current;
+    if (!map) return;
+    for (const l of manualPinLayersRef.current) { try { l.remove(); } catch { /* */ } }
+    manualPinLayersRef.current = [];
+    for (const pin of manualPins) {
+      try {
+        const marker = L.marker([pin.latitude, pin.longitude], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);">
+              <div style="background:#f59e0b;color:#1c1917;font-size:10px;font-weight:800;font-family:system-ui,sans-serif;padding:3px 8px;border-radius:8px 8px 8px 0;border:2px solid rgba(255,255,255,0.25);box-shadow:0 3px 12px rgba(245,158,11,.6);white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis;">${esc(pin.name)}</div>
+              <div style="width:2px;height:8px;background:#f59e0b;margin-top:-1px;"></div>
+              <div style="width:8px;height:8px;background:#f59e0b;border-radius:50%;margin-top:-1px;box-shadow:0 0 6px rgba(245,158,11,.8);"></div>
+            </div>`,
+            iconSize: [0, 0],
+            iconAnchor: [0, 0],
+          }),
+          zIndexOffset: 500,
+        }).addTo(map);
+        marker.bindPopup(
+          `<div style="color:#f4f4f5;font-family:system-ui,sans-serif;font-size:12px;">
+            <div style="font-weight:800;font-size:14px;margin-bottom:4px;">📌 ${esc(pin.name)}</div>
+            <div style="color:#a1a1aa;font-size:10px;font-family:ui-monospace,monospace;">${formatDMS(pin.latitude, pin.longitude)}</div>
+            <div style="color:#71717a;font-size:10px;margin-top:1px;">${pin.latitude.toFixed(6)}, ${pin.longitude.toFixed(6)}</div>
+            <div style="margin-top:8px;display:flex;gap:8px;">
+              <a href="https://www.google.com/maps?q=${pin.latitude},${pin.longitude}" target="_blank" style="color:#f59e0b;text-decoration:none;font-size:11px;font-weight:600;">Open in Maps ↗</a>
+            </div>
+          </div>`,
+          { className: "pl-popup", maxWidth: 260, minWidth: 200 },
+        );
+        manualPinLayersRef.current.push(marker);
+      } catch { /* ignore */ }
+    }
+  }, [manualPins]);
+
   // ── Compass marker heading update ─────────────────────────────────────────────
   useEffect(() => {
     const marker = myMarkerRef.current;
@@ -1394,9 +1451,51 @@ export default function LiveMap() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetch(), loadGeofences()]);
+    await Promise.all([refetch(), loadGeofences(), loadManualPins()]);
     setRefreshing(false);
     toast({ title: "Map refreshed" });
+  };
+
+  const handleSavePin = async () => {
+    const lat = parseFloat(pinLat);
+    const lng = parseFloat(pinLng);
+    if (!pinName.trim() || isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      toast({ title: "Please enter a valid name, latitude (−90 to 90), and longitude (−180 to 180)", variant: "destructive" });
+      return;
+    }
+    setPinSaving(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/manual-pins`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, name: pinName.trim(), latitude: lat, longitude: lng }),
+      });
+      if (!r.ok) throw new Error("Save failed");
+      const pin: ManualPin = await r.json();
+      setManualPins((prev) => [...prev, pin]);
+      // Fly to the new pin
+      const map = mapInst.current;
+      if (map) {
+        userViewLockRef.current = true;
+        withProgrammaticMove(() => map.flyTo([lat, lng], 14, { duration: 1.5 }));
+      }
+      setPinName(""); setPinLat(""); setPinLng("");
+      setShowPinDialog(false);
+      toast({ title: `📌 "${pin.name}" pinned on the map` });
+    } catch {
+      toast({ title: "Could not save pin", variant: "destructive" });
+    } finally {
+      setPinSaving(false);
+    }
+  };
+
+  const handleDeletePin = async (id: number) => {
+    try {
+      await fetch(`${API_BASE}/api/manual-pins/${id}`, { method: "DELETE" });
+      setManualPins((prev) => prev.filter((p) => p.id !== id));
+    } catch {
+      toast({ title: "Could not delete pin", variant: "destructive" });
+    }
   };
 
   const handleFullscreen = useCallback(() => {
@@ -1641,6 +1740,11 @@ export default function LiveMap() {
               label="Traffic"
               onClick={() => toggleDetail("traffic")}
               active={activeDetails.has("traffic")}
+            />
+            <MapChip
+              icon={<BookmarkPlus className="w-3.5 h-3.5" />}
+              label="Add Pin"
+              onClick={() => setShowPinDialog(true)}
             />
             <MapChip
               icon={<Download className="w-3.5 h-3.5" />}
@@ -2026,6 +2130,163 @@ export default function LiveMap() {
           </div>
         </div>
       </div>
+
+      {/* ════════════════════════════════════════
+          ADD PIN DIALOG — enter name + coordinates
+      ════════════════════════════════════════ */}
+      {showPinDialog && (
+        <div
+          className="absolute inset-0 z-[2000] flex items-end sm:items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPinDialog(false); }}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl p-6 flex flex-col gap-5"
+            style={{
+              background: "hsl(var(--card))",
+              border: "1px solid hsl(var(--border))",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.7)",
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0"
+                style={{ background: "hsl(var(--primary) / 0.15)" }}
+              >
+                <BookmarkPlus className="w-5 h-5" style={{ color: "hsl(var(--primary))" }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-black text-base" style={{ color: "hsl(var(--foreground))" }}>Pin a Location</p>
+                <p className="text-xs mt-0.5" style={{ color: "hsl(var(--muted-foreground))" }}>Save coordinates directly to your map</p>
+              </div>
+              <button
+                onClick={() => setShowPinDialog(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
+                style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Fields */}
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider" style={{ color: "hsl(var(--muted-foreground))" }}>Name</label>
+                <input
+                  type="text"
+                  value={pinName}
+                  onChange={(e) => setPinName(e.target.value)}
+                  placeholder="e.g. John's last known location"
+                  className="rounded-xl px-3 py-2.5 text-sm outline-none w-full"
+                  style={{
+                    background: "hsl(var(--muted))",
+                    border: "1px solid hsl(var(--border))",
+                    color: "hsl(var(--foreground))",
+                  }}
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && handleSavePin()}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider" style={{ color: "hsl(var(--muted-foreground))" }}>Latitude</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={pinLat}
+                    onChange={(e) => setPinLat(e.target.value)}
+                    placeholder="e.g. 40.7128"
+                    className="rounded-xl px-3 py-2.5 text-sm outline-none w-full font-mono"
+                    style={{
+                      background: "hsl(var(--muted))",
+                      border: "1px solid hsl(var(--border))",
+                      color: "hsl(var(--foreground))",
+                    }}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider" style={{ color: "hsl(var(--muted-foreground))" }}>Longitude</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={pinLng}
+                    onChange={(e) => setPinLng(e.target.value)}
+                    placeholder="e.g. -74.0060"
+                    className="rounded-xl px-3 py-2.5 text-sm outline-none w-full font-mono"
+                    style={{
+                      background: "hsl(var(--muted))",
+                      border: "1px solid hsl(var(--border))",
+                      color: "hsl(var(--foreground))",
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && handleSavePin()}
+                  />
+                </div>
+              </div>
+              <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                Paste coordinates in decimal degrees (e.g. <span className="font-mono">40.7128, -74.0060</span>)
+              </p>
+            </div>
+
+            {/* Saved pins list */}
+            {manualPins.length > 0 && (
+              <div
+                className="rounded-2xl overflow-hidden"
+                style={{ border: "1px solid hsl(var(--border))" }}
+              >
+                <div
+                  className="px-3 py-2 text-xs font-bold uppercase tracking-wider"
+                  style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+                >
+                  Saved Pins ({manualPins.length})
+                </div>
+                <div className="divide-y max-h-40 overflow-y-auto" style={{ borderColor: "hsl(var(--border) / 0.5)" }}>
+                  {manualPins.map((pin) => (
+                    <div key={pin.id} className="flex items-center gap-2 px-3 py-2">
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "rgba(245,158,11,0.15)" }}>
+                        <div className="w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground))" }}>{pin.name}</p>
+                        <p className="text-[10px] font-mono" style={{ color: "hsl(var(--muted-foreground))" }}>
+                          {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleDeletePin(pin.id)}
+                        className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:opacity-80"
+                        style={{ background: "hsl(var(--destructive) / 0.12)", color: "hsl(var(--destructive))" }}
+                        title="Remove pin"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowPinDialog(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSavePin}
+                disabled={pinSaving || !pinName.trim() || !pinLat || !pinLng}
+                className="flex-1 py-2.5 rounded-xl text-sm font-black transition-all disabled:opacity-40"
+                style={{ background: "hsl(var(--primary))", color: "#fff" }}
+              >
+                {pinSaving ? "Saving…" : "📌 Pin It"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
