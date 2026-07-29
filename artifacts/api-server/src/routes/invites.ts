@@ -334,4 +334,45 @@ router.patch("/invites/:id", async (req, res): Promise<void> => {
   res.json(UpdateInviteResponse.parse(invite));
 });
 
+// ── Send in-app location request ─────────────────────────────────────────────
+// POST /api/invites/:inviteId/send-in-app
+// Looks up the recipient's userId by the invite's toPhone and sends them a
+// `location_request` push+SSE notification containing the invite token so
+// their app can show the accept/dismiss overlay.
+router.post("/invites/:inviteId/send-in-app", async (req, res): Promise<void> => {
+  const inviteId = parseInt(req.params.inviteId, 10);
+  if (isNaN(inviteId)) { res.status(400).json({ error: "invalid inviteId" }); return; }
+
+  const [invite] = await db.select().from(invitesTable).where(eq(invitesTable.id, inviteId));
+  if (!invite) { res.status(404).json({ error: "Invite not found" }); return; }
+
+  // Find the sender's name for the notification body
+  const [sender] = await db.select().from(usersTable).where(eq(usersTable.id, invite.fromUserId));
+
+  // Look up the recipient by phone number
+  const [recipient] = await db.select().from(usersTable).where(eq(usersTable.fullPhone, invite.toPhone));
+  if (!recipient) {
+    res.status(404).json({ error: "Recipient is not registered in the app" });
+    return;
+  }
+
+  const fromName = invite.toName
+    ? `${sender?.name ?? "Someone"} (for ${invite.toName})`
+    : sender?.name ?? "Someone";
+
+  await sendPushAndLog(recipient.id, {
+    type: "location_request",
+    title: "📍 Location Request",
+    body: `${sender?.name ?? "Someone"} is asking for your live location`,
+    tag: `location-request-${invite.token}`,
+    data: {
+      token: invite.token,
+      fromName: sender?.name ?? "Someone",
+      inviteId: invite.id,
+    },
+  });
+
+  res.json({ ok: true, recipientId: recipient.id });
+});
+
 export default router;

@@ -55,6 +55,7 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import AssistantWidget from "@/components/assistant/AssistantWidget";
 import { AppCommandHandler } from "@/components/assistant/AppCommandHandler";
 import { AncientSky } from "@/components/ancient-sky";
+import { IncomingRequestModal } from "@/components/incoming-request-modal";
 
 const queryClient = new QueryClient();
 
@@ -281,6 +282,7 @@ function AppInner() {
         <AppCommandHandler />
       </WouterRouter>
       <GrantNotifier />
+      <IncomingRequestModal />
       <AssistantWidget />
       <Toaster />
     </>

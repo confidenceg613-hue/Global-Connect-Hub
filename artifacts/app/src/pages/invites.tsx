@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Users, Shield, Copy, MapPin, ExternalLink, CheckCircle, RefreshCw, Clock, ChevronDown, ChevronUp, MessageSquare } from "lucide-react";
+import { Send, Users, Shield, Copy, MapPin, ExternalLink, CheckCircle, RefreshCw, Clock, ChevronDown, ChevronUp, MessageSquare, Smartphone } from "lucide-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import PhoneInput, { parsePhoneNumber } from "react-phone-number-input";
@@ -355,7 +355,31 @@ function InviteCard({
   invite: Invite;
   onCopy: (text: string, label: string) => void;
 }) {
+  const { toast } = useToast();
   const [sessionsExpanded, setSessionsExpanded] = useState(false);
+  const [sendingInApp, setSendingInApp] = useState(false);
+
+  const handleSendInApp = async () => {
+    setSendingInApp(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/invites/${invite.id}/send-in-app`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (r.status === 404) {
+        const body = await r.json().catch(() => ({}));
+        const msg = body?.error ?? "Recipient is not registered in this app";
+        toast({ title: msg, variant: "destructive" });
+        return;
+      }
+      if (!r.ok) throw new Error("Failed");
+      toast({ title: "📱 In-app request sent!", description: `${invite.toName || invite.toPhone} will see the request in the app.` });
+    } catch {
+      toast({ title: "Could not send in-app request", variant: "destructive" });
+    } finally {
+      setSendingInApp(false);
+    }
+  };
 
   const { data: sessions = [] } = useQuery<InviteSessionData[]>({
     queryKey: ["invite-sessions", invite.token],
@@ -437,8 +461,20 @@ function InviteCard({
             className="h-7 px-2 flex-shrink-0"
             onClick={() => window.open(invite.whatsappLink, "_blank")}
             data-testid={`button-open-sms-${invite.id}`}
+            title="Send via SMS"
           >
             <MessageSquare className="text-amber-400 h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 flex-shrink-0"
+            onClick={handleSendInApp}
+            disabled={sendingInApp}
+            title="Send in-app request"
+            data-testid={`button-send-inapp-${invite.id}`}
+          >
+            <Smartphone className={`h-3.5 w-3.5 ${sendingInApp ? "animate-pulse" : "text-sky-400"}`} />
           </Button>
         </div>
       )}
