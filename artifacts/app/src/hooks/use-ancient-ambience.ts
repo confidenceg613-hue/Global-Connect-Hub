@@ -2,113 +2,97 @@
  * use-ancient-ambience.ts
  *
  * Plays the DeepFalcon forest soundscape (forest-ambience.mp3) via a standard
- * HTML <audio> element so the real recording is heard, not a synthesised
- * approximation.  Looping and a gentle 3-second fade-in are handled here.
+ * HTML <audio> element.  The "Play forest sound" button in App.tsx is the
+ * sole trigger — there is no competing global gesture listener that could
+ * race with the button's onClick and immediately pause the track.
  *
- * Browsers require a user gesture before audio can start, so playback is
- * deferred until the first click/touch/keydown — identical to the old
- * behaviour.  The returned { soundOn, toggleSound } interface is unchanged
- * so App.tsx needs no modification.
+ * Looping and a gentle 3-second fade-in are handled here.
+ * The returned { soundOn, toggleSound } interface is unchanged so App.tsx
+ * needs no modification.
  */
 
 import { useEffect, useRef, useState } from "react";
 
-const AUDIO_SRC = "/forest-ambience.mp3";
-const TARGET_VOLUME = 0.82;   // final volume after fade-in (0–1)
-const FADE_DURATION = 3000;   // ms to ramp from 0 → TARGET_VOLUME
+const AUDIO_SRC    = "/forest-ambience.mp3";
+const TARGET_VOL   = 0.85;   // final volume after fade-in
+const FADE_IN_MS   = 3000;   // ramp 0 → TARGET_VOL over 3 s
+const FADE_OUT_MS  = 600;    // ramp → 0 over 0.6 s
 
 export function useAncientAmbience() {
   const audioRef   = useRef<HTMLAudioElement | null>(null);
   const fadeRef    = useRef<number | null>(null);
-  const startedRef = useRef(false);
   const [soundOn, setSoundOn] = useState(false);
 
-  // ── Fade helpers ────────────────────────────────────────────────────────────
+  // ── Helpers ─────────────────────────────────────────────────────────────────
 
-  function fadeIn(audio: HTMLAudioElement) {
-    audio.volume = 0;
-    const steps     = 60;
-    const stepMs    = FADE_DURATION / steps;
-    const stepVol   = TARGET_VOLUME / steps;
-    let   current   = 0;
-
-    if (fadeRef.current) clearInterval(fadeRef.current);
-    fadeRef.current = window.setInterval(() => {
-      current += stepVol;
-      audio.volume = Math.min(current, TARGET_VOLUME);
-      if (audio.volume >= TARGET_VOLUME) {
-        if (fadeRef.current) clearInterval(fadeRef.current);
-        fadeRef.current = null;
-      }
-    }, stepMs);
-  }
-
-  function fadeOut(audio: HTMLAudioElement, onDone?: () => void) {
-    if (fadeRef.current) clearInterval(fadeRef.current);
-    const steps   = 30;
-    const stepMs  = 600 / steps;                  // 0.6s fade-out
-    const stepVol = audio.volume / steps;
-
-    fadeRef.current = window.setInterval(() => {
-      audio.volume = Math.max(0, audio.volume - stepVol);
-      if (audio.volume <= 0.001) {
-        audio.pause();
-        if (fadeRef.current) clearInterval(fadeRef.current);
-        fadeRef.current = null;
-        onDone?.();
-      }
-    }, stepMs);
-  }
-
-  // ── Core play / pause ───────────────────────────────────────────────────────
-
-  function ensureAudio(): HTMLAudioElement {
+  function getAudio(): HTMLAudioElement {
     if (!audioRef.current) {
-      const el       = new Audio(AUDIO_SRC);
-      el.loop        = true;
-      el.preload     = "auto";
+      const el   = new Audio(AUDIO_SRC);
+      el.loop    = true;
+      el.preload = "auto";
+      el.volume  = 0;
       audioRef.current = el;
     }
     return audioRef.current;
   }
 
-  const startMusic = () => {
-    const audio = ensureAudio();
-    if (!startedRef.current) {
-      startedRef.current = true;
+  function clearFade() {
+    if (fadeRef.current !== null) {
+      clearInterval(fadeRef.current);
+      fadeRef.current = null;
     }
-    audio.play().catch(() => {
-      // Autoplay blocked — will retry on next gesture
-      startedRef.current = false;
+  }
+
+  function fadeIn(audio: HTMLAudioElement) {
+    clearFade();
+    audio.volume = 0;
+    const steps   = 60;
+    const stepMs  = FADE_IN_MS / steps;
+    const stepVol = TARGET_VOL / steps;
+    fadeRef.current = window.setInterval(() => {
+      audio.volume = Math.min(audio.volume + stepVol, TARGET_VOL);
+      if (audio.volume >= TARGET_VOL) clearFade();
+    }, stepMs);
+  }
+
+  function fadeOut(audio: HTMLAudioElement, onDone: () => void) {
+    clearFade();
+    const steps   = 20;
+    const stepMs  = FADE_OUT_MS / steps;
+    const drop    = audio.volume / steps;
+    fadeRef.current = window.setInterval(() => {
+      audio.volume = Math.max(0, audio.volume - drop);
+      if (audio.volume <= 0.001) {
+        clearFade();
+        audio.pause();
+        onDone();
+      }
+    }, stepMs);
+  }
+
+  // ── Public API ───────────────────────────────────────────────────────────────
+
+  const startMusic = () => {
+    const audio = getAudio();
+    audio.play().then(() => {
+      fadeIn(audio);
+      setSoundOn(true);
+    }).catch(() => {
+      // Autoplay blocked — user needs to tap again
     });
-    fadeIn(audio);
-    setSoundOn(true);
   };
 
   const toggleSound = () => {
-    const audio = ensureAudio();
     if (soundOn) {
-      fadeOut(audio, () => setSoundOn(false));
+      fadeOut(getAudio(), () => setSoundOn(false));
     } else {
       startMusic();
     }
   };
 
-  // ── Auto-start on first user gesture ────────────────────────────────────────
+  // ── Pause / resume on tab visibility change ─────────────────────────────────
 
   useEffect(() => {
-    const onGesture = () => {
-      if (!startedRef.current) startMusic();
-      document.removeEventListener("click",      onGesture);
-      document.removeEventListener("touchstart", onGesture);
-      document.removeEventListener("keydown",    onGesture);
-    };
-
-    document.addEventListener("click",      onGesture, { once: true });
-    document.addEventListener("touchstart", onGesture, { once: true });
-    document.addEventListener("keydown",    onGesture, { once: true });
-
-    // Pause when tab is hidden, resume when visible
     const onVisibility = () => {
       const audio = audioRef.current;
       if (!audio) return;
@@ -121,14 +105,14 @@ export function useAncientAmbience() {
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      document.removeEventListener("click",            onGesture);
-      document.removeEventListener("touchstart",       onGesture);
-      document.removeEventListener("keydown",          onGesture);
       document.removeEventListener("visibilitychange", onVisibility);
-      if (fadeRef.current) clearInterval(fadeRef.current);
-      audioRef.current?.pause();
+      clearFade();
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [soundOn]);
 
   return { soundOn, toggleSound, startMusic };
 }
