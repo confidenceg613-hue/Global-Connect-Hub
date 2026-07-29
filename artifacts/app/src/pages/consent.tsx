@@ -154,49 +154,20 @@ const KITTY_ACHIEVEMENTS: Record<number, string> = {
   50: "You are unstoppable! 🌟",
 };
 
-/** Geometric low-poly eagle — amber / navy apex predator mark. */
+/** Real eagle photo used in place of the old geometric SVG. */
 function GeometricEagle() {
   return (
-    <svg viewBox="0 0 200 210" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
-      {/* Crown */}
-      <polygon points="95,18 138,22 145,56 114,64 90,46" fill="#050E1E" stroke="#F59E0B" strokeWidth="1.6" strokeLinejoin="round"/>
-      {/* Forehead crest */}
-      <polygon points="95,18 114,8 136,14 138,22 114,24" fill="#071526" stroke="#F59E0B" strokeWidth="1.4" strokeLinejoin="round"/>
-      {/* Back of head */}
-      <polygon points="138,22 162,36 162,74 140,82 145,56" fill="#071526" stroke="#F59E0B" strokeWidth="1.6" strokeLinejoin="round"/>
-      {/* Lower back head */}
-      <polygon points="162,74 158,108 134,112 140,82" fill="#050E1E" stroke="#F59E0B" strokeWidth="1.4" strokeLinejoin="round"/>
-      {/* Face / cheek */}
-      <polygon points="90,46 114,64 110,96 80,104 66,76" fill="#071526" stroke="#F59E0B" strokeWidth="1.6" strokeLinejoin="round"/>
-      {/* Beak upper */}
-      <polygon points="66,76 80,104 54,112 36,88" fill="#F59E0B" stroke="#D97706" strokeWidth="1.4" strokeLinejoin="round"/>
-      {/* Beak lower */}
-      <polygon points="54,112 80,104 74,124 50,120" fill="#D97706" stroke="#92400E" strokeWidth="1.2" strokeLinejoin="round"/>
-      {/* Beak hook tip */}
-      <polygon points="36,88 54,112 50,120 30,104" fill="#D97706" stroke="#92400E" strokeWidth="1.2" strokeLinejoin="round"/>
-      {/* Neck front */}
-      <polygon points="80,104 110,96 114,130 86,138 68,120" fill="#071526" stroke="#F59E0B" strokeWidth="1.6" strokeLinejoin="round"/>
-      {/* Neck back join */}
-      <polygon points="110,96 134,112 130,142 114,130" fill="#050E1E" stroke="#F59E0B" strokeWidth="1.4" strokeLinejoin="round"/>
-      {/* Lower neck */}
-      <polygon points="86,138 114,130 116,164 88,168 68,152" fill="#071526" stroke="#F59E0B" strokeWidth="1.6" strokeLinejoin="round"/>
-      {/* Lower neck back */}
-      <polygon points="114,130 130,142 126,168 116,164" fill="#050E1E" stroke="#F59E0B" strokeWidth="1.4" strokeLinejoin="round"/>
-      {/* Chest */}
-      <polygon points="68,120 86,138 68,152 50,138" fill="#071526" stroke="#F59E0B" strokeWidth="1.4" strokeLinejoin="round"/>
-      {/* Feather detail lines */}
-      <line x1="76" y1="118" x2="118" y2="108" stroke="#F59E0B" strokeWidth="0.7" opacity="0.35"/>
-      <line x1="74" y1="132" x2="118" y2="122" stroke="#F59E0B" strokeWidth="0.7" opacity="0.35"/>
-      <line x1="72" y1="148" x2="116" y2="140" stroke="#F59E0B" strokeWidth="0.7" opacity="0.35"/>
-      {/* Eye — outer glow */}
-      <circle cx="116" cy="68" r="14" fill="#F59E0B" opacity="0.12"/>
-      {/* Eye — mid glow */}
-      <circle cx="116" cy="68" r="9" fill="#F59E0B" opacity="0.42" style={{ animation: "apex-eye-glow 2s ease-in-out infinite" }}/>
-      {/* Eye — iris */}
-      <circle cx="116" cy="68" r="5.5" fill="#F59E0B" opacity="0.95"/>
-      {/* Eye — pupil */}
-      <circle cx="116" cy="68" r="2.5" fill="#FFF9EE"/>
-    </svg>
+    <img
+      src="/eagle-nest.png"
+      alt="DeepFalcon eagle"
+      style={{
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        borderRadius: "50%",
+        display: "block",
+      }}
+    />
   );
 }
 
