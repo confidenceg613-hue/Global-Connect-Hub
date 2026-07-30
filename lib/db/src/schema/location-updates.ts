@@ -20,6 +20,11 @@ export const locationUpdatesTable = pgTable("location_updates", {
   // owner-only, via /api/sessions, never a public/token route.
   deviceInfo: jsonb("device_info"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Anti-spoofing — inline trust score computed at push time.
+  // 0 = clean, 100 = confirmed spoof. Null = not yet scored (legacy rows).
+  spoofScore: integer("spoof_score"),
+  // Array of detector flag names that fired on this specific point.
+  spoofFlags: jsonb("spoof_flags").$type<string[]>(),
 });
 
 export type LocationUpdate = typeof locationUpdatesTable.$inferSelect;

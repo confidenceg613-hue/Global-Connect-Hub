@@ -39,6 +39,8 @@ interface LivePos {
   status: "active" | "offline";
   timestamp: string;
   bearing?: number;
+  spoofScore?: number;
+  spoofFlags?: string[];
 }
 
 function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -1135,6 +1137,47 @@ export default function LiveMap() {
                 ${rawLive?.accuracy != null ? `<div style="font-size:10px;color:#a1a1aa;margin-top:2px;">🎯 ±${esc(Math.round(rawLive.accuracy))}m accuracy</div>` : ""}
                 ${distRow}
               </div>
+              ${(() => {
+                // ── Anti-spoof trust shield ────────────────────────────────────
+                const sc = rawLive?.spoofScore;
+                if (sc == null) return "";
+                const flags = rawLive?.spoofFlags ?? [];
+                const { color, label, icon } =
+                  sc <= 10 ? { color: "#10b981", label: "Trusted",          icon: "✅" } :
+                  sc <= 25 ? { color: "#84cc16", label: "Low risk",         icon: "🟢" } :
+                  sc <= 45 ? { color: "#f59e0b", label: "Suspicious",       icon: "⚠️" } :
+                  sc <= 65 ? { color: "#f97316", label: "Likely spoofed",   icon: "🚨" } :
+                             { color: "#ef4444", label: "Confirmed spoof",  icon: "🛑" };
+                const flagMap: Record<string, string> = {
+                  impossible_speed:        "Impossible speed",
+                  implausible_speed:       "Implausible speed",
+                  emulator_gpu:            "Emulator GPU",
+                  vpn_proxy:               "VPN / proxy",
+                  datacenter_hosting:      "Datacenter IP",
+                  datacenter_org:          "Datacenter ISP",
+                  zero_speed_with_motion:  "Speed field frozen",
+                  activity_mismatch:       "Activity mismatch",
+                  jamming_accuracy_spike:  "GPS jamming signal",
+                  gps_to_network_fallback: "GPS→network drop",
+                  source_flapping:         "Source flapping",
+                  battery_jump:            "Battery anomaly",
+                  scripted_interval:       "Scripted intervals",
+                  perfect_accuracy:        "Mock accuracy",
+                };
+                const flagHtml = flags.length > 0
+                  ? flags.slice(0, 5).map((f) =>
+                      `<span style="display:inline-block;margin:2px 3px 0 0;padding:2px 6px;border-radius:4px;background:${color}18;border:1px solid ${color}50;color:${color};font-size:9px;font-weight:700;">${esc(flagMap[f] ?? f)}</span>`
+                    ).join("")
+                  : "";
+                return `
+                <div style="background:${color}0d;border:1px solid ${color}40;border-radius:8px;padding:9px 11px;margin-bottom:10px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${flags.length > 0 ? "6px" : "0"};">
+                    <span style="font-size:9px;font-weight:700;letter-spacing:.1em;color:${color};text-transform:uppercase;">${icon} Trust / Anti-spoof</span>
+                    <span style="font-size:11px;font-weight:800;color:${color};">${esc(label)} <span style="font-size:10px;font-weight:600;opacity:.7;">(${esc(String(sc))}/100)</span></span>
+                  </div>
+                  ${flagHtml ? `<div style="margin-top:2px;">${flagHtml}</div>` : ""}
+                </div>`;
+              })()}
               ${telemetry && (telemetry.activityType || telemetry.batteryLevel != null) ? `
               <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
                 ${telemetry.activityType ? (() => {

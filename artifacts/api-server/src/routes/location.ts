@@ -3,6 +3,7 @@ import { eq, desc, and, lt, gte, sql, inArray } from "drizzle-orm";
 import { db, locationUpdatesTable, invitesTable, inviteSessionsTable, geofencesTable } from "@workspace/db";
 import { z } from "zod";
 import { sendPushAndLog, haversineMeters } from "../lib/notifications";
+import { scoreInline } from "../lib/spoof-inline";
 
 const router: IRouter = Router();
 
@@ -142,30 +143,80 @@ router.post("/location/push", async (req, res): Promise<void> => {
   // regardless of whether the push came from a session token or the invite token directly.
   const storeToken = inviteToken;
 
-  // Run the two reads in parallel — neither depends on the other
-  const [[prev], [invite], [update]] = await Promise.all([
-    db
-      .select()
-      .from(locationUpdatesTable)
-      .where(eq(locationUpdatesTable.token, storeToken))
-      .orderBy(desc(locationUpdatesTable.createdAt))
-      .limit(1),
+  // Fetch recent points + invite in parallel before inserting.
+  // We need recent points to run inline spoof scoring before the insert.
+  const [[invite], recent] = await Promise.all([
     db
       .select()
       .from(invitesTable)
       .where(eq(invitesTable.token, inviteToken)),
     db
-      .insert(locationUpdatesTable)
-      .values({ token: storeToken, latitude, longitude, accuracy, source, address, status, batteryLevel, batteryCharging, activityType, deviceInfo: enrichedDeviceInfo })
-      .returning(),
+      .select({
+        latitude:        locationUpdatesTable.latitude,
+        longitude:       locationUpdatesTable.longitude,
+        accuracy:        locationUpdatesTable.accuracy,
+        source:          locationUpdatesTable.source,
+        status:          locationUpdatesTable.status,
+        activityType:    locationUpdatesTable.activityType,
+        batteryLevel:    locationUpdatesTable.batteryLevel,
+        batteryCharging: locationUpdatesTable.batteryCharging,
+        deviceInfo:      locationUpdatesTable.deviceInfo,
+        createdAt:       locationUpdatesTable.createdAt,
+      })
+      .from(locationUpdatesTable)
+      .where(eq(locationUpdatesTable.token, storeToken))
+      .orderBy(desc(locationUpdatesTable.createdAt))
+      .limit(50),
   ]);
 
-  // Broadcast SSE on the invite token channel (owner's dashboard map)
-  broadcastToToken(inviteToken, { lat: latitude, lng: longitude, accuracy, source, address, status, timestamp: update.createdAt });
+  // Oldest-first for the scorer
+  const recentAsc = recent.slice().reverse() as Parameters<typeof scoreInline>[1];
+  const prev = recent[0] ?? null;
+
+  // Inline spoof scoring — synchronous, fast, never throws
+  let spoofScore = 0;
+  let spoofFlags: string[] = [];
+  try {
+    const newPtForScoring = {
+      latitude, longitude,
+      accuracy: accuracy ?? null,
+      source: source ?? null,
+      activityType: activityType ?? null,
+      batteryLevel: batteryLevel ?? null,
+      batteryCharging: batteryCharging ?? null,
+      deviceInfo: (enrichedDeviceInfo ?? null) as Record<string, unknown> | null,
+      createdAt: new Date(),
+    };
+    const result = scoreInline(newPtForScoring, recentAsc);
+    spoofScore = result.score;
+    spoofFlags = result.flags;
+  } catch { /* scoring failure must never block the insert */ }
+
+  const [update] = await db
+    .insert(locationUpdatesTable)
+    .values({
+      token: storeToken, latitude, longitude, accuracy, source, address,
+      status, batteryLevel, batteryCharging, activityType,
+      deviceInfo: enrichedDeviceInfo,
+      spoofScore,
+      spoofFlags: spoofFlags.length > 0 ? spoofFlags : null,
+    })
+    .returning();
+
+  // Broadcast SSE on the invite token channel (owner's dashboard map).
+  // Include spoof score/flags so the live map can show a trust indicator
+  // without requiring an extra API round-trip.
+  const ssePaylod = {
+    lat: latitude, lng: longitude, accuracy, source, address, status,
+    timestamp: update.createdAt,
+    spoofScore,
+    spoofFlags: spoofFlags.length > 0 ? spoofFlags : undefined,
+  };
+  broadcastToToken(inviteToken, ssePaylod);
   // Also broadcast on the session token channel if this came from a session push
   // (enables per-session SSE streams in future dashboard features)
   if (sessionForToken && token !== inviteToken) {
-    broadcastToToken(token, { lat: latitude, lng: longitude, accuracy, source, address, status, timestamp: update.createdAt });
+    broadcastToToken(token, ssePaylod);
   }
 
   // Respond to the contact's device right away — notifications and geofence

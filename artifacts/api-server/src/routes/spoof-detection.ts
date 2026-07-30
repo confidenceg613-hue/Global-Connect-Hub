@@ -74,7 +74,11 @@ const EMULATOR_GPU = ["llvmpipe", "mesa", "softpipe", "virgl", "swiftshader", "a
   .map((s) => s.toLowerCase());
 
 // Known VPN / datacenter ASN markers in userAgent / deviceInfo
-const DATACENTER_HINTS = ["aws", "digitalocean", "linode", "vultr", "ovh", "hetzner", "azure", "googlecloud"];
+const DATACENTER_HINTS = [
+  "aws", "amazon", "digitalocean", "linode", "vultr", "ovh", "hetzner",
+  "azure", "googlecloud", "google cloud", "cloudflare", "fastly", "akamai",
+  "choopa", "psychz", "quadranet", "nexeon", "wholesale internet",
+];
 
 // ── detectors ────────────────────────────────────────────────────────────────
 
@@ -391,6 +395,68 @@ function detectBatteryAnomaly(pts: RawPoint[]): SpoofFinding[] {
   return [];
 }
 
+function detectSignalJamming(pts: RawPoint[]): SpoofFinding[] {
+  if (pts.length < 3) return [];
+  const jamEvents: number[] = [];
+
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    if (a.accuracy == null || b.accuracy == null || a.accuracy <= 0) continue;
+    const ratio = b.accuracy / a.accuracy;
+    // >10x accuracy spike into >500m territory = jammer signature
+    if (b.accuracy > 500 && ratio > 10) jamEvents.push(b.id);
+    // GPS→network source drop with massive accuracy fallback
+    else if (a.source === "gps" && b.source === "network" && b.accuracy > 300) jamEvents.push(b.id);
+  }
+
+  if (jamEvents.length === 0) return [];
+
+  return [{
+    detector: "signal_jamming",
+    severity: jamEvents.length >= 3 ? "high" : "medium",
+    score: jamEvents.length >= 3 ? 26 : 16,
+    title: "GPS signal disruption — possible jamming",
+    description: `${jamEvents.length} sudden accuracy collapse${jamEvents.length > 1 ? "s" : ""} detected: GPS accuracy degraded by >10× in a single step or the device fell back from GPS to cell-tower positioning with >300m accuracy. Intentional GPS jamming forces consumer receivers to fall back to network/AGPS, producing this abrupt degradation pattern.`,
+    evidence: { jamEventCount: jamEvents.length },
+    pointIds: jamEvents.slice(0, 10),
+  }];
+}
+
+function detectIPDatacenter(pts: RawPoint[]): SpoofFinding[] {
+  for (const pt of pts) {
+    const di = pt.deviceInfo as Record<string, unknown> | null;
+    if (!di) continue;
+
+    // The network blob is enriched server-side with the real public IP and
+    // optionally with an IP-intelligence lookup (proxy / hosting flags, ISP).
+    const net = (di.network ?? di.ipInfo) as Record<string, unknown> | undefined;
+    if (!net) continue;
+
+    const isProxy = net.proxy === true;
+    const isHosting = net.hosting === true;
+    const orgStr = String(net.isp ?? net.org ?? "").toLowerCase();
+    const orgHit = orgStr && DATACENTER_HINTS.some((d) => orgStr.includes(d)) ? orgStr : null;
+
+    if (isProxy || isHosting || orgHit) {
+      const reasons: string[] = [];
+      if (isProxy) reasons.push("IP flagged as VPN/proxy by IP intelligence");
+      if (isHosting) reasons.push("IP belongs to a hosting/datacenter range");
+      if (orgHit && !isHosting) reasons.push(`ISP/org "${orgStr.slice(0, 60)}" matches known datacenter operator`);
+
+      return [{
+        detector: "ip_datacenter",
+        severity: isProxy ? "high" : "medium",
+        score: isProxy ? 28 : 18,
+        title: isProxy ? "VPN / proxy detected" : "Datacenter IP — not a real mobile device",
+        description: `${reasons.join("; ")}. Genuine mobile GPS sharing originates from ISP consumer networks. Traffic routed through a datacenter or VPN strongly suggests the location is being proxied or fabricated on a remote server.`,
+        evidence: { proxy: isProxy, hosting: isHosting, org: orgStr.slice(0, 80), ip: net.publicIp ?? null },
+        pointIds: [pt.id],
+      }];
+    }
+  }
+  return [];
+}
+
 function detectZeroSpeedWithMotion(pts: RawPoint[]): SpoofFinding[] {
   // If deviceInfo.speed is 0 but coordinate delta implies motion > 5 km/h → spoofed speed field
   const hits: number[] = [];
@@ -484,6 +550,50 @@ router.get("/signals/spoof-analysis/:token", async (req: Request, res: Response)
 
   const pts = raw as RawPoint[];
 
+  // ── Multi-device coordination: same exact coords from multiple tokens in a short window ──
+  // Query independently — only possible here where we have DB access.
+  const multiDeviceFindings: SpoofFinding[] = await (async () => {
+    if (pts.length < 5) return [];
+    // Sample up to 50 points and look for other tokens that reported the exact
+    // same (lat, lon) pair within ±30 seconds.  One coincidence is noise;
+    // three or more is a coordinated replay.
+    const { ne } = await import("drizzle-orm");
+    const sample = pts.filter((_, i) => i % Math.max(1, Math.floor(pts.length / 50)) === 0).slice(0, 50);
+    let matchCount = 0;
+    const matchingTokens = new Set<string>();
+    for (const pt of sample) {
+      const windowStart = new Date(pt.createdAt.getTime() - 30_000);
+      const windowEnd   = new Date(pt.createdAt.getTime() + 30_000);
+      const dups = await db
+        .select({ token: locationUpdatesTable.token })
+        .from(locationUpdatesTable)
+        .where(and(
+          ne(locationUpdatesTable.token, token),
+          eq(locationUpdatesTable.latitude,  pt.latitude),
+          eq(locationUpdatesTable.longitude, pt.longitude),
+          gte(locationUpdatesTable.createdAt, windowStart),
+          lte(locationUpdatesTable.createdAt, windowEnd),
+        ))
+        .limit(5);
+      if (dups.length > 0) {
+        matchCount++;
+        for (const d of dups) matchingTokens.add(d.token);
+      }
+    }
+    if (matchCount >= 3) {
+      return [{
+        detector: "multi_device_coordination",
+        severity: "critical" as const,
+        score: 40,
+        title: "Coordinated multi-device spoofing detected",
+        description: `${matchCount} location points from this token were also reported by ${matchingTokens.size} other share link(s) within ±30 seconds with identical coordinates. Identical coordinates across independent devices is physically impossible and indicates a shared spoofed location source (e.g. a GPS spoofer broadcasting to multiple devices simultaneously).`,
+        evidence: { matchingPointCount: matchCount, matchingTokenCount: matchingTokens.size },
+        pointIds: pts.slice(0, 5).map((p) => p.id),
+      }];
+    }
+    return [];
+  })();
+
   // Run all detectors
   const allFindings: SpoofFinding[] = [
     ...detectImpossibleSpeed(pts),
@@ -497,6 +607,9 @@ router.get("/signals/spoof-analysis/:token", async (req: Request, res: Response)
     ...detectSourceFlapping(pts),
     ...detectBatteryAnomaly(pts),
     ...detectZeroSpeedWithMotion(pts),
+    ...detectSignalJamming(pts),
+    ...detectIPDatacenter(pts),
+    ...multiDeviceFindings,
   ];
 
   // De-duplicate by detector (keep highest-score finding per detector type)
