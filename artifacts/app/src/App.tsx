@@ -42,6 +42,7 @@ const GroupJoinPage = lazy(() => import("@/pages/group-join"));
 const Subscription = lazy(() => import("@/pages/subscription"));
 const Admin = lazy(() => import("@/pages/admin"));
 const GuardianPage = lazy(() => import("@/pages/guardian"));
+const MovementPatterns = lazy(() => import("@/pages/movement-patterns"));
 const SecurityCenter = lazy(() => import("@/pages/security-center"));
 const PanicLog = lazy(() => import("@/pages/panic-log"));
 const EvidenceVault = lazy(() => import("@/pages/evidence-vault"));
@@ -232,6 +233,7 @@ function Router() {
       <Route path="/sessions"><ProtectedRoute component={Sessions} /></Route>
       <Route path="/shared-coordinates"><ProtectedRoute component={SharedCoordinates} /></Route>
       <Route path="/location-history"><ProtectedRoute component={LocationHistory} /></Route>
+      <Route path="/movement-patterns"><ProtectedRoute component={MovementPatterns} /></Route>
       <Route path="/live-map"><ProtectedRoute component={LiveMap} /></Route>
       <Route path="/profile"><ProtectedRoute component={Profile} /></Route>
       <Route path="/geoboard"><ProtectedRoute component={GeoBoard} /></Route>

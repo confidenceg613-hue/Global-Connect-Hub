@@ -25,6 +25,7 @@ import consentSessionsRouter from "./consent-sessions";
 import guardianRouter from "./guardian";
 import ipLookupRouter from "./ip-lookup";
 import manualPinsRouter from "./manual-pins";
+import movementAnalysisRouter from "./movement-analysis";
 
 const router: IRouter = Router();
 
@@ -54,5 +55,6 @@ router.use(consentSessionsRouter);
 router.use(guardianRouter);
 router.use(ipLookupRouter);
 router.use(manualPinsRouter);
+router.use(movementAnalysisRouter);
 
 export default router;
