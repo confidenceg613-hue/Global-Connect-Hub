@@ -76,7 +76,7 @@ function interpolatePath(
 const GAP_THRESHOLD_MINUTES = 5; // gaps under this are just normal sampling intervals
 
 router.get("/location/movement-analysis/:token", async (req: Request, res: Response): Promise<void> => {
-  const { token } = req.params;
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const now = new Date();
   const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 

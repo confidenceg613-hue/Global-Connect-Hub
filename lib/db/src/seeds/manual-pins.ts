@@ -10,7 +10,8 @@
 
 import { db } from "../index";
 import { manualPinsTable } from "../schema/manual-pins";
-import { sql } from "drizzle-orm";
+import { usersTable } from "../schema/users";
+import { eq, sql } from "drizzle-orm";
 
 export interface SeedPin {
   userId: number;
@@ -33,6 +34,17 @@ export async function seedManualPins(): Promise<void> {
   if (SEED_PINS.length === 0) return;
 
   for (const pin of SEED_PINS) {
+    const [owner] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, pin.userId))
+      .limit(1);
+
+    if (!owner) {
+      console.info(`[seed] manual_pins: skipped "${pin.name}" because user ${pin.userId} does not exist`);
+      continue;
+    }
+
     await db.execute(sql`
       INSERT INTO manual_pins (user_id, name, latitude, longitude)
       VALUES (${pin.userId}, ${pin.name}, ${pin.latitude}, ${pin.longitude})

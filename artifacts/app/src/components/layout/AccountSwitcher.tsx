@@ -37,7 +37,7 @@ function Avatar({ account, size = "md" }: { account: SavedAccount; size?: "sm" |
 // Syncs the logged-in user's name/phone into the saved accounts list
 function AccountMetaSync({ userId }: { userId: number }) {
   const { updateCurrentAccountMeta } = useAuth();
-  const { data: user } = useGetUser(userId, { query: { enabled: true } });
+  const { data: user } = useGetUser(userId);
   useEffect(() => {
     if (user?.name) {
       updateCurrentAccountMeta(user.name, user.fullPhone ?? user.phoneNumber ?? "");

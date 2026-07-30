@@ -25,6 +25,7 @@ interface RawPoint {
   status: string;
   activityType: string | null;
   batteryLevel: number | null;
+  batteryCharging: boolean | null;
   deviceInfo: Record<string, unknown> | null;
   createdAt: Date;
 }
@@ -507,7 +508,7 @@ function riskLabel(score: number): { label: string; color: string } {
 // ── route ────────────────────────────────────────────────────────────────────
 
 router.get("/signals/spoof-analysis/:token", async (req: Request, res: Response): Promise<void> => {
-  const { token } = req.params;
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 86400000);
   const to   = req.query.to   ? new Date(req.query.to   as string) : new Date();
 

@@ -2671,7 +2671,7 @@ export default function ConsentPage() {
               </div>
               <button
                 onClick={handleCopyLink}
-                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.04em",
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.04em",
                   ...(linkCopied
                     ? { background: "rgba(16,130,60,0.2)", border: "1px solid rgba(16,185,129,0.35)", color: "#6ee7b7" }
                     : { background: "linear-gradient(135deg,#8B6914,#C8922A)", color: "#1a0c05" }) }}

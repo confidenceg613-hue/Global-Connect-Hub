@@ -103,7 +103,7 @@ router.post("/signals/ingest", async (req: Request, res: Response): Promise<void
 
 // ── GET /api/signals/raw/:token ───────────────────────────────────────────────
 router.get("/signals/raw/:token", async (req: Request, res: Response): Promise<void> => {
-  const { token } = req.params;
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 86400000);
   const to   = req.query.to   ? new Date(req.query.to   as string) : new Date();
 
@@ -124,7 +124,7 @@ router.get("/signals/raw/:token", async (req: Request, res: Response): Promise<v
 
 // ── GET /api/signals/fused/:token ─────────────────────────────────────────────
 router.get("/signals/fused/:token", async (req: Request, res: Response): Promise<void> => {
-  const { token } = req.params;
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const BUCKET_MIN = Number(req.query.bucket ?? 5);
   const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 86400000);
   const to   = req.query.to   ? new Date(req.query.to   as string) : new Date();
