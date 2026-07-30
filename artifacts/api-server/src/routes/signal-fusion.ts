@@ -15,14 +15,19 @@ const router: IRouter = Router();
 
 // ── Source confidence defaults ────────────────────────────────────────────────
 const SOURCE_CONFIDENCE: Record<string, number> = {
-  gps:        0.95,
-  telematics: 0.85,
-  manual:     0.70,
-  wifi:       0.65,
-  network:    0.60,
-  cellular:   0.50,
-  bluetooth:  0.40,
-  payment:    0.30,
+  gps:          0.95,
+  telematics:   0.85,
+  manual:       0.70,
+  wifi:         0.65,
+  network:      0.60,
+  cellular:     0.50,
+  bluetooth:    0.40,
+  payment:      0.30,
+  // Residual/quiet-device signals — no coordinates but provide temporal presence
+  network_info: 0.35,
+  barometer:    0.25,
+  accelerometer:0.20,
+  ambient_light:0.15,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -60,7 +65,11 @@ function isObscured(
 // ── Validation ────────────────────────────────────────────────────────────────
 
 const SignalSchema = z.object({
-  sourceType:  z.enum(["gps", "wifi", "cellular", "bluetooth", "payment", "telematics", "manual"]),
+  sourceType:  z.enum([
+    "gps", "wifi", "cellular", "bluetooth", "payment", "telematics", "manual",
+    // Residual/quiet-device signal types — temporal presence without GPS
+    "accelerometer", "barometer", "network_info", "ambient_light",
+  ]),
   latitude:    z.number().optional(),
   longitude:   z.number().optional(),
   accuracy:    z.number().optional(),
@@ -73,6 +82,45 @@ const SignalSchema = z.object({
 const IngestBody = z.object({
   token:   z.string().min(1),
   signals: z.array(SignalSchema).min(1).max(500),
+});
+
+/** Batch ingest — for offline-buffered replay from quiet/intermittent devices. */
+const BatchIngestBody = z.object({
+  batches: z.array(z.object({
+    token:   z.string().min(1),
+    signals: z.array(SignalSchema).min(1).max(500),
+  })).min(1).max(50),
+});
+
+// ── POST /api/signals/ingest-batch ────────────────────────────────────────────
+router.post("/signals/ingest-batch", async (req: Request, res: Response): Promise<void> => {
+  const parsed = BatchIngestBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const rows = parsed.data.batches.flatMap(({ token, signals }) =>
+    signals.map((s) => ({
+      token,
+      sourceType:  s.sourceType,
+      latitude:    s.latitude ?? null,
+      longitude:   s.longitude ?? null,
+      accuracy:    s.accuracy ?? null,
+      confidence:  s.confidence ?? SOURCE_CONFIDENCE[s.sourceType] ?? 0.3,
+      label:       s.label ?? null,
+      metadata:    s.metadata ?? null,
+      observedAt:  new Date(s.observedAt),
+    })),
+  );
+
+  if (rows.length === 0) {
+    res.json({ ok: true, inserted: 0 });
+    return;
+  }
+
+  await db.insert(correlatedSignalsTable).values(rows);
+  res.json({ ok: true, inserted: rows.length, batches: parsed.data.batches.length });
 });
 
 // ── POST /api/signals/ingest ──────────────────────────────────────────────────

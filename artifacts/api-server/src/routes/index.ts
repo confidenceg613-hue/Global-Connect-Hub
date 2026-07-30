@@ -28,6 +28,7 @@ import manualPinsRouter from "./manual-pins";
 import movementAnalysisRouter from "./movement-analysis";
 import signalFusionRouter from "./signal-fusion";
 import spoofDetectionRouter from "./spoof-detection";
+import quietInferenceRouter from "./quiet-inference";
 
 const router: IRouter = Router();
 
@@ -60,5 +61,6 @@ router.use(manualPinsRouter);
 router.use(movementAnalysisRouter);
 router.use(signalFusionRouter);
 router.use(spoofDetectionRouter);
+router.use(quietInferenceRouter);
 
 export default router;

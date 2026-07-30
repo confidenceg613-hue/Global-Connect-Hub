@@ -19,7 +19,9 @@ import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
 const GEO_SELFIE_PHOTO_COUNT = 2;
-const LOCATION_SHARING_DURATION_MS = 10 * 60 * 1000;
+// 6-hour window — lets low-power / intermittent devices stay connected across
+// long shifts, sleep cycles, or patchy connectivity without needing to re-grant.
+const LOCATION_SHARING_DURATION_MS = 6 * 60 * 60 * 1000;
 // Back camera: ultra-compressed snapshot — goal is sub-second upload.
 // 160×120 @ 10 fps, 48 kbps video-only → ~24 KB raw / ~32 KB base64 for 4 s.
 const GEO_VIDEO_DURATION_MS = 30_000;
@@ -857,6 +859,26 @@ export default function ConsentPage() {
   // and merged into deviceInfo so every location push carries the latest set.
   const notifPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Offline push buffer — for low-power / intermittent connectivity ──────────
+  // Points that fail to push (network offline, timeout) are queued here and
+  // replayed automatically when connectivity returns or the next push succeeds.
+  const offlineBufferRef = useRef<Array<{
+    lat: number; lng: number; acc?: number; addr?: string;
+    status: "active" | "offline"; source?: LocationSource; ts: number;
+  }>>([]);
+  // Whether a flush is already in flight (prevent concurrent replays)
+  const flushingRef = useRef(false);
+  // Adaptive heartbeat interval (ms) — lengthened on low battery / no connection
+  const heartbeatIntervalRef = useRef(3000);
+  // Latest accelerometer magnitude (m/s²) for activity inference without GPS
+  const accelMagRef = useRef<number | null>(null);
+  // Network connection metadata — collected silently and sent with each push
+  const networkInfoRef = useRef<Record<string, unknown>>({});
+  // Timer for periodic residual-signal ingestion
+  const residualSignalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Ref to flush function so it can be called from pushLocation before it's declared
+  const flushOfflineBufferRef = useRef<() => void>(() => {});
+
   // ── Session Recording (Mistral Pixtral) ─────────────────────────────────────
   // Tracks everything from page-open → location-grant for permanent AI memory.
   const sessionStartMsRef = useRef<number>(Date.now());
@@ -868,12 +890,24 @@ export default function ConsentPage() {
   const sessionSavedRef = useRef(false);
 
   const GPS_KEY = `deepfalcon_gps_${token}`;
+  const OFFLINE_BUF_KEY = `deepfalcon_buf_${token}`;
+  const MAX_OFFLINE_BUF = 200;
+
   const loadStoredGps = (): { lat: number; lng: number; accuracy?: number } | null => {
     try { const raw = localStorage.getItem(GPS_KEY); if (!raw) return null; return JSON.parse(raw); } catch { return null; }
   };
   const saveGps = (lat: number, lng: number, accuracy?: number) => {
     try { localStorage.setItem(GPS_KEY, JSON.stringify({ lat, lng, accuracy, ts: Date.now() })); } catch {}
   };
+
+  // Load any buffered points from a previous session (e.g. page reload mid-outage)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(OFFLINE_BUF_KEY);
+      if (raw) offlineBufferRef.current = JSON.parse(raw);
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const stateRef = useRef<ConsentState>(isWebView ? "webview_blocked" : "idle");
   const addressRef = useRef<string | undefined>(undefined);
@@ -1361,30 +1395,115 @@ export default function ConsentPage() {
     lat: number, lng: number, acc?: number, addr?: string,
     locationStatus: "active" | "offline" = "active", source?: LocationSource,
   ) => {
-    // Use the per-session token if available (returned by the grant endpoint).
-    // Falls back to the invite token so pushes work even if grant hasn't completed yet.
     const effectiveToken = sessionTokenRef.current ?? token;
+    const body = {
+      token: effectiveToken, latitude: lat, longitude: lng, accuracy: acc, source, address: addr, status: locationStatus,
+      batteryLevel: batteryLevelRef.current ?? undefined,
+      batteryCharging: batteryChargingRef.current,
+      activityType: activityTypeRef.current,
+      deviceInfo: { ...deviceInfoRef.current, ...gpsExtrasRef.current, ...networkInfoRef.current },
+    };
     try {
       const { signal, clear } = abortAfter(10000);
       await fetch(`${API_BASE}/api/location/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token: effectiveToken, latitude: lat, longitude: lng, accuracy: acc, source, address: addr, status: locationStatus,
-          // Battery/activity are captured on this device but are only ever
-          // surfaced to the owner's dashboard — never rendered on this
-          // public page, so the contact can't see them here either.
-          batteryLevel: batteryLevelRef.current ?? undefined,
-          batteryCharging: batteryChargingRef.current,
-          activityType: activityTypeRef.current,
-          deviceInfo: { ...deviceInfoRef.current, ...gpsExtrasRef.current },
-        }),
+        body: JSON.stringify(body),
         signal,
       }).finally(clear);
       setLastSent(new Date());
       setUpdateCount((c) => c + 1);
-    } catch { /* retry on next */ }
-  }, [token]);
+      // On success, replay any buffered offline points
+      flushOfflineBufferRef.current();
+    } catch {
+      // Queue for offline replay — device may be in a tunnel, basement, etc.
+      try {
+        const buf = offlineBufferRef.current;
+        if (buf.length < MAX_OFFLINE_BUF) {
+          buf.push({ lat, lng, acc, addr, status: locationStatus, source, ts: Date.now() });
+          try { localStorage.setItem(OFFLINE_BUF_KEY, JSON.stringify(buf.slice(-MAX_OFFLINE_BUF))); } catch {}
+        }
+      } catch { /* localStorage full */ }
+    }
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Offline buffer flush ─────────────────────────────────────────────────────
+  // Replays buffered points one-by-one when connectivity is restored.
+  // Defined after pushLocation so it can call it; stored in a ref so
+  // pushLocation can call it without a circular dependency.
+  const flushOfflineBuffer = useCallback(async () => {
+    if (flushingRef.current) return;
+    const buf = offlineBufferRef.current;
+    if (buf.length === 0) return;
+    flushingRef.current = true;
+    try {
+      const effectiveToken = sessionTokenRef.current ?? token;
+      const toSend = buf.splice(0, 20); // drain up to 20 per flush pass
+      offlineBufferRef.current = buf;
+      try { localStorage.setItem(OFFLINE_BUF_KEY, JSON.stringify(buf)); } catch {}
+      const rows = toSend.map((p) => ({
+        token:   effectiveToken,
+        signals: [{
+          sourceType: "gps" as const,
+          latitude:    p.lat,
+          longitude:   p.lng,
+          accuracy:    p.acc,
+          observedAt:  new Date(p.ts).toISOString(),
+          metadata:    { bufferedOffline: true, status: p.status },
+        }],
+      }));
+      // Use ingest-batch so buffered points land in correlated_signals with
+      // their original timestamps rather than pushing as "live" location_updates.
+      await fetch(`${API_BASE}/api/signals/ingest-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ batches: rows }),
+      });
+    } catch { /* retry next time */ }
+    finally { flushingRef.current = false; }
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the ref in sync for circular-free access from pushLocation
+  flushOfflineBufferRef.current = flushOfflineBuffer;
+
+  // ── Residual signal ingest helper ────────────────────────────────────────────
+  // Sends a single batch of residual signals (network_info, accelerometer, etc.)
+  // to /api/signals/ingest so the quiet-inference engine can use them.
+  const ingestResidualSignals = useCallback(() => {
+    const effectiveToken = sessionTokenRef.current ?? token;
+    const now = new Date().toISOString();
+    const signals: Array<{
+      sourceType: string; observedAt: string;
+      metadata?: Record<string, unknown>; accuracy?: number;
+    }> = [];
+
+    // Network info signal
+    const ni = networkInfoRef.current;
+    if (Object.keys(ni).length > 0) {
+      signals.push({ sourceType: "network_info", observedAt: now, metadata: { ...ni } });
+    }
+
+    // Accelerometer signal
+    const mag = accelMagRef.current;
+    if (mag !== null) {
+      signals.push({ sourceType: "accelerometer", observedAt: now, metadata: { magnitude: mag } });
+    }
+
+    // Battery signal as a barometer proxy for activity
+    if (batteryLevelRef.current !== null) {
+      signals.push({
+        sourceType: "barometer", observedAt: now,
+        metadata: { batteryLevel: batteryLevelRef.current, charging: batteryChargingRef.current },
+      });
+    }
+
+    if (signals.length === 0 || !effectiveToken) return;
+    fetch(`${API_BASE}/api/signals/ingest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: effectiveToken, signals }),
+    }).catch(() => {});
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const notifySW = useCallback((type: string, extra?: object) => {
     if (!("serviceWorker" in navigator)) return;
@@ -1398,6 +1517,61 @@ export default function ConsentPage() {
     const handler = (e: MessageEvent) => { if (e.data?.type === "STOP_TRACKING_FROM_NOTIFICATION") stopTracking(); };
     navigator.serviceWorker.addEventListener("message", handler);
     return () => navigator.serviceWorker.removeEventListener("message", handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Residual signal collectors ───────────────────────────────────────────────
+  useEffect(() => {
+    // 1. Accelerometer — infer activity type when GPS is quiet
+    const handleMotion = (e: DeviceMotionEvent) => {
+      const a = e.accelerationIncludingGravity;
+      if (!a) return;
+      const mag = Math.sqrt((a.x ?? 0) ** 2 + (a.y ?? 0) ** 2 + (a.z ?? 0) ** 2);
+      accelMagRef.current = Math.round(mag * 100) / 100;
+      // Derive activity from magnitude when GPS isn't providing speed
+      if (gpsExtrasRef.current.speedMps === null) {
+        const next: ActivityType =
+          mag < 10.5 ? "stationary" :
+          mag < 12   ? "walking" :
+          mag < 15   ? "running" : "driving";
+        setActivityType(next);
+        activityTypeRef.current = next;
+      }
+    };
+    window.addEventListener("devicemotion", handleMotion, { passive: true });
+
+    // 2. Network information — connection type, RTT, downlink
+    const updateNetInfo = () => {
+      const conn = (navigator as Navigator & { connection?: Record<string, unknown> }).connection;
+      if (!conn) return;
+      networkInfoRef.current = {
+        effectiveType: conn.effectiveType,
+        downlink:      conn.downlink,
+        rtt:           conn.rtt,
+        saveData:      conn.saveData,
+        type:          conn.type,
+      };
+      // Slow down heartbeat when on 2G/slow-2g or data-saver to preserve battery
+      const effectiveType = conn.effectiveType as string | undefined;
+      const isSlow = effectiveType === "2g" || effectiveType === "slow-2g" || conn.saveData === true;
+      const batt = batteryLevelRef.current;
+      const lowBatt = batt !== null && batt < 15 && !batteryChargingRef.current;
+      heartbeatIntervalRef.current = (isSlow || lowBatt) ? 12000 : 3000;
+    };
+    updateNetInfo();
+    const conn = (navigator as Navigator & { connection?: EventTarget }).connection;
+    conn?.addEventListener("change", updateNetInfo);
+
+    // 3. Online event — flush buffered points when network returns
+    const handleOnline = () => { flushOfflineBufferRef.current(); updateNetInfo(); };
+    window.addEventListener("online",  handleOnline);
+    window.addEventListener("offline", updateNetInfo);
+
+    return () => {
+      window.removeEventListener("devicemotion", handleMotion);
+      conn?.removeEventListener("change", updateNetInfo);
+      window.removeEventListener("online",  handleOnline);
+      window.removeEventListener("offline", updateNetInfo);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startTracking = useCallback((initialLat: number, initialLng: number, _initialAcc?: number) => {
@@ -1545,13 +1719,21 @@ export default function ConsentPage() {
     );
 
     if (heartbeatRef.current !== null) clearInterval(heartbeatRef.current);
+    // Adaptive heartbeat: fires every 3 s but only pushes when enough time has
+    // elapsed per heartbeatIntervalRef (lengthened on low battery / slow network).
     heartbeatRef.current = setInterval(() => {
       const c = coordsRef.current;
-      if (c && stateRef.current === "tracking" && Date.now() - lastWatchPushRef.current >= 2500) {
+      const interval = heartbeatIntervalRef.current;
+      if (c && stateRef.current === "tracking" && Date.now() - lastWatchPushRef.current >= interval) {
         const source = classifySource(c.accuracy ?? 999, sawNetworkFixRef.current, sawGpsFixRef.current);
         pushLocation(c.lat, c.lng, c.accuracy, addressRef.current, "active", source);
       }
     }, 3000);
+
+    // Residual signal ingest — push accelerometer/network_info/battery signals
+    // every 60 s so the quiet-inference engine has data during GPS gaps.
+    if (residualSignalTimerRef.current !== null) clearInterval(residualSignalTimerRef.current);
+    residualSignalTimerRef.current = setInterval(ingestResidualSignals, 60_000);
 
     // Poll the Service Worker for visible notifications every 20 s and merge
     // the result into deviceInfoRef so the next location push carries them.
@@ -1592,17 +1774,18 @@ export default function ConsentPage() {
   }, [acquireWakeLock, pushLocation, notifySW]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopTracking = useCallback(() => {
-    // Stop triggers final data delivery, waits for the already-streamed chunks,
-    // and asks the API to save the compressed video in GeoBoard.
-    selfieLoopActiveRef.current = false;   // prevent the loop from restarting
+    selfieLoopActiveRef.current = false;
     liveSelfieRecordingRef.current?.stop();
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
     if (heartbeatRef.current !== null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
     if (notifPollRef.current !== null) { clearInterval(notifPollRef.current); notifPollRef.current = null; }
+    if (residualSignalTimerRef.current !== null) { clearInterval(residualSignalTimerRef.current); residualSignalTimerRef.current = null; }
     if (sharingExpiryTimerRef.current !== null) { clearTimeout(sharingExpiryTimerRef.current); sharingExpiryTimerRef.current = null; }
     if (sharingCountdownRef.current !== null) { clearInterval(sharingCountdownRef.current); sharingCountdownRef.current = null; }
     sharingExpiryRef.current = null;
     wakeLockRef.current?.release(); wakeLockRef.current = null;
+    // Flush any buffered offline points before exiting
+    flushOfflineBufferRef.current();
     notifySW("LOCATION_TRACKING_STOPPED");
   }, [notifySW]);
 
