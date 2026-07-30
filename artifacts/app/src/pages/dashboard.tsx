@@ -83,7 +83,7 @@ export default function Dashboard() {
   const totalRequests = (summary?.location?.total ?? 0) + (summary?.notification?.total ?? 0) + (summary?.messaging?.total ?? 0);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-300">
+    <div className="space-y-8 mobile-screen-enter">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -104,10 +104,10 @@ export default function Dashboard() {
       </div>
 
       {/* Quick actions */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="dashboard-action-grid grid grid-cols-2 sm:grid-cols-4 gap-3">
         {quickActions.map(action => (
           <Link key={action.href} href={action.href} className="block">
-            <div className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-colors cursor-pointer ${action.color}`}>
+            <div className={`dashboard-action flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-colors cursor-pointer ${action.color}`}>
               <action.icon size={20} />
               <span className="text-xs font-semibold">{action.label}</span>
             </div>

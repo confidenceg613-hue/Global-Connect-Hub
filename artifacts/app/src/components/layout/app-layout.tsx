@@ -269,7 +269,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       {/* Mobile */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-background/95 backdrop-blur border-b border-border">
+        <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-background border-b border-border">
           <div className="flex items-center gap-2.5">
             <img src="/falcon-logo.png" alt="DeepFalcon" className="w-8 h-8 rounded-lg object-cover shadow-sm shadow-amber-500/20 ring-1 ring-amber-500/30" />
             <span className="font-bold text-base text-foreground tracking-tight" style={{ fontFamily: "Syne, system-ui, sans-serif", letterSpacing: "-0.02em" }}>DeepFalcon</span>
@@ -287,7 +287,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           </div>
         </header>
 
-        <main className="flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full">
+        <main className="app-main flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full">
           {children}
         </main>
       </div>

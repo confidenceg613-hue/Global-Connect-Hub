@@ -69,6 +69,7 @@ export function AudioPlayerBar({
     <>
       {/* ── Player bar ───────────────────────────────────────────────────── */}
       <div
+        className="audio-player-bar"
         style={{
           position: "fixed", bottom: 0, left: 0, right: 0,
           zIndex: 60,
@@ -84,7 +85,9 @@ export function AudioPlayerBar({
         }}
       >
         {/* Track name */}
-        <div style={{
+        <div
+          className="audio-player-bar__track"
+          style={{
           display: "flex", alignItems: "center", gap: 8,
           minWidth: 0, flex: "0 0 auto", maxWidth: 180,
           marginRight: 14,
@@ -104,7 +107,7 @@ export function AudioPlayerBar({
         </div>
 
         {/* Progress bar + time */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+        <div className="audio-player-bar__progress" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
           {/* Clickable seek bar */}
           <div
             ref={barRef}
@@ -149,6 +152,7 @@ export function AudioPlayerBar({
 
         {/* ▶ PLAY / ⏸ PAUSE button */}
         <button
+          className="audio-player-bar__toggle"
           onClick={onToggle}
           style={{
             display: "flex", alignItems: "center", gap: 7,
@@ -184,6 +188,7 @@ export function AudioPlayerBar({
 
         {/* Library button */}
         <button
+          className="audio-player-bar__library"
           onClick={() => setLibraryOpen(true)}
           style={{
             display: "flex", alignItems: "center", gap: 6,

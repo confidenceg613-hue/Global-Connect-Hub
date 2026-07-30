@@ -148,7 +148,7 @@ export default function Invites() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="invite-workspace space-y-8 mobile-screen-enter">
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">SMS Invites</h1>
         <p className="text-muted-foreground mt-1">
@@ -190,7 +190,7 @@ export default function Invites() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Form */}
         <div className="lg:col-span-1">
-          <Card className="border-border/60 shadow-sm sticky top-24">
+          <Card className="border-border/60 shadow-sm lg:sticky lg:top-24">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <MessageSquare size={18} className="text-amber-400" />
