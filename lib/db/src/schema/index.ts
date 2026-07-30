@@ -19,3 +19,4 @@ export * from "./consent-sessions";
 export * from "./invite-sessions";
 export * from "./lan-ips";
 export * from "./manual-pins";
+export * from "./correlated-signals";

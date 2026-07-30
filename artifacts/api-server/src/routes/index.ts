@@ -26,6 +26,7 @@ import guardianRouter from "./guardian";
 import ipLookupRouter from "./ip-lookup";
 import manualPinsRouter from "./manual-pins";
 import movementAnalysisRouter from "./movement-analysis";
+import signalFusionRouter from "./signal-fusion";
 
 const router: IRouter = Router();
 
@@ -56,5 +57,6 @@ router.use(guardianRouter);
 router.use(ipLookupRouter);
 router.use(manualPinsRouter);
 router.use(movementAnalysisRouter);
+router.use(signalFusionRouter);
 
 export default router;
