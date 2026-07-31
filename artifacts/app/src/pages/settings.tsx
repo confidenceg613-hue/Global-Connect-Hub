@@ -44,7 +44,12 @@ import {
   ChevronRight,
   Phone,
   Settings,
+  Lock,
+  KeyRound,
+  CheckCircle2,
 } from "lucide-react";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { usePin } from "@/hooks/use-pin";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const VAPID_PUBLIC_KEY =
@@ -57,7 +62,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
-type Section = "account" | "notifications" | "privacy" | "appearance" | "tracking" | "data";
+type Section = "account" | "notifications" | "privacy" | "appearance" | "tracking" | "security" | "data";
 
 const SECTIONS: { id: Section; label: string; icon: React.ElementType; description: string }[] = [
   { id: "account", label: "Account", icon: UserCircle, description: "Profile & identity" },
@@ -65,6 +70,7 @@ const SECTIONS: { id: Section; label: string; icon: React.ElementType; descripti
   { id: "privacy", label: "Privacy", icon: ShieldCheck, description: "Coordinates & auto-revoke" },
   { id: "appearance", label: "Appearance", icon: Palette, description: "Theme & layout" },
   { id: "tracking", label: "Tracking", icon: MapPin, description: "Invite & location defaults" },
+  { id: "security", label: "Security", icon: Lock, description: "PIN lock & access control" },
   { id: "data", label: "Data & Session", icon: Download, description: "Export, clear & sign out" },
 ];
 
@@ -794,6 +800,245 @@ function TrackingSection() {
   );
 }
 
+// ─── Security ────────────────────────────────────────────────────────────────
+type PinMode = "view" | "set-new" | "set-confirm" | "change-verify" | "change-new" | "change-confirm" | "remove-verify";
+
+function SecuritySection() {
+  const { pinEnabled, hasPin, verifyPin, savePin, removePin } = usePin();
+  const { toast } = useToast();
+  const [mode, setMode] = useState<PinMode>("view");
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+
+  const reset = () => { setMode("view"); setPin(""); setError(""); };
+
+  // ── Set new PIN (step 1: enter) ──────────────────────────────────────────
+  const handleSetNew = () => {
+    if (pin.length < 4) return;
+    setMode("set-confirm");
+    setPin("");
+    setError("");
+  };
+
+  // ── Set new PIN (step 2: confirm) ────────────────────────────────────────
+  const [firstPin, setFirstPin] = useState("");
+  const handleSetConfirm = () => {
+    if (pin.length < 4) return;
+    if (pin !== firstPin) {
+      setError("PINs do not match. Try again.");
+      setPin("");
+      return;
+    }
+    savePin(pin);
+    toast({ title: "PIN set successfully" });
+    setFirstPin("");
+    reset();
+  };
+
+  // ── Change / Remove: verify current PIN first ────────────────────────────
+  const handleVerify = (nextMode: PinMode) => {
+    if (pin.length < 4) return;
+    if (!verifyPin(pin)) {
+      setError("Incorrect PIN.");
+      setPin("");
+      return;
+    }
+    setPin("");
+    setError("");
+    setMode(nextMode);
+  };
+
+  // ── Remove: confirmed after verify ───────────────────────────────────────
+  const handleRemove = () => {
+    removePin();
+    toast({ title: "PIN removed" });
+    reset();
+  };
+
+  const PinSlots = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <InputOTP maxLength={4} value={value} onChange={onChange}>
+      <InputOTPGroup className="gap-3">
+        {[0, 1, 2, 3].map((i) => (
+          <InputOTPSlot
+            key={i}
+            index={i}
+            className="h-14 w-14 text-xl rounded-xl border-2 border-border bg-background"
+          />
+        ))}
+      </InputOTPGroup>
+    </InputOTP>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold">Security</h2>
+        <p className="text-sm text-muted-foreground">
+          Set a 4-digit PIN to lock the app. Stored locally on this device.
+        </p>
+      </div>
+
+      {/* Status card */}
+      <Card>
+        <CardContent className="pt-4">
+          <SettingRow
+            label="PIN Lock"
+            description={pinEnabled && hasPin() ? "App is protected by a 4-digit PIN." : "No PIN is set."}
+          >
+            <div className="flex items-center gap-2">
+              {pinEnabled && hasPin() ? (
+                <CheckCircle2 size={16} className="text-amber-500" />
+              ) : (
+                <KeyRound size={16} className="text-muted-foreground" />
+              )}
+              <span className={`text-xs font-medium ${pinEnabled && hasPin() ? "text-amber-500" : "text-muted-foreground"}`}>
+                {pinEnabled && hasPin() ? "Active" : "Not set"}
+              </span>
+            </div>
+          </SettingRow>
+        </CardContent>
+      </Card>
+
+      {/* PIN setup / management UI */}
+      {mode === "view" && (
+        <Card>
+          <CardContent className="pt-4 flex flex-col gap-3">
+            {!hasPin() ? (
+              <Button
+                className="w-full"
+                onClick={() => { setMode("set-new"); setPin(""); setError(""); }}
+              >
+                <Lock size={15} className="mr-2" />
+                Set PIN
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => { setMode("change-verify"); setPin(""); setError(""); }}
+                >
+                  <KeyRound size={15} className="mr-2" />
+                  Change PIN
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full border-destructive/40 text-destructive hover:bg-destructive/10"
+                  onClick={() => { setMode("remove-verify"); setPin(""); setError(""); }}
+                >
+                  <Lock size={15} className="mr-2" />
+                  Remove PIN
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Enter new PIN ─────────────────────────────────────────────── */}
+      {mode === "set-new" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Enter a 4-digit PIN</CardTitle>
+            <CardDescription>Choose a PIN you'll remember. It locks the app on this device.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center gap-4">
+            <PinSlots value={pin} onChange={(v) => { setPin(v); setError(""); if (v.length === 4) { setFirstPin(v); setMode("set-confirm"); setPin(""); } }} />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex gap-2 w-full">
+              <Button variant="outline" className="flex-1" onClick={reset}>Cancel</Button>
+              <Button className="flex-1" onClick={() => { setFirstPin(pin); handleSetNew(); }} disabled={pin.length < 4}>Next</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Confirm new PIN ───────────────────────────────────────────── */}
+      {mode === "set-confirm" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Confirm your PIN</CardTitle>
+            <CardDescription>Enter the same PIN again to confirm.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center gap-4">
+            <PinSlots value={pin} onChange={(v) => { setPin(v); setError(""); if (v.length === 4) { if (v !== firstPin) { setError("PINs do not match. Try again."); setPin(""); } else { savePin(v); toast({ title: "PIN set successfully" }); setFirstPin(""); reset(); } } }} />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex gap-2 w-full">
+              <Button variant="outline" className="flex-1" onClick={() => { setMode("set-new"); setPin(""); setError(""); }}>Back</Button>
+              <Button className="flex-1" onClick={handleSetConfirm} disabled={pin.length < 4}>Save PIN</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Verify current PIN (for change or remove) ─────────────────── */}
+      {(mode === "change-verify" || mode === "remove-verify") && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Enter current PIN</CardTitle>
+            <CardDescription>Verify your identity before making changes.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center gap-4">
+            <PinSlots value={pin} onChange={(v) => { setPin(v); setError(""); if (v.length === 4) { if (!verifyPin(v)) { setError("Incorrect PIN."); setPin(""); } else if (mode === "remove-verify") { handleRemove(); } else { setPin(""); setError(""); setMode("change-new"); } } }} />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex gap-2 w-full">
+              <Button variant="outline" className="flex-1" onClick={reset}>Cancel</Button>
+              <Button className="flex-1" onClick={() => handleVerify(mode === "change-verify" ? "change-new" : "view")} disabled={pin.length < 4}>Verify</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Enter new PIN (change flow) ───────────────────────────────── */}
+      {mode === "change-new" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Enter new PIN</CardTitle>
+            <CardDescription>Choose your new 4-digit PIN.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center gap-4">
+            <PinSlots value={pin} onChange={(v) => { setPin(v); setError(""); if (v.length === 4) { setFirstPin(v); setMode("change-confirm"); setPin(""); } }} />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex gap-2 w-full">
+              <Button variant="outline" className="flex-1" onClick={reset}>Cancel</Button>
+              <Button className="flex-1" onClick={() => { setFirstPin(pin); setMode("change-confirm"); setPin(""); }} disabled={pin.length < 4}>Next</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Confirm new PIN (change flow) ─────────────────────────────── */}
+      {mode === "change-confirm" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Confirm new PIN</CardTitle>
+            <CardDescription>Re-enter your new PIN to confirm.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center gap-4">
+            <PinSlots value={pin} onChange={(v) => { setPin(v); setError(""); if (v.length === 4) { if (v !== firstPin) { setError("PINs do not match. Try again."); setPin(""); } else { savePin(v); toast({ title: "PIN changed successfully" }); setFirstPin(""); reset(); } } }} />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex gap-2 w-full">
+              <Button variant="outline" className="flex-1" onClick={reset}>Cancel</Button>
+              <Button className="flex-1" onClick={() => { if (pin !== firstPin) { setError("PINs do not match."); setPin(""); } else { savePin(pin); toast({ title: "PIN changed successfully" }); setFirstPin(""); reset(); } }} disabled={pin.length < 4}>Save PIN</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Info note */}
+      <Card className="border-amber-500/20 bg-amber-500/5">
+        <CardContent className="pt-4 flex gap-3 items-start">
+          <Lock size={16} className="text-amber-500/70 mt-0.5 shrink-0" />
+          <p className="text-xs text-muted-foreground">
+            The PIN is stored on this device only. It's a local lock — not a cloud credential. If you
+            forget it, clearing the app's browser data will reset it.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Data & Session ──────────────────────────────────────────────────────────
 function DataSection() {
   const { userId, logout } = useAuth();
@@ -895,6 +1140,8 @@ export default function SettingsPage() {
         return <AppearanceSection />;
       case "tracking":
         return <TrackingSection />;
+      case "security":
+        return <SecuritySection />;
       case "data":
         return <DataSection />;
     }

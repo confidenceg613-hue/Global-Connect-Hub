@@ -7,7 +7,9 @@ import { useAuth, AuthProvider } from "@/hooks/use-auth";
 import { useAccess, AccessProvider } from "@/hooks/use-access";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { AudioPlayerBar } from "@/components/audio-player-bar";
-import { useEffect, lazy, Suspense } from "react";
+import { useImmersiveMode } from "@/hooks/use-immersive-mode";
+import { InAppBrowserProvider, useInAppBrowser } from "@/components/in-app-browser";
+import { useEffect, useCallback, lazy, Suspense } from "react";
 
 // Public entry pages: kept as static imports so the very first screen
 // (sign-in / consent link) shows up as fast as possible, with no extra
@@ -266,9 +268,59 @@ function Router() {
   );
 }
 
+/**
+ * Intercepts all external link clicks and window.open calls and routes them
+ * through the in-app browser so the user never leaves the PWA.
+ */
+function ExternalLinkInterceptor() {
+  const { openUrl } = useInAppBrowser();
+
+  // Patch window.open
+  useEffect(() => {
+    const originalOpen = window.open.bind(window);
+    window.open = (url?: string | URL, target?: string, features?: string) => {
+      const href = url?.toString() ?? "";
+      if (href.startsWith("http") && (target === "_blank" || target === "_system" || !target)) {
+        // Let _system pass through (used by the in-app browser's own "Open externally" button)
+        if (target === "_system") return originalOpen(href, "_blank", features);
+        openUrl(href);
+        return null;
+      }
+      return originalOpen(url, target, features);
+    };
+    return () => { window.open = originalOpen; };
+  }, [openUrl]);
+
+  // Intercept <a target="_blank"> and any external href clicks
+  const handleDocClick = useCallback(
+    (e: MouseEvent) => {
+      const anchor = (e.target as Element).closest("a[href]") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const href = anchor.getAttribute("href") ?? "";
+      if (!href.startsWith("http") && !href.startsWith("//")) return;
+      try {
+        const url = new URL(href, window.location.href);
+        if (url.origin === window.location.origin) return; // internal
+        e.preventDefault();
+        e.stopPropagation();
+        openUrl(url.href);
+      } catch { /* malformed href, ignore */ }
+    },
+    [openUrl],
+  );
+
+  useEffect(() => {
+    document.addEventListener("click", handleDocClick, true);
+    return () => document.removeEventListener("click", handleDocClick, true);
+  }, [handleDocClick]);
+
+  return null;
+}
+
 function AppInner() {
   const { userId } = useAuth();
   const { soundOn, trackName, progress, currentTime, duration, toggleSound, playTrack, seek } = useAudioPlayer();
+  useImmersiveMode();
   return (
     <>
       <AncientSky />
@@ -301,7 +353,10 @@ function App() {
       <AuthProvider>
         <AccessProvider>
           <TooltipProvider>
-            <AppInner />
+            <InAppBrowserProvider>
+              <ExternalLinkInterceptor />
+              <AppInner />
+            </InAppBrowserProvider>
           </TooltipProvider>
         </AccessProvider>
       </AuthProvider>

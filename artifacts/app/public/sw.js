@@ -5,6 +5,21 @@ self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
+// ── Navigation fetch handler — enables deep linking ───────────────────────────
+// When the installed PWA is opened via a deep link URL (e.g. /live-map),
+// the browser navigates to that path. This handler ensures the app shell
+// (index.html) is returned so the React router can pick up the path and
+// render the correct page — both online and offline.
+self.addEventListener("fetch", (event) => {
+  if (event.request.mode !== "navigate") return;
+  event.respondWith(
+    fetch(event.request).catch(() =>
+      caches.match(new Request("/index.html", { headers: event.request.headers }))
+        .then((r) => r ?? fetch("/"))
+    )
+  );
+});
+
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
