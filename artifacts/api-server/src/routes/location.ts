@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, desc, and, lt, gte, sql, inArray } from "drizzle-orm";
-import { db, locationUpdatesTable, invitesTable, inviteSessionsTable, geofencesTable } from "@workspace/db";
+import { db, locationUpdatesTable, invitesTable, inviteSessionsTable, geofencesTable, correlatedSignalsTable } from "@workspace/db";
+import type { NewCorrelatedSignal } from "@workspace/db";
 import { z } from "zod";
 import { sendPushAndLog, haversineMeters } from "../lib/notifications";
 import { scoreInline } from "../lib/spoof-inline";
@@ -368,6 +369,130 @@ router.get("/location/history/:token", async (req, res): Promise<void> => {
 
   res.setHeader("Cache-Control", "no-store");
   res.json(updates);
+});
+
+// ── POST /api/location/heartbeat ─────────────────────────────────────────────
+// Telemetry-only ping from a quiet/GPS-dark device.  No GPS coordinates
+// required — the server resolves the requesting IP to a coarse position and
+// records it as a correlated_signal entry so the position estimator keeps
+// working even when GPS is unavailable.
+const HeartbeatBody = z.object({
+  token:           z.string(),
+  // Optional device-provided coordinates (even very coarse ones help)
+  latitude:        z.number().optional(),
+  longitude:       z.number().optional(),
+  accuracy:        z.number().optional(),
+  // Telemetry
+  activityType:    z.enum(["stationary", "walking", "running", "driving"]).optional(),
+  accelMagnitude:  z.number().optional(),
+  batteryLevel:    z.number().min(0).max(100).optional(),
+  batteryCharging: z.boolean().optional(),
+  networkType:     z.string().optional(),
+});
+
+router.post("/location/heartbeat", async (req, res): Promise<void> => {
+  const parsed = HeartbeatBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { token, latitude, longitude, accuracy, activityType, accelMagnitude, batteryLevel, batteryCharging, networkType } = parsed.data;
+
+  // Resolve session token → invite token (same pattern as /location/push)
+  let inviteToken = token;
+  const [maybeSession] = await db
+    .select({ inviteToken: inviteSessionsTable.inviteToken, expiresAt: inviteSessionsTable.expiresAt, status: inviteSessionsTable.status })
+    .from(inviteSessionsTable)
+    .where(eq(inviteSessionsTable.sessionToken, token))
+    .limit(1);
+
+  if (maybeSession) {
+    if (maybeSession.status !== "active" || (maybeSession.expiresAt && maybeSession.expiresAt <= new Date())) {
+      res.status(410).json({ error: "Session expired" });
+      return;
+    }
+    inviteToken = maybeSession.inviteToken;
+  }
+
+  // Extract client IP
+  const clientIp: string | null =
+    (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ??
+    (req.headers["x-real-ip"] as string | undefined) ??
+    req.socket.remoteAddress ??
+    null;
+
+  const now = new Date();
+  const signals: NewCorrelatedSignal[] = [];
+
+  // Always record the presence signal (proves device is online with this network context)
+  signals.push({
+    token:      inviteToken,
+    sourceType: "network_info",
+    latitude:   null,
+    longitude:  null,
+    accuracy:   null,
+    confidence: 0.35,
+    label:      null,
+    metadata:   { networkType: networkType ?? null, accelMagnitude: accelMagnitude ?? null, batteryLevel: batteryLevel ?? null, batteryCharging: batteryCharging ?? null, publicIp: clientIp, heartbeat: true },
+    observedAt: now,
+  });
+
+  if (latitude != null && longitude != null) {
+    // Device provided its own coarse coordinates — record them directly
+    signals.push({
+      token:      inviteToken,
+      sourceType: "network_info",
+      latitude,
+      longitude,
+      accuracy:   accuracy ?? 1_000,
+      confidence: 0.40,
+      label:      "device_heartbeat",
+      metadata:   { source: "device_provided" },
+      observedAt: now,
+    });
+  } else if (clientIp) {
+    // No device coordinates — resolve the request IP to a coarse position
+    const isPrivate =
+      clientIp.startsWith("127.") || clientIp.startsWith("::1") ||
+      clientIp.startsWith("10.")  || clientIp.startsWith("192.168.") ||
+      clientIp === "::ffff:127.0.0.1";
+
+    if (!isPrivate) {
+      try {
+        const r = await fetch(
+          `http://ip-api.com/json/${encodeURIComponent(clientIp)}?fields=status,lat,lon`,
+          { signal: AbortSignal.timeout(3_000) },
+        );
+        if (r.ok) {
+          const geo = await r.json() as { status: string; lat?: number; lon?: number };
+          if (geo.status === "success" && geo.lat != null && geo.lon != null) {
+            signals.push({
+              token:      inviteToken,
+              sourceType: "network_info",
+              latitude:   geo.lat,
+              longitude:  geo.lon,
+              accuracy:   5_000,
+              confidence: 0.35,
+              label:      "ip_geo",
+              metadata:   { ip: clientIp, source: "ip_geo" },
+              observedAt: now,
+            });
+          }
+        }
+      } catch { /* non-critical — respond even if IP geo lookup fails */ }
+    }
+  }
+
+  if (signals.length > 0) {
+    await db.insert(correlatedSignalsTable).values(signals);
+  }
+
+  // Return the latest best estimate so clients can display something
+  const { estimatePosition } = await import("../lib/position-estimator.js");
+  const estimate = await estimatePosition(inviteToken);
+
+  res.json({ ok: true, estimate: estimate ?? null });
 });
 
 // GET /api/location/stream/:token — SSE stream

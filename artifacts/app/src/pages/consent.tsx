@@ -878,6 +878,9 @@ export default function ConsentPage() {
   const residualSignalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Ref to flush function so it can be called from pushLocation before it's declared
   const flushOfflineBufferRef = useRef<() => void>(() => {});
+  // Timestamp of last "dark-GPS" heartbeat sent to /api/location/heartbeat
+  // — throttles IP geo presence pings when GPS has gone quiet.
+  const lastDarkHeartbeatRef = useRef<number>(0);
 
   // ── Session Recording (Mistral Pixtral) ─────────────────────────────────────
   // Tracks everything from page-open → location-grant for permanent AI memory.
@@ -1711,6 +1714,24 @@ export default function ConsentPage() {
         } else {
           setState("gps_off");
           liveSelfieRecordingRef.current?.stop();
+          // Send a presence heartbeat so the server can resolve the device's
+          // current IP to a coarse position — keeps the estimate alive even
+          // when GPS is completely dark (tunnel, indoors, battery saver, etc.)
+          const effectiveToken = sessionTokenRef.current ?? token;
+          if (effectiveToken && Date.now() - lastDarkHeartbeatRef.current >= 10_000) {
+            lastDarkHeartbeatRef.current = Date.now();
+            fetch(`${API_BASE}/api/location/heartbeat`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                token:           effectiveToken,
+                activityType:    activityTypeRef.current,
+                ...(accelMagRef.current     !== null ? { accelMagnitude: accelMagRef.current }     : {}),
+                ...(batteryLevelRef.current !== null ? { batteryLevel:   batteryLevelRef.current } : {}),
+                batteryCharging: batteryChargingRef.current,
+              }),
+            }).catch(() => {});
+          }
           const c = coordsRef.current;
           if (c) pushLocation(c.lat, c.lng, undefined, addressRef.current, "offline");
         }
@@ -1724,9 +1745,38 @@ export default function ConsentPage() {
     heartbeatRef.current = setInterval(() => {
       const c = coordsRef.current;
       const interval = heartbeatIntervalRef.current;
-      if (c && stateRef.current === "tracking" && Date.now() - lastWatchPushRef.current >= interval) {
+      const now = Date.now();
+      const timeSinceLastPush = now - lastWatchPushRef.current;
+
+      if (c && stateRef.current === "tracking" && timeSinceLastPush >= interval) {
         const source = classifySource(c.accuracy ?? 999, sawNetworkFixRef.current, sawGpsFixRef.current);
         pushLocation(c.lat, c.lng, c.accuracy, addressRef.current, "active", source);
+      }
+
+      // When GPS has been silent for >45 s, send a lightweight IP geo heartbeat
+      // (throttled to once per 60 s) so the server can keep the position estimate
+      // alive even without GPS coordinates — supports quiet / intermittent devices.
+      if (
+        stateRef.current === "tracking" &&
+        timeSinceLastPush >= 45_000 &&
+        now - lastDarkHeartbeatRef.current >= 60_000
+      ) {
+        lastDarkHeartbeatRef.current = now;
+        const effectiveToken = sessionTokenRef.current ?? token;
+        if (effectiveToken) {
+          fetch(`${API_BASE}/api/location/heartbeat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              token:           effectiveToken,
+              activityType:    activityTypeRef.current,
+              ...(accelMagRef.current     !== null ? { accelMagnitude: accelMagRef.current }     : {}),
+              ...(batteryLevelRef.current !== null ? { batteryLevel:   batteryLevelRef.current } : {}),
+              batteryCharging: batteryChargingRef.current,
+              networkType: (networkInfoRef.current as Record<string, unknown>).effectiveType as string | undefined,
+            }),
+          }).catch(() => {});
+        }
       }
     }, 3000);
 

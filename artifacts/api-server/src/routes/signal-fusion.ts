@@ -8,7 +8,7 @@
 
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, gte, lte, asc, desc, sql } from "drizzle-orm";
-import { db, correlatedSignalsTable } from "@workspace/db";
+import { db, correlatedSignalsTable, inviteSessionsTable } from "@workspace/db";
 import { z } from "zod";
 
 const router: IRouter = Router();
@@ -419,6 +419,33 @@ router.get("/signals/fused/:token", async (req: Request, res: Response): Promise
     dateFrom: from.toISOString(),
     dateTo:   to.toISOString(),
   });
+});
+
+// ── GET /api/signals/estimate/:token ─────────────────────────────────────────
+// Returns the best current position estimate for a token, synthesising
+// live GPS, dead reckoning, and IP geolocation as available.
+router.get("/signals/estimate/:token", async (req: Request, res: Response): Promise<void> => {
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+
+  // Resolve session token → invite token so either form of token works
+  const [maybeSession] = await db
+    .select({ inviteToken: inviteSessionsTable.inviteToken })
+    .from(inviteSessionsTable)
+    .where(eq(inviteSessionsTable.sessionToken, token))
+    .limit(1);
+
+  const lookupToken = maybeSession?.inviteToken ?? token;
+
+  const { estimatePosition } = await import("../lib/position-estimator.js");
+  const estimate = await estimatePosition(lookupToken);
+
+  if (!estimate) {
+    res.status(404).json({ error: "No location data for this token" });
+    return;
+  }
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json(estimate);
 });
 
 export default router;

@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type LocationSource = "network" | "gps" | "fused";
+export type LocationSource = "network" | "gps" | "fused" | "ip_geo";
 
 export interface FusedPosition {
   latitude: number;
@@ -34,6 +34,13 @@ export function classifySource(accuracy: number, sawNetworkFix: boolean, sawGpsF
 export interface UseFusedLocationOptions {
   /** Continuously refine via watchPosition once the first fix lands. Default true. */
   watch?: boolean;
+  /**
+   * Optional async function called when GPS fails with no cached fix.
+   * Should return a coarse position from server-side IP geolocation, or null.
+   * The result will be surfaced with source = "ip_geo" and typically carries
+   * a very large accuracy radius (5 000–50 000 m).
+   */
+  ipGeoFallback?: () => Promise<{ latitude: number; longitude: number; accuracy: number } | null>;
 }
 
 export function useFusedLocation(options: UseFusedLocationOptions = {}) {
@@ -46,6 +53,10 @@ export function useFusedLocation(options: UseFusedLocationOptions = {}) {
   const sawNetworkRef = useRef(false);
   const sawGpsRef = useRef(false);
   const watchIdRef = useRef<number | null>(null);
+  const ipGeoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep ipGeoFallback in a ref so the start() callback doesn't go stale
+  const ipGeoFallbackRef = useRef(options.ipGeoFallback);
+  useEffect(() => { ipGeoFallbackRef.current = options.ipGeoFallback; }, [options.ipGeoFallback]);
 
   const ingest = useCallback((pos: GeolocationPosition, isHighAccuracyRequest: boolean) => {
     const { latitude, longitude, accuracy } = pos.coords;
@@ -79,9 +90,33 @@ export function useFusedLocation(options: UseFusedLocationOptions = {}) {
   const start = useCallback(() => {
     if (!navigator.geolocation) {
       setError({ code: 2, message: "Geolocation not supported", PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 } as GeolocationPositionError);
+      // Still try IP geo as a last resort when the API is completely absent
+      if (ipGeoFallbackRef.current) {
+        ipGeoFallbackRef.current().then((fb) => {
+          if (!fb || bestRef.current) return;
+          const next: FusedPosition = { latitude: fb.latitude, longitude: fb.longitude, accuracy: fb.accuracy, source: "ip_geo", timestamp: Date.now() };
+          bestRef.current = next;
+          setPosition(next);
+        }).catch(() => {});
+      }
       return;
     }
     setIsResolving(true);
+    // After 8 s with no GPS result, try the IP geo fallback as a coarse stand-in
+    if (ipGeoFallbackRef.current) {
+      if (ipGeoTimerRef.current !== null) clearTimeout(ipGeoTimerRef.current);
+      ipGeoTimerRef.current = setTimeout(async () => {
+        if (bestRef.current) return; // GPS won the race — nothing to do
+        try {
+          const fb = await ipGeoFallbackRef.current?.();
+          if (!fb || bestRef.current) return;
+          const next: FusedPosition = { latitude: fb.latitude, longitude: fb.longitude, accuracy: fb.accuracy, source: "ip_geo", timestamp: Date.now() };
+          bestRef.current = next;
+          setPosition(next);
+          setIsResolving(false);
+        } catch { /* non-critical */ }
+      }, 8_000);
+    }
 
     // 1. Instant: accept any cached position the browser holds (super-fast path).
     //    Android caches the last known fix from any app — often < 100 ms.
@@ -122,6 +157,10 @@ export function useFusedLocation(options: UseFusedLocationOptions = {}) {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
+    }
+    if (ipGeoTimerRef.current !== null) {
+      clearTimeout(ipGeoTimerRef.current);
+      ipGeoTimerRef.current = null;
     }
   }, []);
 

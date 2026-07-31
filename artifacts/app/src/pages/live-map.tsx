@@ -43,6 +43,19 @@ interface LivePos {
   spoofFlags?: string[];
 }
 
+/** Best-estimate position from the quiet-device signal continuity engine. */
+interface BestEstimate {
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
+  confidence: number;
+  method: "gps_live" | "gps_extrapolated" | "dead_reckoning" | "ip_geo" | "last_known";
+  sources: string[];
+  estimatedAt: string;
+  gpsAgeMs: number;
+  deadReckoningDistanceM?: number;
+}
+
 function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const φ1 = (lat1 * Math.PI) / 180;
   const φ2 = (lat2 * Math.PI) / 180;
@@ -221,7 +234,9 @@ export default function LiveMap() {
   const mapInst     = useRef<L.Map | null>(null);
   const layersRef   = useRef<L.Layer[]>([]);
   const sseRefs     = useRef<globalThis.Map<string, EventSource>>(new globalThis.Map());
-  const livePos     = useRef<globalThis.Map<string, LivePos>>(new globalThis.Map());
+  const livePos              = useRef<globalThis.Map<string, LivePos>>(new globalThis.Map());
+  /** Best-estimate positions for contacts whose GPS is stale — keyed by invite token. */
+  const bestEstimateByToken  = useRef<globalThis.Map<string, BestEstimate>>(new globalThis.Map());
   const tileBaseRef = useRef<L.TileLayer | null>(null);
   const tileLabelRef= useRef<L.TileLayer | null>(null);
 
@@ -974,6 +989,38 @@ export default function LiveMap() {
     return () => clearInterval(id);
   }, [scheduleMarkerUpdate]);
 
+  // ── Quiet-device position estimates ──────────────────────────────────────────
+  // For contacts whose GPS is stale (> 5 min), periodically fetch a synthesised
+  // best-estimate position (dead reckoning / IP geo) so the map continues to
+  // show something meaningful even when the device is quiet or low-power.
+  useEffect(() => {
+    const fetchEstimates = async () => {
+      const staleInvites = latest.filter((inv) => {
+        const live = livePos.current.get(inv.token);
+        return !live || live.status !== "active" || isLiveStale(live.timestamp);
+      });
+      if (staleInvites.length === 0) return;
+
+      await Promise.allSettled(staleInvites.map(async (inv) => {
+        try {
+          const r = await fetch(`${API_BASE}/api/signals/estimate/${inv.token}`);
+          if (!r.ok) return;
+          const est: BestEstimate = await r.json();
+          if (est && typeof est.latitude === "number" && typeof est.longitude === "number") {
+            bestEstimateByToken.current.set(inv.token, est);
+          }
+        } catch { /* non-critical */ }
+      }));
+
+      scheduleMarkerUpdate();
+    };
+
+    fetchEstimates(); // run immediately on mount / contact list change
+    const id = setInterval(fetchEstimates, 30_000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latest.map((i) => i.token).join(","), scheduleMarkerUpdate]);
+
   // ── Render markers ────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapInst.current;
@@ -1023,8 +1070,15 @@ export default function LiveMap() {
 
     latest.forEach((inv) => {
       const rawLive = livePos.current.get(inv.token);
-      const lat = rawLive ? rawLive.lat : inv.grantedLatitude!;
-      const lng = rawLive ? rawLive.lng : inv.grantedLongitude!;
+      const estimate = bestEstimateByToken.current.get(inv.token);
+      // For dead-reckoning estimates, project the marker to the estimated position
+      // so the owner can see roughly where a moving but GPS-dark device has travelled.
+      const useEstimatedPos =
+        !rawLive &&
+        estimate?.method === "dead_reckoning" &&
+        estimate.gpsAgeMs < 30 * 60_000;
+      const lat = useEstimatedPos ? estimate!.latitude  : (rawLive ? rawLive.lat : inv.grantedLatitude!);
+      const lng = useEstimatedPos ? estimate!.longitude : (rawLive ? rawLive.lng : inv.grantedLongitude!);
       const isLive = rawLive?.status === "active" && !isLiveStale(rawLive.timestamp);
 
       if (!isFinite(lat) || !isFinite(lng)) return;
@@ -1071,6 +1125,29 @@ export default function LiveMap() {
           const radius = Math.min(Math.max(rawLive?.accuracy ?? 60, 15), 500);
           const ring = L.circle([lat, lng], { radius, color: "#10b981", fillColor: "#10b981", fillOpacity: 0.12, weight: 2 }).addTo(map);
           layersRef.current.push(ring);
+        }
+
+        // ── Estimated position ring (quiet / GPS-dark devices) ─────────────────
+        // Show a dashed uncertainty ring when GPS is stale but the signal
+        // continuity engine has a usable estimate (< 90 min old).
+        // Colour encodes the method: amber = dead reckoning, violet = IP geo,
+        // slate = simple extrapolation / last known.
+        if (!isLive && estimate && estimate.gpsAgeMs < 90 * 60_000) {
+          const estLat    = estimate.method === "ip_geo" ? estimate.latitude  : lat;
+          const estLng    = estimate.method === "ip_geo" ? estimate.longitude : lng;
+          const estRadius = Math.min(Math.max(estimate.accuracyMeters, 150), 200_000);
+          const ringColor =
+            estimate.method === "ip_geo"        ? "#8b5cf6" :
+            estimate.method === "dead_reckoning" ? "#f59e0b" : "#94a3b8";
+          const estRing = L.circle([estLat, estLng], {
+            radius: estRadius,
+            color:       ringColor,
+            fillColor:   ringColor,
+            fillOpacity: 0.04,
+            weight:      1.5,
+            dashArray:   "6 5",
+          }).addTo(map);
+          layersRef.current.push(estRing);
         }
 
         if (showClusters && geoClusteredPhones.has(inv.toPhone)) {
