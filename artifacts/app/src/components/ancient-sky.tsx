@@ -1,143 +1,203 @@
-import { useEffect, useRef } from "react";
+import { useMemo } from "react";
+import {
+  BatSVG, BlackBirdSVG, EagleSVG, OwlSVG,
+  PenguinSVG, TurkeySVG, ButterflySVG,
+} from "./bird-sprites";
 
 /**
- * AncientSky — persistent, pointer-free atmospheric layer.
- *
- * Desktop: 5 birds · 7 feathers · 8 cave-art glyphs, all randomised.
- * Mobile : 3 birds · 4 feathers · 4 glyphs — no CSS `filter` (avoids the
- *          Android-Chrome fixed+filter+transform compositor explosion that
- *          caused ghost duplicate cards). Opacity + transform only, which
- *          sit on dedicated GPU layers without triggering extra compositing.
+ * AncientSky — persistent decorative layer.
+ * Seven live birds with individually animated wings + legs fly across the sky.
+ * Cave-art glyphs and feathers drift in between.
+ * Mobile: lighter count, no CSS filter (prevents Android compositor glitch).
  */
 
-const BIRDS        = ["🦅", "🐦", "🕊️", "🦆"];
-const FEATHERS     = ["🪶"];
-const CAVE_GLYPHS  = ["⊕", "⊗", "△", "☽", "⊙", "✦", "⌖", "⋈", "⌇", "⊛"];
+type BirdKind = "bat" | "blackbird" | "eagle" | "owl" | "penguin" | "turkey" | "butterfly";
 
-function rand(min: number, max: number) {
-  return min + Math.random() * (max - min);
-}
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
+const BIRD_COMPONENTS: Record<BirdKind, (props: { size: number }) => React.ReactElement> = {
+  bat:        ({ size }) => <BatSVG size={size} />,
+  blackbird:  ({ size }) => <BlackBirdSVG size={size} />,
+  eagle:      ({ size }) => <EagleSVG size={size} />,
+  owl:        ({ size }) => <OwlSVG size={size} />,
+  penguin:    ({ size }) => <PenguinSVG size={size} />,
+  turkey:     ({ size }) => <TurkeySVG size={size} />,
+  butterfly:  ({ size }) => <ButterflySVG size={size} />,
+};
 
-let _uid = 0;
+const ALL_KINDS: BirdKind[] = ["bat","blackbird","eagle","owl","penguin","turkey","butterfly"];
+const CAVE_GLYPHS = ["⊕","⊗","△","☽","⊙","✦","⌖","⋈","⌇","⊛"];
+const FEATHER = "🪶";
 
-interface P {
-  kind: "bird" | "feather" | "glyph";
-  glyph: string;
+function rand(min: number, max: number) { return min + Math.random() * (max - min); }
+function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
+
+interface BirdEntry {
+  id: number;
+  kind: BirdKind;
+  size: number;
   top: number;
-  left: number;    // starting left % (for glyphs that don't fly across)
+  dur: number;
+  delay: number;
+  path: 1 | 2 | 3;
+  opacity: number;
+}
+interface GlyphEntry {
+  id: number;
+  char: string;
+  top: number;
+  left: number;
+  size: number;
+  opacity: number;
+  dur: number;
+  delay: number;
+}
+interface FeatherEntry {
+  id: number;
+  top: number;
+  left: number;
   size: number;
   opacity: number;
   dur: number;
   delay: number;
   path: 1 | 2 | 3;
-  isMobile: boolean;
 }
 
-function make(kind: P["kind"], mobile: boolean): P {
-  const base = {
+let _uid = 0;
+
+function buildScene(mobile: boolean) {
+  const birdCount    = mobile ? 4 : 7;
+  const glyphCount   = mobile ? 3 : 7;
+  const featherCount = mobile ? 3 : 6;
+
+  // One of each bird kind, shuffled; take first birdCount
+  const shuffled = [...ALL_KINDS].sort(() => Math.random() - 0.5);
+  const kinds = shuffled.slice(0, birdCount);
+
+  const birds: BirdEntry[] = kinds.map((kind) => ({
+    id: _uid++,
     kind,
-    glyph:   kind === "bird" ? pick(BIRDS) : kind === "feather" ? pick(FEATHERS) : pick(CAVE_GLYPHS),
-    isMobile: mobile,
-    left: 0,
-    path: pick([1, 2, 3] as const),
-  };
+    size: kind === "eagle" ? rand(44, 60)
+        : kind === "bat"   ? rand(40, 56)
+        : kind === "turkey"|| kind === "owl" ? rand(34, 48)
+        : rand(28, 42),
+    top:   rand(5, 72),
+    dur:   kind === "butterfly" ? rand(28, 46)
+         : kind === "eagle"     ? rand(32, 50)
+         : kind === "bat"       ? rand(18, 28)
+         : rand(22, 38),
+    delay: rand(0, 24),
+    path:  pick([1, 2, 3] as const),
+    opacity: kind === "butterfly" ? rand(0.55, 0.85)
+           : mobile               ? rand(0.18, 0.30)
+           : rand(0.12, 0.22),
+  }));
 
-  if (kind === "bird") return {
-    ...base,
-    top:     rand(4, 76),
-    size:    mobile ? rand(16, 26) : rand(18, 34),
-    opacity: mobile ? rand(0.12, 0.22) : rand(0.06, 0.14),
-    dur:     mobile ? rand(18, 32) : rand(22, 44),
-    delay:   rand(0, 20),
-  };
-
-  if (kind === "feather") return {
-    ...base,
-    top:     rand(0, 25),
+  const glyphs: GlyphEntry[] = Array.from({ length: glyphCount }, () => ({
+    id:      _uid++,
+    char:    pick(CAVE_GLYPHS),
+    top:     rand(8, 88),
     left:    rand(5, 90),
-    size:    mobile ? rand(16, 24) : rand(18, 30),
-    opacity: mobile ? rand(0.25, 0.50) : rand(0.18, 0.45),
-    dur:     mobile ? rand(12, 22) : rand(14, 28),
-    delay:   rand(0, 14),
-  };
-
-  // glyph
-  return {
-    ...base,
-    top:     rand(10, 85),
-    left:    rand(5, 90),
-    size:    mobile ? rand(11, 18) : rand(10, 20),
-    opacity: mobile ? rand(0.07, 0.13) : rand(0.04, 0.09),
-    dur:     mobile ? rand(25, 45) : rand(30, 60),
+    size:    rand(10, 18),
+    opacity: rand(0.05, 0.10),
+    dur:     rand(28, 55),
     delay:   rand(0, 30),
-  };
+  }));
+
+  const feathers: FeatherEntry[] = Array.from({ length: featherCount }, () => ({
+    id:      _uid++,
+    top:     rand(0, 28),
+    left:    rand(5, 88),
+    size:    mobile ? rand(14, 22) : rand(16, 28),
+    opacity: mobile ? rand(0.22, 0.45) : rand(0.18, 0.42),
+    dur:     rand(12, 26),
+    delay:   rand(0, 16),
+    path:    pick([1, 2, 3] as const),
+  }));
+
+  return { birds, glyphs, feathers };
 }
 
 export function AncientSky() {
-  const ref = useRef<HTMLDivElement>(null);
+  const mobile = typeof window !== "undefined" && window.innerWidth < 768;
 
-  useEffect(() => {
-    const container = ref.current;
-    if (!container) return;
+  // useMemo so the scene is stable across re-renders but built once on mount
+  const { birds, glyphs, feathers } = useMemo(
+    () => buildScene(mobile),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
-    const mobile = window.innerWidth < 768;
-    const birdN   = mobile ? 3 : 5;
-    const featherN = mobile ? 4 : 7;
-    const glyphN   = mobile ? 4 : 8;
+  return (
+    <div className="ancient-sky" aria-hidden="true">
+      {/* Aurora glow */}
+      <div className={`ancient-sky__aurora${mobile ? " ancient-sky__aurora--mobile" : ""}`} />
 
-    container.innerHTML = "";
+      {/* ── Live birds ── */}
+      {birds.map((b) => {
+        const Comp = BIRD_COMPONENTS[b.kind];
+        return (
+          <div
+            key={b.id}
+            className={`sky-bird-wrap sky-path-${b.path}`}
+            style={{
+              position: "absolute",
+              top: `${b.top}%`,
+              left: "-12%",
+              opacity: b.opacity,
+              animationDuration: `${b.dur}s`,
+              animationDelay:    `${b.delay}s`,
+              // No CSS filter on mobile — prevents Android Chrome compositor glitch
+              filter: mobile ? "none"
+                : "drop-shadow(0 6px 14px rgba(0,0,0,0.7)) sepia(0.2) saturate(1.2)",
+              willChange: "transform",
+              // slight body bob
+              animation: `sky-path-${b.path} ${b.dur}s ${b.delay}s linear infinite,
+                          sky-body-bob 1.8s ${rand(0,1.8).toFixed(2)}s ease-in-out infinite`,
+            } as React.CSSProperties}
+          >
+            <Comp size={b.size} />
+          </div>
+        );
+      })}
 
-    // Aurora blob — uses only opacity+transform on mobile, blur only on desktop
-    const aurora = document.createElement("div");
-    aurora.className = mobile ? "ancient-sky__aurora ancient-sky__aurora--mobile" : "ancient-sky__aurora";
-    container.appendChild(aurora);
+      {/* ── Drifting feathers ── */}
+      {feathers.map((f) => (
+        <span
+          key={f.id}
+          style={{
+            position:  "absolute",
+            top:       `${f.top}%`,
+            left:      `${f.left}%`,
+            fontSize:  `${f.size}px`,
+            opacity:   f.opacity,
+            animation: `feather-drift-${f.path} ${f.dur}s ${f.delay}s ease-in-out infinite`,
+            willChange:"transform, opacity",
+            pointerEvents: "none",
+          }}
+        >
+          {FEATHER}
+        </span>
+      ))}
 
-    const particles: P[] = [
-      ...Array.from({ length: birdN },    () => make("bird",    mobile)),
-      ...Array.from({ length: featherN }, () => make("feather", mobile)),
-      ...Array.from({ length: glyphN },   () => make("glyph",   mobile)),
-    ];
-
-    particles.forEach((p) => {
-      const el = document.createElement("span");
-
-      const animName =
-        p.kind === "bird"    ? `sky-path-${p.path}` :
-        p.kind === "feather" ? `feather-drift-${p.path}` :
-        "glyph-breathe";
-
-      Object.assign(el.style, {
-        position:       "absolute",
-        top:            `${p.top}%`,
-        // Birds fly in from off-screen left; feathers & glyphs start at their left pos
-        left: p.kind === "bird" ? "-10%" : `${p.left}%`,
-        fontSize:       `${p.size}px`,
-        opacity:        String(p.opacity),
-        animation:      `${animName} ${p.dur}s ${p.delay}s linear infinite`,
-        // Mobile: NO filter — avoids compositor tile explosion on Android Chrome.
-        // Desktop: subtle sepia tint for warmth.
-        filter: (!mobile && p.kind !== "glyph")
-          ? "sepia(0.5) saturate(1.3) drop-shadow(0 4px 8px rgba(0,0,0,0.65))"
-          : "none",
-        color:          p.kind === "glyph" ? "rgba(245,193,108,0.6)" : "rgba(255,202,90,0.9)",
-        willChange:     "transform, opacity",
-        pointerEvents:  "none",
-        userSelect:     "none",
-        fontFamily:     p.kind === "glyph" ? "monospace" : "inherit",
-        // Force own compositor layer without filter
-        transform:      "translateZ(0)",
-      });
-
-      el.textContent = p.glyph;
-      el.setAttribute("aria-hidden", "true");
-      container.appendChild(el);
-    });
-
-    return () => { container.innerHTML = ""; };
-  }, []);
-
-  return <div ref={ref} className="ancient-sky" aria-hidden="true" />;
+      {/* ── Cave-art glyphs ── */}
+      {glyphs.map((g) => (
+        <span
+          key={g.id}
+          style={{
+            position:  "absolute",
+            top:       `${g.top}%`,
+            left:      `${g.left}%`,
+            fontSize:  `${g.size}px`,
+            opacity:   g.opacity,
+            color:     "rgba(245,193,108,0.7)",
+            fontFamily:"monospace",
+            animation: `glyph-breathe ${g.dur}s ${g.delay}s ease-in-out infinite`,
+            willChange:"transform, opacity",
+            pointerEvents:"none",
+          }}
+        >
+          {g.char}
+        </span>
+      ))}
+    </div>
+  );
 }

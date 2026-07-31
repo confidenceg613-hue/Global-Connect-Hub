@@ -444,6 +444,129 @@
 
 @keyframes sky-breathe { 50% { transform: scale(1.14) translate(-3%, 5%); opacity: .55; } }
 
+/* ── Bird-part animations ─────────────────────────────────────────────────── */
+
+/* Gentle body bob (stacked on the flight-path animation via the bird wrapper) */
+@keyframes sky-body-bob {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-3px); }
+}
+
+/* Generic side-profile wing (eagle, blackbird, turkey) — rotates around base */
+.sky-wing-profile {
+  transform-box: fill-box;
+  transform-origin: 60% 100%;
+  animation: sky-wing-profile-flap 0.72s ease-in-out infinite alternate;
+}
+.sky-wing-eagle {
+  transform-box: fill-box;
+  transform-origin: 55% 100%;
+  animation: sky-wing-profile-flap 1.4s ease-in-out infinite alternate;
+}
+@keyframes sky-wing-profile-flap {
+  0%   { transform: rotate(0deg) scaleY(1); }
+  50%  { transform: rotate(-18deg) scaleY(0.82); }
+  100% { transform: rotate(8deg) scaleY(0.95); }
+}
+
+/* Owl side wings — hinge at the body edge */
+.sky-wing-l {
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: sky-wing-left-flap 0.9s ease-in-out infinite alternate;
+}
+.sky-wing-r {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: sky-wing-right-flap 0.9s ease-in-out infinite alternate;
+}
+@keyframes sky-wing-left-flap {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(-28deg); }
+}
+@keyframes sky-wing-right-flap {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(28deg); }
+}
+
+/* Bat — deeper dramatic fold */
+.sky-bat-wing-l {
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: sky-bat-left 0.42s ease-in-out infinite alternate;
+}
+.sky-bat-wing-r {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: sky-bat-right 0.42s ease-in-out infinite alternate;
+}
+@keyframes sky-bat-left {
+  0%   { transform: rotate(0deg) scaleY(1); }
+  100% { transform: rotate(38deg) scaleY(0.65); }
+}
+@keyframes sky-bat-right {
+  0%   { transform: rotate(0deg) scaleY(1); }
+  100% { transform: rotate(-38deg) scaleY(0.65); }
+}
+
+/* Penguin flippers */
+.sky-flipper-l {
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: sky-wing-left-flap 0.6s ease-in-out infinite alternate;
+}
+.sky-flipper-r {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: sky-wing-right-flap 0.6s ease-in-out infinite alternate;
+}
+
+/* Butterfly — wings open/close symmetrically around body */
+.sky-butterfly-ul {
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: sky-butterfly-left 0.55s ease-in-out infinite alternate;
+}
+.sky-butterfly-ur {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: sky-butterfly-right 0.55s ease-in-out infinite alternate;
+}
+.sky-butterfly-ll {
+  transform-box: fill-box;
+  transform-origin: right top;
+  animation: sky-butterfly-left 0.55s ease-in-out infinite alternate;
+}
+.sky-butterfly-lr {
+  transform-box: fill-box;
+  transform-origin: left top;
+  animation: sky-butterfly-right 0.55s ease-in-out infinite alternate;
+}
+@keyframes sky-butterfly-left {
+  0%   { transform: scaleX(1) rotate(0deg); }
+  100% { transform: scaleX(0.18) rotate(-22deg); }
+}
+@keyframes sky-butterfly-right {
+  0%   { transform: scaleX(1) rotate(0deg); }
+  100% { transform: scaleX(0.18) rotate(22deg); }
+}
+
+/* Walking legs — alternate phase for L and R */
+.sky-leg-l {
+  transform-box: fill-box;
+  transform-origin: center top;
+  animation: sky-leg-swing 0.48s ease-in-out infinite alternate;
+}
+.sky-leg-r {
+  transform-box: fill-box;
+  transform-origin: center top;
+  animation: sky-leg-swing 0.48s ease-in-out infinite alternate-reverse;
+}
+@keyframes sky-leg-swing {
+  0%   { transform: rotate(-20deg); }
+  100% { transform: rotate(20deg); }
+}
+
 .landing-feather-seal { display:grid; place-items:center; width:33px; height:33px; border:1px solid rgba(245, 180, 47, .4); border-radius:50%; color:#f8c25d; background:radial-gradient(circle, rgba(245, 180, 47, .18), transparent 68%); box-shadow:0 0 22px rgba(231, 153, 25, .16); animation: seal-float 4s ease-in-out infinite; }
 .hero-feather { position:absolute; z-index:2; font-size:29px; opacity:.62; filter:drop-shadow(0 5px 8px rgba(0,0,0,.65)); animation: hero-feather 7s ease-in-out infinite; }
 .hero-feather--one { right:14%; top:9%; }.hero-feather--two { left:11%; top:49%; animation-delay:-3.5s; transform:scale(.72) rotate(90deg); }
