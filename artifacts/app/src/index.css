@@ -280,8 +280,18 @@
    resulting ghost copies look like duplicated dashboard cards. Mobile uses the
    same visual language with stable paint layers instead of GPU-heavy effects. */
 @media (max-width: 767px) {
+  /* Ancient-sky IS shown on mobile — but uses opacity+transform only (no filter)
+     to avoid the Android-Chrome fixed+filter+transform compositor-tile explosion.
+     `contain: strict` creates an isolated paint layer so animated children can't
+     bleed into the page compositor and create ghost duplicates. */
   .ancient-sky {
-    display: none;
+    contain: strict;
+    isolation: isolate;
+  }
+  /* Aurora on mobile: no blur filter — static radial gradient only */
+  .ancient-sky__aurora--mobile {
+    filter: none !important;
+    animation: sky-breathe 16s ease-in-out infinite;
   }
 
   .dark body {
