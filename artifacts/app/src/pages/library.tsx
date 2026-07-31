@@ -6,7 +6,6 @@ import { useRef, useState } from "react";
 import { Play, Pause, Upload, Trash2, Music2, HardDrive } from "lucide-react";
 import { useAudioLibrary, fmtBytes, type TrackMeta } from "@/hooks/use-audio-library";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
-import { AppLayout } from "@/components/layout/app-layout";
 
 const MAX_MB = 50;
 
@@ -44,8 +43,7 @@ export default function LibraryPage() {
   };
 
   return (
-    <AppLayout>
-      <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center gap-3 mb-2">
           <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
@@ -168,8 +166,7 @@ export default function LibraryPage() {
             ))
           )}
         </div>
-      </div>
-    </AppLayout>
+    </div>
   );
 }
 

@@ -4,7 +4,7 @@
   "description": "Secure real-time location intelligence platform.",
   "start_url": "/",
   "scope": "/",
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "portrait-primary",
   "background_color": "#0D0A06",
   "theme_color": "#0D0A06",
@@ -23,5 +23,5 @@
     }
   ],
   "categories": ["utilities", "navigation"],
-  "display_override": ["standalone", "minimal-ui"]
+  "display_override": ["fullscreen", "standalone", "minimal-ui"]
 }

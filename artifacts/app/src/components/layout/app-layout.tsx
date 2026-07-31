@@ -188,7 +188,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     <button onClick={handleBellClick}
       disabled={notifState === "unsupported" || notifState === "loading"}
       title={bellTitle} aria-label={bellTitle}
-      className={`relative p-2 rounded-lg transition-all hover:bg-secondary ${bellColor}`}>
+      className={`relative h-9 w-9 flex items-center justify-center rounded-lg transition-all hover:bg-secondary ${bellColor}`}>
       <BellIcon size={18} />
       {notifState === "granted" && unreadCount > 0 && (
         <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-1 ring-1 ring-background">
