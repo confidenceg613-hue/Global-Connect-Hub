@@ -66,7 +66,7 @@ let _uid = 0;
 function buildScene(mobile: boolean) {
   const birdCount    = mobile ? 4 : 7;
   const glyphCount   = mobile ? 3 : 7;
-  const featherCount = mobile ? 3 : 6;
+  const featherCount = mobile ? 10 : 20;
 
   // One of each bird kind, shuffled; take first birdCount
   const shuffled = [...ALL_KINDS].sort(() => Math.random() - 0.5);
@@ -106,8 +106,8 @@ function buildScene(mobile: boolean) {
     id:      _uid++,
     top:     rand(0, 28),
     left:    rand(5, 88),
-    size:    mobile ? rand(14, 22) : rand(16, 28),
-    opacity: mobile ? rand(0.22, 0.45) : rand(0.18, 0.42),
+    size:    mobile ? rand(18, 32) : rand(22, 40),
+    opacity: mobile ? rand(0.28, 0.55) : rand(0.22, 0.52),
     dur:     rand(12, 26),
     delay:   rand(0, 16),
     path:    pick([1, 2, 3] as const),
