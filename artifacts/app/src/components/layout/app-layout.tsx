@@ -273,7 +273,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Mobile */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* z-[1010] keeps the header above Live Map's Leaflet layers (z-[1000]) */}
-        <header className="md:hidden sticky top-0 z-[1010] flex items-center justify-between px-4 py-3 bg-background border-b border-border">
+        <header className="md:hidden sticky top-0 z-[1010] flex items-center justify-between px-4 pb-3 bg-background border-b border-border" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}>
           <div className="flex items-center gap-2.5">
             <img src="/falcon-logo.png" alt="DeepFalcon" className="w-8 h-8 rounded-lg object-cover shadow-sm shadow-amber-500/20 ring-1 ring-amber-500/30" />
             <span className="font-bold text-base text-foreground tracking-tight" style={{ fontFamily: "Syne, system-ui, sans-serif", letterSpacing: "-0.02em" }}>DeepFalcon</span>
