@@ -9,6 +9,8 @@ import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { AudioPlayerBar } from "@/components/audio-player-bar";
 import { useImmersiveMode } from "@/hooks/use-immersive-mode";
 import { InAppBrowserProvider, useInAppBrowser } from "@/components/in-app-browser";
+import { AudioPlayerProvider } from "@/hooks/audio-player-context";
+import { PinLockGate } from "@/components/pin-lock-gate";
 import { useEffect, useCallback, lazy, Suspense } from "react";
 
 // Public entry pages: kept as static imports so the very first screen
@@ -317,12 +319,15 @@ function ExternalLinkInterceptor() {
   return null;
 }
 
+/** Inner shell — consumes the shared audio player from context */
 function AppInner() {
   const { userId } = useAuth();
-  const { soundOn, trackName, progress, currentTime, duration, toggleSound, playTrack, seek } = useAudioPlayer();
+  const { soundOn, trackName, progress, currentTime, duration, toggleSound, playTrack, seek } =
+    useAudioPlayer();
   useImmersiveMode();
   return (
-    <>
+    // Provide the single audio player instance to every child (Library page, etc.)
+    <AudioPlayerProvider value={{ soundOn, trackName, progress, currentTime, duration, toggleSound, playTrack, seek, startMusic: toggleSound }}>
       <AncientSky />
       <AudioPlayerBar
         soundOn={soundOn}
@@ -343,7 +348,7 @@ function AppInner() {
       <IncomingRequestModal />
       <AssistantWidget />
       <Toaster />
-    </>
+    </AudioPlayerProvider>
   );
 }
 
@@ -355,7 +360,9 @@ function App() {
           <TooltipProvider>
             <InAppBrowserProvider>
               <ExternalLinkInterceptor />
-              <AppInner />
+              <PinLockGate>
+                <AppInner />
+              </PinLockGate>
             </InAppBrowserProvider>
           </TooltipProvider>
         </AccessProvider>

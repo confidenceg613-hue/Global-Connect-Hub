@@ -5,14 +5,14 @@
 import { useRef, useState } from "react";
 import { Play, Pause, Upload, Trash2, Music2, HardDrive } from "lucide-react";
 import { useAudioLibrary, fmtBytes, type TrackMeta } from "@/hooks/use-audio-library";
-import { useAudioPlayer } from "@/hooks/use-audio-player";
+import { useSharedAudioPlayer } from "@/hooks/audio-player-context";
 
 const MAX_MB = 50;
 
 export default function LibraryPage() {
   const { tracks, usedBytes, maxBytes, loading, error, addTrack, removeTrack, getObjectUrl } =
     useAudioLibrary();
-  const { playTrack, soundOn, trackName } = useAudioPlayer();
+  const { playTrack, soundOn, trackName } = useSharedAudioPlayer();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
