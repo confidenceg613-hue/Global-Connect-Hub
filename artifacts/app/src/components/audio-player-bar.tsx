@@ -73,48 +73,72 @@ export function AudioPlayerBar({
         style={{
           position: "fixed", bottom: 0, left: 0, right: 0,
           zIndex: 60,
-          background: "linear-gradient(90deg,#110900 0%,#1c1005 60%,#110900 100%)",
-          borderTop: "1px solid rgba(212,168,67,0.18)",
-          backdropFilter: "blur(18px)",
+          background: "linear-gradient(180deg, rgba(5,9,18,0.96) 0%, rgba(3,6,12,0.99) 100%)",
+          borderTop: "1px solid rgba(245,160,8,0.12)",
+          backdropFilter: "blur(24px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(24px) saturate(1.4)",
           display: "flex",
           alignItems: "center",
           gap: 0,
           padding: "0 16px",
-          height: 64,
-          boxShadow: "0 -4px 32px rgba(0,0,0,0.55)",
+          height: 68,
+          boxShadow: "0 -1px 0 rgba(245,160,8,0.08), 0 -8px 40px rgba(0,0,0,0.7)",
         }}
       >
+        {/* Subtle top highlight line */}
+        <div style={{
+          position: "absolute", top: 0, left: 0, right: 0, height: 1,
+          background: "linear-gradient(90deg, transparent 0%, rgba(245,160,8,0.18) 30%, rgba(245,160,8,0.28) 50%, rgba(245,160,8,0.18) 70%, transparent 100%)",
+          pointerEvents: "none",
+        }}/>
+
         {/* Track name */}
         <div
           className="audio-player-bar__track"
           style={{
           display: "flex", alignItems: "center", gap: 8,
-          minWidth: 0, flex: "0 0 auto", maxWidth: 180,
+          minWidth: 0, flex: "0 0 auto", maxWidth: 160,
           marginRight: 14,
         }}>
-          <Music2 size={15} color="#D4A843" style={{ flexShrink: 0 }} />
-          <span style={{
-            color: "#D4A843",
-            fontSize: 11,
-            fontFamily: "'Share Tech Mono', monospace",
-            letterSpacing: "0.06em",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
+          <div style={{
+            width: 28, height: 28, borderRadius: 7,
+            background: soundOn
+              ? "linear-gradient(135deg, rgba(245,160,8,0.2) 0%, rgba(180,83,9,0.15) 100%)"
+              : "rgba(245,160,8,0.06)",
+            border: `1px solid ${soundOn ? "rgba(245,160,8,0.3)" : "rgba(245,160,8,0.1)"}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0, transition: "all 0.3s",
           }}>
-            {trackName}
-          </span>
+            <Music2 size={13} color={soundOn ? "#F59E0B" : "rgba(245,160,8,0.4)"} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              color: soundOn ? "#F0E6C8" : "rgba(240,230,200,0.45)",
+              fontSize: 10.5,
+              fontFamily: "'Share Tech Mono', monospace",
+              letterSpacing: "0.06em",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              transition: "color 0.3s",
+            }}>
+              {trackName}
+            </div>
+            <div style={{ color: "rgba(245,160,8,0.3)", fontSize: 8, letterSpacing: "0.1em", marginTop: 1 }}>
+              {soundOn ? "● LIVE" : "○ PAUSED"}
+            </div>
+          </div>
         </div>
 
         {/* Progress bar + time */}
-        <div className="audio-player-bar__progress" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+        <div className="audio-player-bar__progress" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
           {/* Clickable seek bar */}
           <div
             ref={barRef}
             onClick={handleBarClick}
             style={{
-              height: 4, borderRadius: 2,
-              background: "rgba(212,168,67,0.15)",
+              height: 3, borderRadius: 2,
+              background: "rgba(245,160,8,0.1)",
               cursor: "pointer", position: "relative", overflow: "visible",
             }}
           >
@@ -122,28 +146,32 @@ export function AudioPlayerBar({
               position: "absolute", left: 0, top: 0, bottom: 0,
               width: `${progress * 100}%`,
               background: soundOn
-                ? "linear-gradient(90deg,#D4A843,#F5C842)"
-                : "rgba(212,168,67,0.35)",
+                ? "linear-gradient(90deg, #B45309, #F59E0B, #FCD34D)"
+                : "rgba(245,160,8,0.25)",
               borderRadius: 2,
               transition: "background 0.3s",
+              boxShadow: soundOn ? "0 0 6px rgba(245,160,8,0.4)" : "none",
             }} />
             {/* Thumb */}
             <div style={{
               position: "absolute",
               left: `calc(${progress * 100}% - 5px)`,
-              top: -3, width: 10, height: 10, borderRadius: "50%",
-              background: soundOn ? "#F5C842" : "#6a5020",
-              border: "1.5px solid #1c1005",
-              transition: "background 0.3s",
+              top: -4, width: 11, height: 11, borderRadius: "50%",
+              background: soundOn
+                ? "radial-gradient(circle, #FCD34D 30%, #F59E0B 100%)"
+                : "rgba(245,160,8,0.3)",
+              border: `1.5px solid ${soundOn ? "rgba(252,211,77,0.5)" : "transparent"}`,
+              boxShadow: soundOn ? "0 0 8px rgba(245,160,8,0.6)" : "none",
+              transition: "all 0.3s",
               pointerEvents: "none",
             }} />
           </div>
           {/* Time stamps */}
           <div style={{
             display: "flex", justifyContent: "space-between",
-            fontSize: 9, color: "rgba(212,168,67,0.45)",
+            fontSize: 8.5, color: "rgba(245,160,8,0.3)",
             fontFamily: "'Share Tech Mono', monospace",
-            letterSpacing: "0.08em",
+            letterSpacing: "0.1em",
           }}>
             <span>{currentTime}</span>
             <span>{duration}</span>
@@ -156,34 +184,44 @@ export function AudioPlayerBar({
           onClick={onToggle}
           style={{
             display: "flex", alignItems: "center", gap: 7,
-            marginLeft: 16,
-            padding: "8px 18px",
-            borderRadius: 24,
-            border: `1.5px solid ${soundOn ? "#D4A843" : "rgba(212,168,67,0.3)"}`,
+            marginLeft: 14,
+            padding: "9px 18px",
+            borderRadius: 26,
+            border: `1px solid ${soundOn ? "rgba(245,160,8,0.55)" : "rgba(245,160,8,0.2)"}`,
             background: soundOn
-              ? "linear-gradient(135deg,#3a2206,#241504)"
-              : "rgba(20,12,2,0.7)",
-            color: soundOn ? "#F5C842" : "#8a6030",
-            fontSize: 11,
+              ? "linear-gradient(135deg, rgba(180,83,9,0.5) 0%, rgba(120,50,5,0.6) 100%)"
+              : "rgba(12,18,28,0.8)",
+            color: soundOn ? "#FCD34D" : "rgba(245,160,8,0.4)",
+            fontSize: 10.5,
             fontWeight: 700,
             fontFamily: "'Share Tech Mono', monospace",
-            letterSpacing: "0.14em",
+            letterSpacing: "0.16em",
             cursor: "pointer",
-            transition: "all 0.2s",
-            boxShadow: soundOn ? "0 0 18px rgba(212,168,67,0.22)" : "none",
+            transition: "all 0.25s",
+            boxShadow: soundOn
+              ? "0 0 20px rgba(245,160,8,0.2), inset 0 1px 0 rgba(255,200,50,0.1)"
+              : "inset 0 1px 0 rgba(255,255,255,0.03)",
             flexShrink: 0,
           }}
           onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.transform = "scale(1.05)";
+            const btn = e.currentTarget as HTMLButtonElement;
+            btn.style.transform = "scale(1.04)";
+            btn.style.boxShadow = soundOn
+              ? "0 0 28px rgba(245,160,8,0.35), inset 0 1px 0 rgba(255,200,50,0.1)"
+              : "0 0 12px rgba(245,160,8,0.12)";
           }}
           onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)";
+            const btn = e.currentTarget as HTMLButtonElement;
+            btn.style.transform = "scale(1)";
+            btn.style.boxShadow = soundOn
+              ? "0 0 20px rgba(245,160,8,0.2), inset 0 1px 0 rgba(255,200,50,0.1)"
+              : "inset 0 1px 0 rgba(255,255,255,0.03)";
           }}
           aria-label={soundOn ? "Pause music" : "Play music"}
         >
           {soundOn
-            ? <><Pause size={13} fill="#F5C842" strokeWidth={0} /> PAUSE</>
-            : <><Play  size={13} fill="#8a6030" strokeWidth={0} /> PLAY</>}
+            ? <><Pause size={12} fill="#FCD34D" strokeWidth={0} /> PAUSE</>
+            : <><Play  size={12} fill="rgba(245,160,8,0.4)" strokeWidth={0} /> PLAY</>}
         </button>
 
         {/* Library button */}
@@ -192,32 +230,37 @@ export function AudioPlayerBar({
           onClick={() => setLibraryOpen(true)}
           style={{
             display: "flex", alignItems: "center", gap: 6,
-            marginLeft: 10,
-            padding: "8px 14px",
-            borderRadius: 24,
-            border: "1.5px solid rgba(212,168,67,0.2)",
-            background: "rgba(20,12,2,0.6)",
-            color: "#6a5020",
+            marginLeft: 8,
+            padding: "9px 14px",
+            borderRadius: 26,
+            border: "1px solid rgba(245,160,8,0.14)",
+            background: "rgba(12,18,28,0.7)",
+            color: "rgba(245,160,8,0.35)",
             fontSize: 10,
             fontWeight: 600,
             fontFamily: "'Share Tech Mono', monospace",
-            letterSpacing: "0.12em",
+            letterSpacing: "0.14em",
             cursor: "pointer",
             flexShrink: 0,
-            transition: "all 0.2s",
+            transition: "all 0.22s",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
           }}
           onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.color = "#D4A843";
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(212,168,67,0.45)";
+            const btn = e.currentTarget as HTMLButtonElement;
+            btn.style.color = "#F59E0B";
+            btn.style.borderColor = "rgba(245,160,8,0.4)";
+            btn.style.background = "rgba(245,160,8,0.07)";
           }}
           onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.color = "#6a5020";
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(212,168,67,0.2)";
+            const btn = e.currentTarget as HTMLButtonElement;
+            btn.style.color = "rgba(245,160,8,0.35)";
+            btn.style.borderColor = "rgba(245,160,8,0.14)";
+            btn.style.background = "rgba(12,18,28,0.7)";
           }}
           aria-label="Open audio library"
           title="Audio library"
         >
-          <Upload size={12} /> LIBRARY
+          <Upload size={11} /> LIBRARY
         </button>
       </div>
 

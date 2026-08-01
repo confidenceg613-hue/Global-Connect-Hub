@@ -224,7 +224,7 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
   return (
     <div style={{
       minHeight: "100vh",
-      background: "#040A18",
+      background: "linear-gradient(170deg, #04080F 0%, #060C18 45%, #050912 100%)",
       display: "flex",
       flexDirection: "column",
       alignItems: "center",
@@ -233,93 +233,234 @@ function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
       position: "relative",
       overflow: "hidden",
     }}>
-      {/* Dot-grid background */}
+      {/* Deep space starfield dots */}
       <div style={{
         position: "absolute", inset: 0,
-        backgroundImage: "radial-gradient(circle at 1px 1px, rgba(245,160,8,0.07) 1px, transparent 0)",
-        backgroundSize: "28px 28px",
+        backgroundImage: "radial-gradient(circle at 1px 1px, rgba(200,210,255,0.035) 1px, transparent 0)",
+        backgroundSize: "32px 32px",
         pointerEvents: "none",
       }}/>
-      {/* Top amber radial glow */}
+      {/* Layered radial depth glows */}
       <div style={{
-        position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
-        width: "70%", height: "220px",
-        background: "radial-gradient(ellipse at top, rgba(245,160,8,0.09) 0%, transparent 70%)",
+        position: "absolute", top: "-10%", left: "50%", transform: "translateX(-50%)",
+        width: "120%", height: "55%",
+        background: "radial-gradient(ellipse at top, rgba(245,160,8,0.07) 0%, rgba(30,60,120,0.06) 45%, transparent 70%)",
         pointerEvents: "none",
       }}/>
+      <div style={{
+        position: "absolute", bottom: "-5%", left: "50%", transform: "translateX(-50%)",
+        width: "90%", height: "40%",
+        background: "radial-gradient(ellipse at bottom, rgba(10,25,60,0.5) 0%, transparent 70%)",
+        pointerEvents: "none",
+      }}/>
+      {/* Screen corner brackets */}
+      {[
+        { top: 16, left: 16, rotate: 0 },
+        { top: 16, right: 16, rotate: 90 },
+        { bottom: 80, left: 16, rotate: 270 },
+        { bottom: 80, right: 16, rotate: 180 },
+      ].map((pos, i) => (
+        <svg key={i} width="20" height="20" viewBox="0 0 20 20" fill="none"
+          style={{ position: "absolute", ...pos as any, opacity: 0.25, transform: `rotate(${(pos as any).rotate}deg)` }}>
+          <path d="M0 12 L0 0 L12 0" stroke="#F59E0B" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+      ))}
 
       {/* Brand */}
       <div style={{
-        position: "absolute", top: 22, left: "50%", transform: "translateX(-50%)",
-        display: "flex", alignItems: "center", gap: 10,
+        position: "absolute", top: 24, left: "50%", transform: "translateX(-50%)",
+        display: "flex", alignItems: "center", gap: 11,
       }}>
         <div style={{
-          width: 32, height: 32, borderRadius: 8,
-          background: "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)",
+          width: 36, height: 36, borderRadius: 10,
+          background: "linear-gradient(145deg, #F59E0B 0%, #B45309 100%)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 0 12px rgba(245,160,8,0.4)",
+          animation: "apex-brand-glow 3s ease-in-out infinite",
+          flexShrink: 0,
         }}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinejoin="round">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
           </svg>
         </div>
-        <span style={{ color: "#E2E5EE", fontFamily: "system-ui, sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em" }}>
+        <span style={{
+          color: "#F0F2F8", fontFamily: "'Syne', system-ui, sans-serif",
+          fontWeight: 800, fontSize: 18, letterSpacing: "0.02em",
+        }}>
           DeepFalcon
         </span>
       </div>
 
-      {/* Eagle + ring */}
-      <div style={{ position: "relative", width: 240, height: 240, marginBottom: 28 }}>
-        {/* Outer spinning dashed ring */}
-        <svg viewBox="0 0 240 240" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", animation: "apex-spin 10s linear infinite" }}>
-          <circle cx="120" cy="120" r="112" stroke="#F59E0B" strokeWidth="3" fill="none"
-            strokeDasharray="9 5" strokeLinecap="round" opacity="0.85"/>
+      {/* Eagle scope */}
+      <div style={{ position: "relative", width: 280, height: 280, marginBottom: 32 }}>
+        {/* Outermost ghost ring */}
+        <svg viewBox="0 0 280 280" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+          <circle cx="140" cy="140" r="136" stroke="#F59E0B" strokeWidth="0.5" fill="none" opacity="0.12"/>
         </svg>
-        {/* Inner counter-spinning ring */}
-        <svg viewBox="0 0 240 240" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", animation: "apex-spin-rev 16s linear infinite" }}>
-          <circle cx="120" cy="120" r="98" stroke="#F59E0B" strokeWidth="1" fill="none"
-            strokeDasharray="3 14" opacity="0.38"/>
+        {/* Outer dashed spinning ring */}
+        <svg viewBox="0 0 280 280" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", animation: "apex-spin 14s linear infinite", pointerEvents: "none" }}>
+          <circle cx="140" cy="140" r="128" stroke="#F59E0B" strokeWidth="1.8" fill="none"
+            strokeDasharray="10 6" strokeLinecap="round" opacity="0.7"/>
         </svg>
-        {/* Cardinal ticks + dark background circle */}
-        <svg viewBox="0 0 240 240" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-          <circle cx="120" cy="120" r="86" fill="#040A18" stroke="#F59E0B" strokeWidth="1" opacity="0.25"/>
-          <line x1="2"   y1="120" x2="16"  y2="120" stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
-          <line x1="224" y1="120" x2="238" y2="120" stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
-          <line x1="120" y1="2"   x2="120" y2="16"  stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
-          <line x1="120" y1="224" x2="120" y2="238" stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
+        {/* Mid counter-spinning dotted ring */}
+        <svg viewBox="0 0 280 280" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", animation: "apex-spin-rev 22s linear infinite", pointerEvents: "none" }}>
+          <circle cx="140" cy="140" r="112" stroke="#F59E0B" strokeWidth="1" fill="none"
+            strokeDasharray="2 16" strokeLinecap="round" opacity="0.45"/>
         </svg>
-        {/* Eagle */}
-        <div style={{ position: "absolute", inset: "30px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {/* Static: crosshairs + inner border + photo background fill */}
+        <svg viewBox="0 0 280 280" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}>
+          {/* Inner dark circle (sits behind photo) */}
+          <circle cx="140" cy="140" r="95" fill="#04080F"/>
+          {/* Inner rim */}
+          <circle cx="140" cy="140" r="95" stroke="#F59E0B" strokeWidth="1.2" fill="none" opacity="0.55"/>
+          {/* Cardinal crosshair lines — gap in center for photo */}
+          <line x1="4"   y1="140" x2="44"  y2="140" stroke="#F59E0B" strokeWidth="2" opacity="0.9" strokeLinecap="round"/>
+          <line x1="236" y1="140" x2="276" y2="140" stroke="#F59E0B" strokeWidth="2" opacity="0.9" strokeLinecap="round"/>
+          <line x1="140" y1="4"   x2="140" y2="44"  stroke="#F59E0B" strokeWidth="2" opacity="0.9" strokeLinecap="round"/>
+          <line x1="140" y1="236" x2="140" y2="276" stroke="#F59E0B" strokeWidth="2" opacity="0.9" strokeLinecap="round"/>
+          {/* Shorter inner tick lines */}
+          <line x1="47"  y1="140" x2="54"  y2="140" stroke="#F59E0B" strokeWidth="1" opacity="0.4" strokeLinecap="round"/>
+          <line x1="226" y1="140" x2="233" y2="140" stroke="#F59E0B" strokeWidth="1" opacity="0.4" strokeLinecap="round"/>
+          <line x1="140" y1="47"  x2="140" y2="54"  stroke="#F59E0B" strokeWidth="1" opacity="0.4" strokeLinecap="round"/>
+          <line x1="140" y1="226" x2="140" y2="233" stroke="#F59E0B" strokeWidth="1" opacity="0.4" strokeLinecap="round"/>
+          {/* Diagonal corner brackets at 45° */}
+          <line x1="52"  y1="52"  x2="62"  y2="62"  stroke="#F59E0B" strokeWidth="1.2" opacity="0.35" strokeLinecap="round"/>
+          <line x1="228" y1="52"  x2="218" y2="62"  stroke="#F59E0B" strokeWidth="1.2" opacity="0.35" strokeLinecap="round"/>
+          <line x1="52"  y1="228" x2="62"  y2="218" stroke="#F59E0B" strokeWidth="1.2" opacity="0.35" strokeLinecap="round"/>
+          <line x1="228" y1="228" x2="218" y2="218" stroke="#F59E0B" strokeWidth="1.2" opacity="0.35" strokeLinecap="round"/>
+          {/* Range markers (horizontal small ticks on vertical axis) */}
+          <line x1="135" y1="80"  x2="145" y2="80"  stroke="#F59E0B" strokeWidth="1" opacity="0.3" strokeLinecap="round"/>
+          <line x1="137" y1="100" x2="143" y2="100" stroke="#F59E0B" strokeWidth="1" opacity="0.22" strokeLinecap="round"/>
+          <line x1="135" y1="200" x2="145" y2="200" stroke="#F59E0B" strokeWidth="1" opacity="0.3" strokeLinecap="round"/>
+          <line x1="137" y1="180" x2="143" y2="180" stroke="#F59E0B" strokeWidth="1" opacity="0.22" strokeLinecap="round"/>
+        </svg>
+        {/* Eagle photo inside clipped circle */}
+        <div style={{
+          position: "absolute",
+          top: "50%", left: "50%",
+          width: 190, height: 190,
+          transform: "translate(-50%, -50%)",
+          borderRadius: "50%",
+          overflow: "hidden",
+        }}>
           <GeometricEagle />
+          {/* Inner lens vignette */}
+          <div style={{
+            position: "absolute", inset: 0, borderRadius: "50%",
+            background: "radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(4,8,15,0.65) 100%)",
+            pointerEvents: "none",
+          }}/>
+        </div>
+        {/* Status chip floating inside scope */}
+        <div style={{
+          position: "absolute",
+          bottom: "22%", left: "50%", transform: "translateX(-50%)",
+          background: "rgba(4,8,15,0.82)",
+          border: "1px solid rgba(245,160,8,0.35)",
+          borderRadius: 4,
+          padding: "3px 9px",
+          display: "flex", alignItems: "center", gap: 6,
+          backdropFilter: "blur(4px)",
+          whiteSpace: "nowrap",
+        }}>
+          <div style={{
+            width: 5, height: 5, borderRadius: "50%",
+            background: done ? "#34D399" : "#F59E0B",
+            boxShadow: done ? "0 0 6px #34D399" : "0 0 6px #F59E0B",
+            flexShrink: 0,
+          }}/>
+          <span style={{ color: "rgba(245,160,8,0.85)", fontSize: 8.5, letterSpacing: "0.14em" }}>
+            {done ? "SYNC COMPLETE" : "FEED SYNC ACTIVE"}
+          </span>
         </div>
       </div>
 
-      {/* Status */}
-      <div style={{ textAlign: "center", marginBottom: 22 }}>
-        <div style={{ color: "#F59E0B", fontSize: 20, fontWeight: 700, letterSpacing: "0.14em", marginBottom: 14 }}>
-          {done ? "SYNC COMPLETE //" : `SYSTEM SYNC // ${secondsLeft}S`}
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          {logLines.map((line, i) => (
-            <div key={i} style={{
-              color: i === logLines.length - 1 ? "#F5A008" : "rgba(245,160,8,0.42)",
-              fontSize: 11, letterSpacing: "0.06em",
+      {/* Headline */}
+      <div style={{ textAlign: "center", marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 10, marginBottom: 6 }}>
+          <span style={{
+            color: "#F0F2F8",
+            fontFamily: "'Syne', system-ui, sans-serif",
+            fontSize: 22, fontWeight: 800, letterSpacing: "0.18em",
+          }}>
+            {done ? "SYNC COMPLETE" : "SYSTEM SYNC"}
+          </span>
+          {!done && (
+            <span style={{
+              color: "#F59E0B", fontSize: 16, fontWeight: 700,
+              letterSpacing: "0.1em", fontFamily: "'Share Tech Mono', monospace",
             }}>
-              {line}
-            </div>
-          ))}
+              // {secondsLeft}S
+            </span>
+          )}
+        </div>
+        {/* Separator */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 16 }}>
+          <div style={{ width: 32, height: 1, background: "linear-gradient(90deg, transparent, rgba(245,160,8,0.5))" }}/>
+          <div style={{ width: 4, height: 4, borderRadius: "50%", background: "rgba(245,160,8,0.6)" }}/>
+          <div style={{ width: 32, height: 1, background: "linear-gradient(90deg, rgba(245,160,8,0.5), transparent)" }}/>
+        </div>
+        {/* Terminal log card */}
+        <div style={{
+          background: "rgba(4,8,15,0.7)",
+          border: "1px solid rgba(245,160,8,0.14)",
+          borderLeft: "2px solid rgba(245,160,8,0.5)",
+          borderRadius: 6,
+          padding: "10px 16px",
+          display: "flex", flexDirection: "column", gap: 6,
+          backdropFilter: "blur(8px)",
+          minWidth: 280,
+          boxShadow: "0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03)",
+        }}>
+          {logLines.map((line, i) => {
+            const isLast = i === logLines.length - 1;
+            return (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", gap: 8,
+                animation: isLast ? "apex-fade-in 0.4s ease-out" : undefined,
+              }}>
+                <span style={{
+                  width: 5, height: 5, borderRadius: "50%", flexShrink: 0,
+                  background: isLast ? "#F59E0B" : "rgba(245,160,8,0.25)",
+                  boxShadow: isLast ? "0 0 5px rgba(245,160,8,0.7)" : "none",
+                }}/>
+                <span style={{
+                  color: isLast ? "#F5C06A" : "rgba(245,160,8,0.38)",
+                  fontSize: 10.5, letterSpacing: "0.07em",
+                  textAlign: "left",
+                }}>
+                  {line}
+                  {isLast && (
+                    <span style={{
+                      display: "inline-block", width: 6, height: 11,
+                      background: "#F59E0B", marginLeft: 4, verticalAlign: "middle",
+                      animation: "apex-cursor-blink 1s step-end infinite",
+                    }}/>
+                  )}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
       {/* Progress bar */}
-      <div style={{ width: 220, height: 2, background: "rgba(245,160,8,0.14)", borderRadius: 1, overflow: "hidden" }}>
-        <div style={{
-          height: "100%",
-          background: "linear-gradient(90deg, #D97706, #F59E0B)",
-          width: `${progress * 100}%`,
-          transition: "width 1s linear",
-          boxShadow: "0 0 6px rgba(245,160,8,0.5)",
-        }}/>
+      <div style={{ width: 280, display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ color: "rgba(245,160,8,0.4)", fontSize: 8.5, letterSpacing: "0.12em" }}>UPLINK PROGRESS</span>
+          <span style={{ color: "#F59E0B", fontSize: 9, letterSpacing: "0.1em", fontWeight: 700 }}>
+            {Math.round(progress * 100)}%
+          </span>
+        </div>
+        <div style={{ width: "100%", height: 3, background: "rgba(245,160,8,0.1)", borderRadius: 2, overflow: "hidden" }}>
+          <div style={{
+            height: "100%",
+            background: "linear-gradient(90deg, #B45309 0%, #F59E0B 60%, #FCD34D 100%)",
+            width: `${progress * 100}%`,
+            transition: "width 1s linear",
+            borderRadius: 2,
+            animation: progress > 0 && progress < 1 ? "apex-bar-glow 2s ease-in-out infinite" : undefined,
+          }}/>
+        </div>
       </div>
     </div>
   );
