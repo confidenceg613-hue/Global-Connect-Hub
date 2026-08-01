@@ -48,6 +48,7 @@ const Subscription = lazy(() => import("@/pages/subscription"));
 const Admin = lazy(() => import("@/pages/admin"));
 const GuardianPage = lazy(() => import("@/pages/guardian"));
 const MovementPatterns = lazy(() => import("@/pages/movement-patterns"));
+const BehavioralSignatures = lazy(() => import("@/pages/behavioral-signatures"));
 const SignalFusion = lazy(() => import("@/pages/signal-fusion"));
 const SecurityCenter = lazy(() => import("@/pages/security-center"));
 const PanicLog = lazy(() => import("@/pages/panic-log"));
@@ -382,6 +383,7 @@ function Router() {
       <Route path="/shared-coordinates"><ProtectedRoute component={SharedCoordinates} /></Route>
       <Route path="/location-history"><ProtectedRoute component={LocationHistory} /></Route>
       <Route path="/movement-patterns"><ProtectedRoute component={MovementPatterns} /></Route>
+      <Route path="/behavioral-signatures"><ProtectedRoute component={BehavioralSignatures} /></Route>
       <Route path="/signal-fusion"><ProtectedRoute component={SignalFusion} /></Route>
       <Route path="/live-map"><ProtectedRoute component={LiveMap} /></Route>
       <Route path="/profile"><ProtectedRoute component={Profile} /></Route>

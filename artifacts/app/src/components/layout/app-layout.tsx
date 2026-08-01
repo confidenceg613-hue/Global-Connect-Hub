@@ -5,7 +5,7 @@ import {
   ShieldCheck, LayoutDashboard, Users, UserCircle, Menu,
   Navigation, Clock, Map, Bell, BellOff, BellRing, Camera, Settings,
   Activity as ActivityIcon, Flag, ChevronRight, Radio, Globe,
-  ShieldAlert, Siren, Archive, Info, TrendingUp, Layers, Library,
+  ShieldAlert, Siren, Archive, Info, TrendingUp, Layers, Library, Brain,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -127,7 +127,8 @@ const NAV_SECTIONS = [
       { href: "/sessions",             label: "Active Sessions",    icon: Radio },
       { href: "/shared-coordinates",   label: "Shared Coordinates", icon: Navigation },
       { href: "/location-history",     label: "Location History",   icon: Clock },
-      { href: "/movement-patterns",    label: "Movement Patterns",  icon: TrendingUp },
+      { href: "/movement-patterns",        label: "Movement Patterns",        icon: TrendingUp },
+      { href: "/behavioral-signatures",    label: "Behavioral Signatures",    icon: Brain },
       { href: "/signal-fusion",        label: "Signal Fusion",      icon: Layers },
       { href: "/location-reports",     label: "Location Reports",   icon: Flag },
     ],
