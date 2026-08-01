@@ -3,6 +3,8 @@ modules = ["nodejs-20", "web", "bash", "postgresql-16"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+run = ["bash", "-c", "PORT=8080 node --enable-source-maps ./artifacts/api-server/dist/index.mjs & node ./scripts/serve-app.mjs"]
+build = ["bash", "-c", "pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/app run build"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
@@ -29,7 +31,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=5000 pnpm --filter @workspace/app run dev"
+args = "pnpm --filter @workspace/api-server run dev & PORT=5000 pnpm --filter @workspace/app run dev"
 waitForPort = 5000
 
 [agent]
@@ -50,8 +52,9 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-VAPID_PUBLIC_KEY = "BGsFFaTA-uRJu2LqW7spIXSkgaUGCfgy3eckDbxffUJ7N80C5NO0V1jhETymchIu4RWw8MHqgmBYEIogR84yhX0"
+VAPID_PUBLIC_KEY = "BPC-HRmzOA_OXbo0Dmp2d_pK9cfc0VQhzgYr-TfmpiIa1mnhA814PTYncEmTNfAGx0qcQ842kkgTQ7RE6etGAOE"
 VAPID_SUBJECT = "mailto:admin@phonelink.app"
 VITE_GOOGLE_CLIENT_ID = "173322068449-fpgudmuc4u96vksoaqceapn26ubast7c.apps.googleusercontent.com"
 GOOGLE_CLIENT_ID = "173322068449-fpgudmuc4u96vksoaqceapn26ubast7c.apps.googleusercontent.com"
 GOOGLE_SEARCH_CX = "379664f23b1a7426c"
+VITE_VAPID_PUBLIC_KEY = "BPC-HRmzOA_OXbo0Dmp2d_pK9cfc0VQhzgYr-TfmpiIa1mnhA814PTYncEmTNfAGx0qcQ842kkgTQ7RE6etGAOE"

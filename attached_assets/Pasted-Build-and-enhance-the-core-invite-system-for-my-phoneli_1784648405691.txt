@@ -1,0 +1,45 @@
+Build and enhance the core invite system for my phonelink website/app (a phone linking / tracking / sharing platform). Focus on permanent, never-expiring invite links for both individual users and group sharing. These links must be "always running" — one link is enough forever. Clicking the same link today, tomorrow, next week, or in a month must trigger a fresh new live sharing session each time (new live location, new selfie capture, new pictures/info upload to the dashboard).
+Core Requirements:
+Invite Link Types:
+Individual invite link: Tied to a specific user/phone (e.g., via unique token or user ID).
+Group invite link: Allows multiple people to join the same shared group/dashboard view.
+Links are permanent and reusable. No expiration. No need to regenerate or resend.
+On click (web or app deep link):
+Prompt for permissions (location, camera, etc.) if not already granted.
+Capture fresh data: Live GPS location (continuous sharing with updates), take a new selfie (or allow photo selection), upload recent/other pictures, collect basic info (device, timestamp, consent, etc.).
+Stream live location to the phonelink dashboard/app in real-time.
+Store the new session data associated with the invite (history of sessions per link/user).
+Show a confirmation page ("Sharing started — your live location and media are now visible to the owner").
+The same link always starts a new independent session. Previous sessions remain viewable in history.
+Support web (browser) and mobile (PWA/app deep links). Make links short, shareable (e.g., via SMS, WhatsApp, email).
+Use secure tokens (UUIDv4 or JWT-like) for links. Store in a database (e.g., Replit DB, SQLite, or Supabase/Firebase if integrated). Validate on every access.
+Make links "stronger": Add optional password/PIN for extra security, rate limiting, consent logging, and anti-abuse (e.g., one active session per device at a time, or admin revocation).
+Tech Stack (use what's already in the project or best for Replit):
+Frontend: HTML/JS/React or whatever is current.
+Backend: Node.js/Express or Python/Flask — handle link generation, validation, real-time (WebSockets or polling for location).
+Real-time location: Use browser Geolocation API + periodic updates. Consider Firebase or Replit's capabilities for live updates.
+Media: Camera access via getUserMedia, upload images/files.
+Database: Persist users, groups, invite tokens, session history, location logs.
+Generate links like: https://your-phonelink.repl.co/invite/INDIVIDUAL-TOKEN or /group/GROUP-TOKEN.
+Additional Features:
+Dashboard for the link owner to view all active/historical sessions, live maps, media gallery.
+Admin controls: Revoke specific links/sessions, view analytics.
+Privacy: Clear consent screens, data retention options, GDPR-friendly logging.
+Error handling: Graceful fallbacks if permissions denied, offline support notes.
+Implementation Steps for Agent:
+Review existing code for user auth, dashboard, location sharing.
+Implement link generation endpoints (POST /api/create-individual-invite, /api/create-group-invite).
+Build the invite handler route that triggers fresh sharing flow.
+Add real-time updates and data storage.
+Create UI for invite pages and dashboard enhancements.
+Secure everything (auth, input validation, CORS, HTTPS).
+Testing:
+Run a full end-to-end test:
+Generate one individual link and one group link.
+Click each multiple times (simulate different days/sessions) from different browsers/devices.
+Verify: New live location updates, new selfie/pictures captured and shown in dashboard each time, data persists across clicks, no expiration.
+Test group: Multiple "users" joining the same link.
+Edge cases: Permission denials, expired sessions, concurrent uses.
+I (the agent) should simulate/test it myself in the Replit environment and report results/screenshots/logs.
+Fix any issues until it works reliably.
+Make it production-ready, mobile-friendly, fast, and user-friendly.

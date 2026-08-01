@@ -1,5 +1,7 @@
-- [Notification architecture](notification-arch.md) — sendPushAndLog in api-server/src/lib/notifications.ts is the single source for all push + DB logging; invites.ts imports from there, not location.ts.
+- [Notification architecture](notification-arch.md) — sendPushAndLog returns the inserted row and broadcasts it over SSE; all notification data includes inviteId so per-session filtering works via JSONB containment.
+- [Notification SSE stream](notif-sse.md) — GET /api/notifications/:userId/stream; broadcaster lives in lib/notifications.ts (addNotifSseClient/removeNotifSseClient/broadcastNewNotif); 25s heartbeat; delete + clear endpoints also added.
 - [GeoBoard feature](geoboard.md) — auto-captures 5 camera frames when a contact grants location consent; stored in geo_photos table as base64 JPEG; viewed at /geoboard in app.
+- [Android camera warm-up black frames](android-camera-warmup.md) — must wait for 'playing' event + 700-900ms settle before drawImage/MediaRecorder.start(); 80ms timeout produces black photos/video on Android.
 - [Auth is localStorage-only](auth-model.md) — no OTP/session verification exists; useAuth just stores userId in localStorage, so any resolve/dismiss-style endpoint MUST verify ownership server-side.
 - [Screen Vision Feature](screen-vision.md) — getDisplayMedia → canvas frame → vision model; mutex ref, finally cleanup, 2.8MB backend cap, flexible JSON/prose parser.
 - [Path-router vs combined workflow](path-router-workflows.md) — artifact.toml (hidden dir) declares per-service ports, but `.replit [[ports]]` is the real source of truth for what's externally reachable; check it before choosing single vs per-artifact workflows.
@@ -12,3 +14,8 @@
 - [Admin HQ dashboard](admin-hq-panel.md) — password-gated admin panel pattern: never hardcode the password client-side, verify server-side only.
 - [Path-router migration](path-router-migration.md) — this project moved from a single combined dev workflow to real per-artifact workflows; don't recreate the old combined one.
 - [api-server dev is build+run, not a watcher](api-server-dev-script.md) — editing a .ts route/schema file needs a workflow restart to take effect; HMR only covers the Vite frontend.
+- [Express route prefix gotcha](express-route-prefix.md) — app.ts mounts the entire router at `/api`; routes inside router files must NOT include `/api` prefix (e.g. use `/guardian/brief` not `/api/guardian/brief`).
+- [Guardian Brief feature](guardian-brief.md) — AI-generated natural-language situation reports per contact; GET /api/guardian/brief?userId=X; page at /guardian; dashboard quick-action entry.
+- [Invite sessions (permanent reusable links)](invite-sessions.md) — each consent link click creates a new invite_sessions row; location_updates always stored under inviteToken (not sessionToken) so all read endpoints stay intact.
+- [Timed GPS sharing](timed-gps-sharing.md) — 10-minute expiry is server-enforced; Chrome cannot persist GPS after termination, so Android background sharing requires the installed app and foreground service.
+- [Quiet-device signal continuity](quiet-device-signal-continuity.md) — position estimator (dead reckoning + IP geo) keeps contacts visible when GPS is dark; heartbeat endpoint + live-map dashed ring.

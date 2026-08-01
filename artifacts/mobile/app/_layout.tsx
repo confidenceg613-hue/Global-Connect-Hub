@@ -15,6 +15,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { setBaseUrl } from '@workspace/api-client-react';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { LocationTrackingProvider } from '@/contexts/LocationTrackingContext';
+import '@/lib/background-location';
 
 // Set the API base URL from the injected domain env var (set by the Expo dev script)
 if (process.env.EXPO_PUBLIC_DOMAIN) {

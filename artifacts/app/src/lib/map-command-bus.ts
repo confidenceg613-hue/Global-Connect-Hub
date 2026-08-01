@@ -20,7 +20,7 @@ export type MapCommand =
   | { type: "navigate"; path: string }
   | { type: "openInviteForm"; phone?: string; name?: string };
 
-const EVENT_NAME = "phonelink:map-command";
+const EVENT_NAME = "deepfalcon:map-command";
 
 export function dispatchMapCommand(command: MapCommand): void {
   window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: command }));
@@ -57,17 +57,17 @@ export interface MapContextSnapshot {
 
 declare global {
   interface Window {
-    __phonelinkMapContext?: () => MapContextSnapshot;
+    __deepfalconMapContext?: () => MapContextSnapshot;
   }
 }
 
 export function registerMapContext(getter: () => MapContextSnapshot): () => void {
-  window.__phonelinkMapContext = getter;
-  return () => { delete window.__phonelinkMapContext; };
+  window.__deepfalconMapContext = getter;
+  return () => { delete window.__deepfalconMapContext; };
 }
 
 export function getMapContext(): MapContextSnapshot {
-  return window.__phonelinkMapContext?.() ?? {
+  return window.__deepfalconMapContext?.() ?? {
     onMapPage: false,
     contacts: [],
     liveCount: 0,

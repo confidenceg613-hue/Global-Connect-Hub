@@ -3,7 +3,7 @@ import { useGetUser, useGetConsentSummary, useListInvites, getGetUserQueryKey, g
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Shield, ShieldAlert, ShieldCheck, MapPin, Bell, MessageSquare, Send, Map, Users, Clock, ArrowRight, Activity } from "lucide-react";
+import { Shield, ShieldAlert, ShieldCheck, MapPin, Bell, MessageSquare, Send, Map, Users, Clock, ArrowRight, Activity, Sparkles, Wifi } from "lucide-react";
 import { format } from "date-fns";
 import { Link } from "wouter";
 
@@ -49,40 +49,41 @@ export default function Dashboard() {
       title: "Location Consent",
       icon: MapPin,
       stat: summary?.location,
-      color: "text-blue-400",
-      bg: "bg-blue-500/10",
-      border: "border-blue-500/20",
+      color: "text-amber-400",
+      bg: "bg-amber-500/10",
+      border: "border-amber-500/20",
     },
     {
       title: "Notifications",
       icon: Bell,
       stat: summary?.notification,
-      color: "text-violet-400",
-      bg: "bg-violet-500/10",
-      border: "border-violet-500/20",
+      color: "text-yellow-400",
+      bg: "bg-yellow-500/10",
+      border: "border-yellow-500/20",
     },
     {
       title: "Messaging",
       icon: MessageSquare,
       stat: summary?.messaging,
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/20",
+      color: "text-orange-400",
+      bg: "bg-orange-500/10",
+      border: "border-orange-500/20",
     },
   ];
 
   const quickActions = [
-    { label: "Live Map",     icon: Map,    href: "/live-map",   color: "bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 border-indigo-500/20" },
-    { label: "Send Invite",  icon: Users,  href: "/invites",    color: "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20" },
-    { label: "Activity",     icon: Activity, href: "/activity", color: "bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 border-violet-500/20" },
-    { label: "Permissions",  icon: ShieldCheck, href: "/permissions", color: "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border-amber-500/20" },
+    { label: "Live Map",       icon: Map,         href: "/live-map",   color: "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border-amber-500/20" },
+    { label: "Send Invite",    icon: Users,        href: "/invites",    color: "bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border-yellow-500/20" },
+    { label: "Guardian Brief", icon: Sparkles,     href: "/guardian",   color: "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border-orange-500/20" },
+    { label: "Permissions",    icon: ShieldCheck,  href: "/permissions",color: "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border-amber-400/30" },
+    { label: "IP Lookup",      icon: Wifi,         href: "/ip-lookup",  color: "bg-yellow-500/10 text-yellow-300 hover:bg-yellow-500/20 border-yellow-500/20" },
   ];
 
   const totalGrants = (summary?.location?.granted ?? 0) + (summary?.notification?.granted ?? 0) + (summary?.messaging?.granted ?? 0);
   const totalRequests = (summary?.location?.total ?? 0) + (summary?.notification?.total ?? 0) + (summary?.messaging?.total ?? 0);
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-3 duration-400">
+    <div className="space-y-8 mobile-screen-enter">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -103,10 +104,10 @@ export default function Dashboard() {
       </div>
 
       {/* Quick actions */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="dashboard-action-grid grid grid-cols-2 sm:grid-cols-4 gap-3">
         {quickActions.map(action => (
-          <Link key={action.href} href={action.href}>
-            <div className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all cursor-pointer ${action.color}`}>
+          <Link key={action.href} href={action.href} className="block">
+            <div className={`dashboard-action flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-colors cursor-pointer ${action.color}`}>
               <action.icon size={20} />
               <span className="text-xs font-semibold">{action.label}</span>
             </div>
@@ -170,7 +171,7 @@ export default function Dashboard() {
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-base">Recent Invites</CardTitle>
-              <CardDescription>Latest WhatsApp invitations sent</CardDescription>
+              <CardDescription>Latest SMS invitations sent</CardDescription>
             </div>
             <Link href="/invites">
               <Button variant="ghost" size="sm" className="gap-1 text-xs text-muted-foreground">
@@ -210,7 +211,7 @@ export default function Dashboard() {
                   <Send size={20} className="opacity-30" />
                 </div>
                 <p className="text-sm font-medium">No invites yet</p>
-                <p className="text-xs mt-1 text-muted-foreground/70">Send a location invite via WhatsApp</p>
+                <p className="text-xs mt-1 text-muted-foreground/70">Send a location invite via SMS</p>
                 <Link href="/invites">
                   <Button size="sm" variant="outline" className="mt-4 text-xs">Send First Invite</Button>
                 </Link>
@@ -220,7 +221,7 @@ export default function Dashboard() {
         </Card>
 
         {/* Identity */}
-        <Card className="border-border/50 shadow-sm bg-gradient-to-br from-indigo-500/5 to-transparent">
+        <Card className="border-border/50 shadow-sm bg-gradient-to-br from-amber-500/5 to-transparent">
           <CardHeader>
             <CardTitle className="text-base">Identity</CardTitle>
             <CardDescription>Your registered account information</CardDescription>
@@ -228,7 +229,7 @@ export default function Dashboard() {
           <CardContent>
             <div className="space-y-4">
               <div className="flex items-center gap-3 p-3 rounded-xl bg-background/60 border border-border/40">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white font-bold text-sm shrink-0">
                   {user?.name?.charAt(0).toUpperCase() ?? "?"}
                 </div>
                 <div>

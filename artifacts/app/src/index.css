@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Share+Tech+Mono&family=Syne:wght@700;800&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -19,7 +19,6 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  /* Framer Motion inline styles use --motion-duration; zero it out */
   [style*="--motion-duration"] {
     --motion-duration: 0.01ms !important;
   }
@@ -89,55 +88,56 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* ── Light mode — warm ivory + deep gold ── */
 :root {
-  --background: 210 20% 98%;
-  --foreground: 226 40% 15%;
+  --background: 38 30% 95%;
+  --foreground: 24 40% 10%;
 
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 226 58% 39%;
+  --border: 36 28% 82%;
+  --input: 36 28% 82%;
+  --ring: 38 95% 46%;
 
-  --card: 0 0% 100%;
-  --card-foreground: 226 40% 15%;
-  --card-border: 214 32% 91%;
+  --card: 38 25% 98%;
+  --card-foreground: 24 40% 10%;
+  --card-border: 36 28% 82%;
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 226 40% 15%;
-  --popover-border: 214 32% 91%;
+  --popover: 38 25% 98%;
+  --popover-foreground: 24 40% 10%;
+  --popover-border: 36 28% 82%;
 
-  --primary: 226 58% 39%;
-  --primary-foreground: 0 0% 100%;
-  
-  --secondary: 220 14% 96%;
-  --secondary-foreground: 226 40% 15%;
+  --primary: 38 95% 46%;
+  --primary-foreground: 24 55% 6%;
 
-  --muted: 220 14% 96%;
-  --muted-foreground: 215 16% 47%;
+  --secondary: 36 20% 90%;
+  --secondary-foreground: 24 40% 10%;
 
-  --accent: 180 70% 35%;
+  --muted: 36 20% 90%;
+  --muted-foreground: 30 12% 44%;
+
+  --accent: 34 90% 40%;
   --accent-foreground: 0 0% 100%;
 
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
 
-  --chart-1: 226 58% 39%;
-  --chart-2: 180 70% 35%;
-  --chart-3: 215 16% 47%;
-  --chart-4: 43 74% 66%;
-  --chart-5: 27 87% 67%;
+  --chart-1: 38 95% 46%;
+  --chart-2: 34 90% 40%;
+  --chart-3: 30 12% 44%;
+  --chart-4: 42 95% 52%;
+  --chart-5: 0 70% 50%;
 
-  --sidebar: 0 0% 100%;
-  --sidebar-foreground: 226 40% 15%;
-  --sidebar-border: 214 32% 91%;
-  --sidebar-primary: 226 58% 39%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 220 14% 96%;
-  --sidebar-accent-foreground: 226 40% 15%;
-  --sidebar-ring: 226 58% 39%;
+  --sidebar: 38 25% 98%;
+  --sidebar-foreground: 24 40% 10%;
+  --sidebar-border: 36 28% 82%;
+  --sidebar-primary: 38 95% 46%;
+  --sidebar-primary-foreground: 24 55% 6%;
+  --sidebar-accent: 36 20% 90%;
+  --sidebar-accent-foreground: 24 40% 10%;
+  --sidebar-ring: 38 95% 46%;
 
   --app-font-sans: 'Plus Jakarta Sans', sans-serif;
   --app-font-serif: Georgia, serif;
-  --app-font-mono: Menlo, monospace;
+  --app-font-mono: 'Share Tech Mono', ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
   --radius: 0.5rem;
 
   --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0, 0.05);
@@ -162,80 +162,88 @@
   --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / 1);
 }
 
+/* ── Dark mode — deep warm charcoal + golden Falcon ── */
 .dark {
-  --background: 226 40% 5%;
-  --foreground: 210 20% 98%;
+  --background: 24 18% 5%;
+  --foreground: 38 22% 88%;
 
-  --border: 226 30% 15%;
-  --input: 226 30% 15%;
-  --ring: 226 58% 50%;
+  --border: 28 20% 14%;
+  --input: 28 20% 14%;
+  --ring: 38 95% 52%;
 
-  --card: 226 40% 7%;
-  --card-foreground: 210 20% 98%;
-  --card-border: 226 30% 15%;
+  --card: 26 22% 8%;
+  --card-foreground: 38 22% 88%;
+  --card-border: 28 20% 14%;
 
-  --popover: 226 40% 7%;
-  --popover-foreground: 210 20% 98%;
-  --popover-border: 226 30% 15%;
+  --popover: 26 22% 8%;
+  --popover-foreground: 38 22% 88%;
+  --popover-border: 28 20% 14%;
 
-  --primary: 226 58% 50%;
-  --primary-foreground: 0 0% 100%;
+  --primary: 38 95% 52%;
+  --primary-foreground: 24 55% 5%;
 
-  --secondary: 226 30% 15%;
-  --secondary-foreground: 210 20% 98%;
+  --secondary: 28 18% 13%;
+  --secondary-foreground: 38 18% 82%;
 
-  --muted: 226 30% 15%;
-  --muted-foreground: 215 16% 65%;
+  --muted: 26 16% 12%;
+  --muted-foreground: 30 10% 50%;
 
-  --accent: 180 70% 40%;
-  --accent-foreground: 0 0% 100%;
+  --accent: 34 90% 46%;
+  --accent-foreground: 24 55% 5%;
 
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 0 0% 100%;
 
-  --chart-1: 226 58% 50%;
-  --chart-2: 180 70% 40%;
-  --chart-3: 215 16% 65%;
-  --chart-4: 43 74% 66%;
-  --chart-5: 27 87% 67%;
+  --chart-1: 38 95% 52%;
+  --chart-2: 34 90% 46%;
+  --chart-3: 30 10% 50%;
+  --chart-4: 44 95% 58%;
+  --chart-5: 0 70% 48%;
 
-  --sidebar: 226 40% 7%;
-  --sidebar-foreground: 210 20% 98%;
-  --sidebar-border: 226 30% 15%;
-  --sidebar-primary: 226 58% 50%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 226 30% 15%;
-  --sidebar-accent-foreground: 210 20% 98%;
-  --sidebar-ring: 226 58% 50%;
+  --sidebar: 24 20% 6%;
+  --sidebar-foreground: 38 22% 88%;
+  --sidebar-border: 28 20% 12%;
+  --sidebar-primary: 38 95% 52%;
+  --sidebar-primary-foreground: 24 55% 5%;
+  --sidebar-accent: 28 18% 11%;
+  --sidebar-accent-foreground: 38 18% 82%;
+  --sidebar-ring: 38 95% 52%;
 
   --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
+  --elevate-1: rgba(245,180,20, .04);
+  --elevate-2: rgba(245,180,20, .08);
 }
 
 @layer base {
   * {
     @apply border-border;
   }
+  html {
+    min-height: 100%;
+    background: hsl(var(--background));
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    min-height: 100dvh;
+    overflow-x: hidden;
   }
 }
 
-/* ── PhoneLink map HUD components ───────────────────────────────────────────── */
+/* ── DeepFalcon map HUD components ───────────────────────────────────────────── */
 .pl-hud-card {
-  background: rgba(9, 9, 11, 0.82);
+  background: rgba(4, 10, 24, 0.88);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(245, 160, 8, 0.15);
   border-radius: 12px;
   padding: 10px 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.05);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(245,160,8,0.06);
   pointer-events: auto;
 }
 
-/* ── Compass mode: pin badges & controls counter-rotate to stay upright while
-   the map tile layer itself rotates to match device heading ────────────────── */
+/* ── Compass mode ── */
 .pl-pin-upright {
   transform: var(--pl-counter-transform, none);
   transform-origin: 50% 50%;
@@ -249,23 +257,365 @@
 }
 
 .pl-command-bar {
-  background: rgba(9, 9, 11, 0.88);
+  background: rgba(4, 10, 24, 0.92);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(245, 160, 8, 0.18);
   border-radius: 14px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255,255,255,0.05);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(245,160,8,0.07);
 }
 
-/* ── Tech grid background on dark mode ──────────────────────────────────────── */
+/* ── Golden Falcon radial glow + hex grid ────────────────────────────────────── */
 .dark body {
   background-image:
-    radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0);
-  background-size: 28px 28px;
+    radial-gradient(ellipse at 50% 0%, rgba(245, 168, 8, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse at 85% 80%, rgba(217, 119, 6, 0.07) 0%, transparent 45%),
+    radial-gradient(circle at 1px 1px, rgba(245, 168, 8, 0.08) 1px, transparent 0);
+  background-size: 100% 100%, 100% 100%, 28px 28px;
+}
+
+/* ── Mobile Chrome stability ────────────────────────────────────────────────
+   Android Chrome can retain stale compositor tiles when a fixed backdrop blur,
+   animated transformed children, and an overflow-scrolling page overlap. The
+   resulting ghost copies look like duplicated dashboard cards. Mobile uses the
+   same visual language with stable paint layers instead of GPU-heavy effects. */
+@media (max-width: 767px) {
+  /* Ancient-sky IS shown on mobile — but uses opacity+transform only (no filter)
+     to avoid the Android-Chrome fixed+filter+transform compositor-tile explosion.
+     `contain: strict` creates an isolated paint layer so animated children can't
+     bleed into the page compositor and create ghost duplicates. */
+  .ancient-sky {
+    contain: strict;
+    isolation: isolate;
+  }
+  /* Aurora on mobile: no blur filter — static radial gradient only */
+  .ancient-sky__aurora--mobile {
+    filter: none !important;
+    animation: sky-breathe 16s ease-in-out infinite;
+  }
+
+  .dark body {
+    background-image:
+      radial-gradient(ellipse at 50% 0%, rgba(245, 168, 8, 0.09) 0%, transparent 58%),
+      linear-gradient(180deg, #120d09 0%, #0d0907 100%);
+    background-size: 100% 100%;
+    background-attachment: scroll;
+  }
+
+  /* Avoid the known fixed + blur + transform compositor path on mobile Chrome. */
+  [class*="backdrop-blur"],
+  .audio-player-bar,
+  .audio-player-bar * {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .animate-in,
+  .animate-ping,
+  .animate-pulse,
+  [class*="slide-in"] {
+    animation: none !important;
+  }
+
+  .mobile-screen-enter {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .audio-player-bar {
+    height: calc(60px + var(--sai-bottom)) !important;
+    padding: 0 14px var(--sai-bottom) !important;
+    contain: layout paint;
+    isolation: isolate;
+  }
+
+  .audio-player-bar__progress,
+  .audio-player-bar__library {
+    display: none !important;
+  }
+
+  .audio-player-bar__track {
+    max-width: none !important;
+    flex: 1 1 auto !important;
+    margin-right: 10px !important;
+  }
+
+  .audio-player-bar__toggle {
+    margin-left: 0 !important;
+    padding: 8px 14px !important;
+  }
+
+  .app-main {
+    padding-bottom: calc(84px + var(--sai-bottom)) !important;
+  }
+
+  .dashboard-action-grid {
+    gap: 10px !important;
+  }
+
+  .dashboard-action {
+    min-height: 96px;
+    padding: 14px 10px !important;
+    border-radius: 16px !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.025), 0 9px 22px rgba(0,0,0,.16);
+  }
+
+  .invite-workspace {
+    gap: 20px !important;
+  }
+}
+
+/* ── Ancient Sky — persistent, non-interactive DeepFalcon atmosphere ──────── */
+.ancient-sky {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ancient-sky__aurora {
+  position: absolute;
+  width: 80vw;
+  height: 50vw;
+  min-width: 620px;
+  min-height: 360px;
+  top: -26vw;
+  right: -20vw;
+  opacity: .36;
+  background: radial-gradient(ellipse at 38% 42%, rgba(242, 177, 66, .22), rgba(161, 79, 12, .1) 38%, transparent 72%);
+  filter: blur(14px);
+  animation: sky-breathe 13s ease-in-out infinite;
+}
+
+/* ── Bird flight paths (3 distinct arcs) ── */
+@keyframes sky-path-1 {
+  0%   { transform: translate3d(0, 0, 0) rotate(-8deg) scaleX(1); opacity: 0; }
+  4%   { opacity: 1; }
+  48%  { transform: translate3d(62vw, -9vh, 0) rotate(3deg) scaleX(1); }
+  96%  { opacity: 1; }
+  100% { transform: translate3d(122vw, 2vh, 0) rotate(-5deg) scaleX(1); opacity: 0; }
+}
+@keyframes sky-path-2 {
+  0%   { transform: translate3d(0, 0, 0) rotate(-4deg) scaleX(1); opacity: 0; }
+  5%   { opacity: 1; }
+  35%  { transform: translate3d(40vw, 14vh, 0) rotate(8deg) scaleX(1); }
+  70%  { transform: translate3d(85vw, -4vh, 0) rotate(-6deg) scaleX(1); }
+  95%  { opacity: 1; }
+  100% { transform: translate3d(126vw, 6vh, 0) rotate(2deg) scaleX(1); opacity: 0; }
+}
+@keyframes sky-path-3 {
+  0%   { transform: translate3d(0, 0, 0) rotate(-12deg) scaleX(1); opacity: 0; }
+  6%   { opacity: 1; }
+  25%  { transform: translate3d(28vw, -12vh, 0) rotate(5deg) scaleX(1); }
+  60%  { transform: translate3d(72vw, 8vh, 0) rotate(-3deg) scaleX(1); }
+  94%  { opacity: 1; }
+  100% { transform: translate3d(128vw, -2vh, 0) rotate(-8deg) scaleX(1); opacity: 0; }
+}
+
+/* ── Feather drifts (3 variants — diagonal fall with rotation) ── */
+@keyframes feather-drift-1 {
+  0%   { transform: translate3d(0, -20px, 0) rotate(-15deg); opacity: 0; }
+  10%  { opacity: 1; }
+  50%  { transform: translate3d(8vw, 38vh, 0) rotate(110deg); opacity: 0.9; }
+  100% { transform: translate3d(-5vw, 88vh, 0) rotate(270deg); opacity: 0; }
+}
+@keyframes feather-drift-2 {
+  0%   { transform: translate3d(0, -20px, 0) rotate(20deg); opacity: 0; }
+  12%  { opacity: 1; }
+  40%  { transform: translate3d(-6vw, 30vh, 0) rotate(-80deg); opacity: 0.85; }
+  75%  { transform: translate3d(10vw, 60vh, 0) rotate(160deg); opacity: 0.7; }
+  100% { transform: translate3d(4vw, 95vh, 0) rotate(310deg); opacity: 0; }
+}
+@keyframes feather-drift-3 {
+  0%   { transform: translate3d(0, -20px, 0) rotate(5deg); opacity: 0; }
+  8%   { opacity: 1; }
+  30%  { transform: translate3d(12vw, 22vh, 0) rotate(90deg); opacity: 0.8; }
+  65%  { transform: translate3d(6vw, 55vh, 0) rotate(200deg); opacity: 0.6; }
+  100% { transform: translate3d(-8vw, 100vh, 0) rotate(340deg); opacity: 0; }
+}
+
+/* ── Cave-art glyph breathing ── */
+@keyframes glyph-breathe {
+  0%, 100% { opacity: 0.03; transform: translate3d(0, 0, 0) rotate(0deg) scale(0.9); }
+  25%       { transform: translate3d(2vw, -3vh, 0) rotate(8deg) scale(1.05); opacity: 0.09; }
+  50%       { opacity: 0.06; transform: translate3d(-1vw, 4vh, 0) rotate(-6deg) scale(1); }
+  75%       { transform: translate3d(3vw, 1vh, 0) rotate(12deg) scale(1.08); opacity: 0.08; }
+}
+
+@keyframes sky-breathe { 50% { transform: scale(1.14) translate(-3%, 5%); opacity: .55; } }
+
+/* ── Bird-part animations ─────────────────────────────────────────────────── */
+
+/* Gentle body bob (stacked on the flight-path animation via the bird wrapper) */
+@keyframes sky-body-bob {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-3px); }
+}
+
+/* Generic side-profile wing (eagle, blackbird, turkey) — rotates around base */
+.sky-wing-profile {
+  transform-box: fill-box;
+  transform-origin: 60% 100%;
+  animation: sky-wing-profile-flap 0.72s ease-in-out infinite alternate;
+}
+.sky-wing-eagle {
+  transform-box: fill-box;
+  transform-origin: 55% 100%;
+  animation: sky-wing-profile-flap 1.4s ease-in-out infinite alternate;
+}
+@keyframes sky-wing-profile-flap {
+  0%   { transform: rotate(0deg) scaleY(1); }
+  50%  { transform: rotate(-18deg) scaleY(0.82); }
+  100% { transform: rotate(8deg) scaleY(0.95); }
+}
+
+/* Owl side wings — hinge at the body edge */
+.sky-wing-l {
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: sky-wing-left-flap 0.9s ease-in-out infinite alternate;
+}
+.sky-wing-r {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: sky-wing-right-flap 0.9s ease-in-out infinite alternate;
+}
+@keyframes sky-wing-left-flap {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(-28deg); }
+}
+@keyframes sky-wing-right-flap {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(28deg); }
+}
+
+/* Bat — deeper dramatic fold */
+.sky-bat-wing-l {
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: sky-bat-left 0.42s ease-in-out infinite alternate;
+}
+.sky-bat-wing-r {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: sky-bat-right 0.42s ease-in-out infinite alternate;
+}
+@keyframes sky-bat-left {
+  0%   { transform: rotate(0deg) scaleY(1); }
+  100% { transform: rotate(38deg) scaleY(0.65); }
+}
+@keyframes sky-bat-right {
+  0%   { transform: rotate(0deg) scaleY(1); }
+  100% { transform: rotate(-38deg) scaleY(0.65); }
+}
+
+/* Penguin flippers */
+.sky-flipper-l {
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: sky-wing-left-flap 0.6s ease-in-out infinite alternate;
+}
+.sky-flipper-r {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: sky-wing-right-flap 0.6s ease-in-out infinite alternate;
+}
+
+/* Butterfly — wings open/close symmetrically around body */
+.sky-butterfly-ul {
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: sky-butterfly-left 0.55s ease-in-out infinite alternate;
+}
+.sky-butterfly-ur {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: sky-butterfly-right 0.55s ease-in-out infinite alternate;
+}
+.sky-butterfly-ll {
+  transform-box: fill-box;
+  transform-origin: right top;
+  animation: sky-butterfly-left 0.55s ease-in-out infinite alternate;
+}
+.sky-butterfly-lr {
+  transform-box: fill-box;
+  transform-origin: left top;
+  animation: sky-butterfly-right 0.55s ease-in-out infinite alternate;
+}
+@keyframes sky-butterfly-left {
+  0%   { transform: scaleX(1) rotate(0deg); }
+  100% { transform: scaleX(0.18) rotate(-22deg); }
+}
+@keyframes sky-butterfly-right {
+  0%   { transform: scaleX(1) rotate(0deg); }
+  100% { transform: scaleX(0.18) rotate(22deg); }
+}
+
+/* Walking legs — alternate phase for L and R */
+.sky-leg-l {
+  transform-box: fill-box;
+  transform-origin: center top;
+  animation: sky-leg-swing 0.48s ease-in-out infinite alternate;
+}
+.sky-leg-r {
+  transform-box: fill-box;
+  transform-origin: center top;
+  animation: sky-leg-swing 0.48s ease-in-out infinite alternate-reverse;
+}
+@keyframes sky-leg-swing {
+  0%   { transform: rotate(-20deg); }
+  100% { transform: rotate(20deg); }
+}
+
+.landing-feather-seal { display:grid; place-items:center; width:33px; height:33px; border:1px solid rgba(245, 180, 47, .4); border-radius:50%; color:#f8c25d; background:radial-gradient(circle, rgba(245, 180, 47, .18), transparent 68%); box-shadow:0 0 22px rgba(231, 153, 25, .16); animation: seal-float 4s ease-in-out infinite; }
+.hero-feather { position:absolute; z-index:2; font-size:29px; opacity:.62; filter:drop-shadow(0 5px 8px rgba(0,0,0,.65)); animation: hero-feather 7s ease-in-out infinite; }
+.hero-feather--one { right:14%; top:9%; }.hero-feather--two { left:11%; top:49%; animation-delay:-3.5s; transform:scale(.72) rotate(90deg); }
+.hero-eagle-flight { position:absolute; z-index:2; top:17%; left:-12%; font-size:33px; filter:sepia(.5) saturate(1.5) drop-shadow(0 5px 8px rgba(0,0,0,.8)); opacity:.76; animation: hero-flight 10s ease-in-out infinite; }
+@keyframes seal-float { 50% { transform:translateY(-4px) rotate(8deg); box-shadow:0 0 30px rgba(231,153,25,.36); } }
+@keyframes hero-feather { 50% { transform:translate(10px, 18px) rotate(28deg); opacity:.95; } }
+@keyframes hero-flight { 0% { transform:translateX(0) translateY(7px) rotate(-7deg); } 52% { transform:translateX(500px) translateY(-12px) rotate(4deg); opacity:.94; } 100% { transform:translateX(780px) translateY(10px) rotate(-5deg); opacity:0; } }
+
+/* ── Map entry — three seconds through the clouds ─────────────────────────── */
+.map-cloud-reveal { position:fixed; inset:0; z-index:9999; overflow:hidden; pointer-events:none; background:linear-gradient(145deg,#22150c 0%,#b86d20 30%,#e5b05e 50%,#47311c 100%); animation:cloud-reveal-out 3s forwards; }
+.map-cloud-reveal__veil { position:absolute; border-radius:50%; background:radial-gradient(ellipse at center,rgba(255,247,226,.98) 0%,rgba(255,229,185,.83) 35%,rgba(162,99,43,.2) 69%,transparent 72%); filter:blur(12px); mix-blend-mode:screen; }
+.map-cloud-reveal__veil--one { width:110vw; height:72vh; top:-16vh; left:-42vw; animation:cloud-drift-one 3s ease-in forwards; }
+.map-cloud-reveal__veil--two { width:96vw; height:82vh; right:-38vw; bottom:-22vh; animation:cloud-drift-two 3s ease-in forwards; }
+.map-cloud-reveal__veil--three { width:86vw; height:48vh; left:11vw; top:28vh; opacity:.84; animation:cloud-drift-three 3s ease-in forwards; }
+.map-cloud-reveal__sun { position:absolute; width:18vw; height:18vw; min-width:160px; min-height:160px; top:17%; left:50%; border-radius:50%; background:radial-gradient(circle,rgba(255,249,205,.98) 0%,rgba(255,202,92,.78) 22%,rgba(211,123,29,.28) 56%,transparent 71%); transform:translateX(-50%); filter:blur(4px); animation:cloud-sun 3s ease-out forwards; }
+.map-cloud-reveal__eagle { position:absolute; top:42%; left:50%; font-size:42px; filter:drop-shadow(0 8px 8px rgba(39,20,5,.52)); animation:cloud-eagle 2.45s cubic-bezier(.2,.75,.3,1) forwards; }
+.map-cloud-reveal__label { position:absolute; top:calc(50% + 54px); left:0; right:0; text-align:center; color:#4a270d; font:700 11px/1 'Share Tech Mono',monospace; letter-spacing:.32em; text-shadow:0 1px 0 rgba(255,255,255,.46); animation:cloud-label 2.5s ease-out forwards; }
+@keyframes cloud-reveal-out { 0%,76% { opacity:1; } 100% { opacity:0; visibility:hidden; } }
+@keyframes cloud-drift-one { to { transform:translate3d(-62vw,-35vh,0) scale(1.25); opacity:0; } }
+@keyframes cloud-drift-two { to { transform:translate3d(66vw,38vh,0) scale(1.3); opacity:0; } }
+@keyframes cloud-drift-three { to { transform:translate3d(0,58vh,0) scale(1.45); opacity:0; } }
+@keyframes cloud-sun { 0% { opacity:0; transform:translateX(-50%) scale(.35); } 28% { opacity:1; } 100% { opacity:0; transform:translateX(-50%) scale(2.7); } }
+@keyframes cloud-eagle { 0% { opacity:0; transform:translate(-90vw,15vh) scale(.45) rotate(-12deg); } 30% { opacity:1; } 100% { opacity:0; transform:translate(91vw,-16vh) scale(1.45) rotate(8deg); } }
+@keyframes cloud-label { 0%,25% { opacity:0; transform:translateY(8px); } 42%,67% { opacity:1; transform:translateY(0); } 100% { opacity:0; transform:translateY(-7px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ancient-sky, .hero-feather, .hero-eagle-flight, .landing-feather-seal, .map-cloud-reveal { animation: none !important; display:none; }
 }
 
 /* ── Monospace data values ──────────────────────────────────────────────────── */
 .font-data {
-  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  font-family: 'Share Tech Mono', ui-monospace, "Cascadia Code", "Fira Code", monospace;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Apex Eagle splash animations ───────────────────────────────────────────── */
+@keyframes apex-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes apex-spin-rev {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-360deg); }
+}
+@keyframes apex-pulse-ring {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%       { opacity: 0.7;  transform: scale(1.04); }
+}
+@keyframes apex-eye-glow {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1; }
 }

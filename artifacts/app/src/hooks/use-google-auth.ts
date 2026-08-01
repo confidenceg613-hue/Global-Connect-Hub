@@ -21,7 +21,7 @@ interface GoogleAuthResult {
 
 /**
  * Talks to POST/DELETE /api/auth/google — verifying a Google ID token on the
- * backend and returning the linked (or newly created) PhoneLink user.
+ * backend and returning the linked (or newly created) DeepFalcon user.
  */
 export function useGoogleAuth() {
   const [isPending, setIsPending] = useState(false);

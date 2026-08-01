@@ -1,11 +1,36 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { randomBytes } from "crypto";
+
+/** Extract the real client IP, respecting common proxy headers. */
+function getClientIp(req: import("express").Request): string {
+  const fwd = req.headers["x-forwarded-for"];
+  if (typeof fwd === "string") return fwd.split(",")[0].trim();
+  if (Array.isArray(fwd)) return fwd[0].trim();
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+/** Fire-and-forget ip-api.com lookup. Returns null on any error. */
+async function lookupIp(ip: string): Promise<Record<string, unknown> | null> {
+  // Skip private/loopback addresses
+  if (!ip || ip === "unknown" || ip.startsWith("127.") || ip.startsWith("::1") || ip.startsWith("10.") || ip.startsWith("192.168.") || ip === "::ffff:127.0.0.1") {
+    return { note: "private/local address — no geo data available", query: ip };
+  }
+  try {
+    const fields = "status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,mobile,proxy,hosting,query";
+    const r = await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=${fields}`);
+    if (!r.ok) return null;
+    return await r.json() as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
 
 function shortToken(): string {
   return randomBytes(6).toString("base64url"); // 8 URL-safe chars
 }
-import { db, invitesTable, usersTable } from "@workspace/db";
+const LOCATION_SHARING_DURATION_MS = 10 * 60 * 1000;
+import { db, invitesTable, usersTable, inviteSessionsTable } from "@workspace/db";
 import { sendPushAndLog } from "../lib/notifications.js";
 import { consumeAccess, BANK_DETAILS } from "../lib/access-control.js";
 import {
@@ -21,10 +46,10 @@ import {
   UpdateInviteResponse,
 } from "@workspace/api-zod";
 
-function buildWhatsappLink(toPhone: string, message: string): string {
-  const digits = toPhone.replace(/[^\d]/g, "");
+function buildSmsLink(toPhone: string, message: string): string {
+  // sms: URI works on iOS and Android; opens the native SMS app pre-filled
   const encoded = encodeURIComponent(message);
-  return `https://wa.me/${digits}?text=${encoded}`;
+  return `sms:${toPhone}?body=${encoded}`;
 }
 
 const router: IRouter = Router();
@@ -75,11 +100,12 @@ router.post("/invites", async (req, res): Promise<void> => {
     ? `${baseUrl}/consent/${token}`
     : `/consent/${token}`;
 
-  // Compose the WhatsApp message with the tracking link embedded
-  const messageWithLink =
-    `${parsed.data.message}\n\nClick here to grant location access: ${consentPageUrl}`;
+  // Compose the SMS message with the tracking link embedded
+  const messageWithLink = parsed.data.message
+    ? `${parsed.data.message}\n\nClick here to grant location access: ${consentPageUrl}`
+    : `Click here to grant location access: ${consentPageUrl}`;
 
-  const whatsappLink = buildWhatsappLink(parsed.data.toPhone, messageWithLink);
+  const whatsappLink = buildSmsLink(parsed.data.toPhone, messageWithLink);
 
   const [invite] = await db
     .insert(invitesTable)
@@ -87,7 +113,7 @@ router.post("/invites", async (req, res): Promise<void> => {
       fromUserId: parsed.data.fromUserId,
       toPhone: parsed.data.toPhone,
       toName: parsed.data.toName,
-      message: parsed.data.message,
+      message: parsed.data.message ?? "",
       consentType: parsed.data.consentType,
       token,
       consentPageUrl,
@@ -117,21 +143,71 @@ router.get("/invites/by-token/:token", async (req, res): Promise<void> => {
     return;
   }
 
+  // Capture IP + UA on first open only
+  if (!invite.openedIp) {
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] ?? null;
+    // Fire geo lookup asynchronously — don't block the response
+    lookupIp(ip).then((ipInfo) => {
+      db.update(invitesTable)
+        .set({ openedIp: ip, openedAt: new Date(), openedUserAgent: ua, ipInfo })
+        .where(eq(invitesTable.token, params.data.token))
+        .catch(() => {});
+    }).catch(() => {});
+  }
+
   // Look up the sender's name
   const [sender] = await db
     .select({ name: usersTable.name })
     .from(usersTable)
     .where(eq(usersTable.id, invite.fromUserId));
 
+  // Count sessions so the consent page can show "Xth time" messaging
+  const sessions = await db
+    .select()
+    .from(inviteSessionsTable)
+    .where(eq(inviteSessionsTable.inviteToken, invite.token));
+
   res.json({
     token: invite.token,
     fromUserName: sender?.name ?? "Someone",
+    // Always return "accepted" semantics if the link has been used before,
+    // but never block re-use — the link is permanent.
     status: invite.status,
     consentType: invite.consentType,
     grantedLatitude: invite.grantedLatitude,
     grantedLongitude: invite.grantedLongitude,
     grantedAt: invite.grantedAt,
+    sessionCount: sessions.length,
   });
+});
+
+// GET /invites/by-token/:token/sessions — list all sessions for this invite (dashboard)
+router.get("/invites/by-token/:token/sessions", async (req, res): Promise<void> => {
+  const params = GetInviteByTokenParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  // Verify the invite exists
+  const [invite] = await db
+    .select({ id: invitesTable.id })
+    .from(invitesTable)
+    .where(eq(invitesTable.token, params.data.token));
+
+  if (!invite) {
+    res.status(404).json({ error: "Invite not found" });
+    return;
+  }
+
+  const sessions = await db
+    .select()
+    .from(inviteSessionsTable)
+    .where(eq(inviteSessionsTable.inviteToken, params.data.token))
+    .orderBy(desc(inviteSessionsTable.createdAt));
+
+  res.json(sessions);
 });
 
 router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> => {
@@ -157,33 +233,58 @@ router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> =>
     return;
   }
 
-  const alreadyGranted = existing.status === "accepted";
+  const grantedIp = getClientIp(req);
+  const isFirstGrant = existing.status !== "accepted";
 
+  // --- Create a new session for this grant (permanent reuse: one session per click) ---
+  const sessionToken = shortToken();
+  const [session] = await db
+    .insert(inviteSessionsTable)
+    .values({
+      inviteToken: params.data.token,
+      sessionToken,
+      grantedAt: new Date(),
+      expiresAt: new Date(Date.now() + LOCATION_SHARING_DURATION_MS),
+      grantedLatitude: body.data.latitude,
+      grantedLongitude: body.data.longitude,
+      grantedAddress: body.data.address,
+      grantedIp,
+      status: "active",
+    })
+    .returning();
+
+  // Update the invite's top-level grant fields (first time only — keep the "first seen" snapshot)
   const [updated] = await db
     .update(invitesTable)
     .set({
       status: "accepted",
-      grantedLatitude: body.data.latitude,
-      grantedLongitude: body.data.longitude,
-      grantedAddress: body.data.address,
-      // Only stamp grantedAt on the first grant, not on re-opens
-      ...(alreadyGranted ? {} : { grantedAt: new Date() }),
+      grantedIp,
+      ...(isFirstGrant
+        ? {
+            grantedLatitude: body.data.latitude,
+            grantedLongitude: body.data.longitude,
+            grantedAddress: body.data.address,
+            grantedAt: new Date(),
+          }
+        : {}),
     })
     .where(eq(invitesTable.token, params.data.token))
     .returning();
 
-  // Only push the "just granted" notification on the first consent, not re-opens
-  if (!alreadyGranted) {
-    sendPushAndLog(existing.fromUserId, {
-      type: "grant",
-      title: "✅ Location access granted",
-      body: `${existing.toName ?? existing.toPhone} just shared their live location`,
-      tag: `granted-${existing.id}`,
-      data: { inviteId: existing.id, contactName: existing.toName ?? existing.toPhone },
-    }).catch(() => {});
-  }
+  // Push a notification on EVERY new session so the owner knows the link was clicked again
+  sendPushAndLog(existing.fromUserId, {
+    type: "grant",
+    title: isFirstGrant ? "✅ Location access granted" : "🔄 New sharing session started",
+    body: `${existing.toName ?? existing.toPhone} just shared their live location${isFirstGrant ? "" : " again"}`,
+    tag: `granted-${session.id}`,
+    data: { inviteId: existing.id, sessionId: session.id, contactName: existing.toName ?? existing.toPhone },
+  }).catch(() => {});
 
-  res.json(GetInviteResponse.parse(updated));
+  res.json({
+    ...GetInviteResponse.parse(updated),
+    sessionToken: session.sessionToken,
+    expiresAt: session.expiresAt,
+  });
 });
 
 router.get("/invites/:id", async (req, res): Promise<void> => {
@@ -231,6 +332,47 @@ router.patch("/invites/:id", async (req, res): Promise<void> => {
   }
 
   res.json(UpdateInviteResponse.parse(invite));
+});
+
+// ── Send in-app location request ─────────────────────────────────────────────
+// POST /api/invites/:inviteId/send-in-app
+// Looks up the recipient's userId by the invite's toPhone and sends them a
+// `location_request` push+SSE notification containing the invite token so
+// their app can show the accept/dismiss overlay.
+router.post("/invites/:inviteId/send-in-app", async (req, res): Promise<void> => {
+  const inviteId = parseInt(req.params.inviteId, 10);
+  if (isNaN(inviteId)) { res.status(400).json({ error: "invalid inviteId" }); return; }
+
+  const [invite] = await db.select().from(invitesTable).where(eq(invitesTable.id, inviteId));
+  if (!invite) { res.status(404).json({ error: "Invite not found" }); return; }
+
+  // Find the sender's name for the notification body
+  const [sender] = await db.select().from(usersTable).where(eq(usersTable.id, invite.fromUserId));
+
+  // Look up the recipient by phone number
+  const [recipient] = await db.select().from(usersTable).where(eq(usersTable.fullPhone, invite.toPhone));
+  if (!recipient) {
+    res.status(404).json({ error: "Recipient is not registered in the app" });
+    return;
+  }
+
+  const fromName = invite.toName
+    ? `${sender?.name ?? "Someone"} (for ${invite.toName})`
+    : sender?.name ?? "Someone";
+
+  await sendPushAndLog(recipient.id, {
+    type: "location_request",
+    title: "📍 Location Request",
+    body: `${sender?.name ?? "Someone"} is asking for your live location`,
+    tag: `location-request-${invite.token}`,
+    data: {
+      token: invite.token,
+      fromName: sender?.name ?? "Someone",
+      inviteId: invite.id,
+    },
+  });
+
+  res.json({ ok: true, recipientId: recipient.id });
 });
 
 export default router;

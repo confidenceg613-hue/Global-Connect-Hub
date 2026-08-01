@@ -9,7 +9,7 @@ const router: IRouter = Router();
 // Usage policy: https://operations.osmfoundation.org/policies/nominatim/
 // Max ~1 request/sec, must send an identifying User-Agent. We serialize calls below.
 const NOMINATIM_BASE = "https://nominatim.openstreetmap.org";
-const USER_AGENT = "PhoneLink/1.0 (location-sharing app; contact via app support)";
+const USER_AGENT = "DeepFalcon/1.0 (location-sharing app; contact via app support)";
 
 let nominatimQueue: Promise<void> = Promise.resolve();
 function throttledNominatim<T>(fn: () => Promise<T>): Promise<T> {

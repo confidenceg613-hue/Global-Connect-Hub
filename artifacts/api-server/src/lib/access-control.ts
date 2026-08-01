@@ -15,7 +15,7 @@ const DEFAULT_CODE_DURATION_DAYS = 7;
 // code have run out. Kept in one place so the payment instructions can't
 // drift between endpoints.
 export const BANK_DETAILS = {
-  amountNaira: 500,
+  amountNaira: 1000,
   accountNumber: "9160547567",
   bankName: "Opay",
   accountName: "Godwin Confidence Onyedikachi",

@@ -21,6 +21,14 @@ import groupSharesRouter from "./group-shares";
 import accessRouter from "./access";
 import adminCodesRouter from "./admin-codes";
 import adminDashboardRouter from "./admin-dashboard";
+import consentSessionsRouter from "./consent-sessions";
+import guardianRouter from "./guardian";
+import ipLookupRouter from "./ip-lookup";
+import manualPinsRouter from "./manual-pins";
+import movementAnalysisRouter from "./movement-analysis";
+import signalFusionRouter from "./signal-fusion";
+import spoofDetectionRouter from "./spoof-detection";
+import quietInferenceRouter from "./quiet-inference";
 
 const router: IRouter = Router();
 
@@ -46,5 +54,13 @@ router.use(groupSharesRouter);
 router.use(accessRouter);
 router.use(adminCodesRouter);
 router.use(adminDashboardRouter);
+router.use(consentSessionsRouter);
+router.use(guardianRouter);
+router.use(ipLookupRouter);
+router.use(manualPinsRouter);
+router.use(movementAnalysisRouter);
+router.use(signalFusionRouter);
+router.use(spoofDetectionRouter);
+router.use(quietInferenceRouter);
 
 export default router;

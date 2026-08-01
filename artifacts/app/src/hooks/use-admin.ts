@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const STORAGE_KEY = "phonelink_admin_secret";
+const STORAGE_KEY = "deepfalcon_admin_secret";
 
 export type UserStatus = "unlimited" | "subscribed" | "free" | "expired" | "locked";
 

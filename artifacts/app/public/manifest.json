@@ -1,0 +1,27 @@
+{
+  "name": "DeepFalcon",
+  "short_name": "DeepFalcon",
+  "description": "Secure real-time location intelligence platform.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "portrait-primary",
+  "background_color": "#0D0A06",
+  "theme_color": "#0D0A06",
+  "icons": [
+    {
+      "src": "/falcon-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/falcon-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["utilities", "navigation"],
+  "display_override": ["fullscreen", "standalone", "minimal-ui"]
+}

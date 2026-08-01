@@ -5,6 +5,21 @@ self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
+// ── Navigation fetch handler — enables deep linking ───────────────────────────
+// When the installed PWA is opened via a deep link URL (e.g. /live-map),
+// the browser navigates to that path. This handler ensures the app shell
+// (index.html) is returned so the React router can pick up the path and
+// render the correct page — both online and offline.
+self.addEventListener("fetch", (event) => {
+  if (event.request.mode !== "navigate") return;
+  event.respondWith(
+    fetch(event.request).catch(() =>
+      caches.match(new Request("/index.html", { headers: event.request.headers }))
+        .then((r) => r ?? fetch("/"))
+    )
+  );
+});
+
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
@@ -17,12 +32,12 @@ self.addEventListener("activate", (event) => {
 const GPS_NOTIF_TAG = "phonelink-gps-active";
 
 self.addEventListener("message", (event) => {
-  const { type, inviterName } = event.data ?? {};
+  const { type, inviterName, expiresAt } = event.data ?? {};
 
   if (type === "LOCATION_TRACKING_STARTED") {
     const name = inviterName ? `${inviterName}` : "your contact";
     self.registration.showNotification("📍 GPS Active — PhoneLink", {
-      body: `Sharing live location with ${name}. Swipe to stop tracking.`,
+      body: `Sharing live location with ${name}${expiresAt ? " for up to 10 minutes" : ""}. Swipe to stop tracking.`,
       icon: "/favicon.svg",
       badge: "/favicon.svg",
       tag: GPS_NOTIF_TAG,

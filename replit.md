@@ -88,8 +88,23 @@ The live map's Street View button resolves nearby crowdsourced imagery via Mapil
 
 ## Setup notes
 
-- On fresh imports, `artifacts/mobile/package.json` needs `"main": "expo-router/entry"` (missing after import, which made Metro look for a non-existent classic `App.js` entry) plus `react-native-web` + `react-dom` as dependencies (needed for the Expo web bundle to build). Both are now committed.
+- On fresh imports, run `pnpm install` from the workspace root to install all dependencies before starting the app.
+- After `pnpm install`, push the DB schema: `cd lib/db && pnpm run push`. This applies the Drizzle schema to the Replit-managed PostgreSQL instance.
+- The `postgresql-16` Nix module in `.replit` is required for the Replit-managed PostgreSQL to be available — do not remove it.
 - `artifacts/mockup-sandbox` has no `dev` script by default — it's scaffolded on demand by the mockup-sandbox skill when canvas prototyping is used, so its workflow showing `FINISHED` at rest is expected.
+
+### Post-import setup performed (2026-07-28)
+1. `pnpm install` — installed all 1107 workspace packages from the lockfile.
+2. `cd lib/db && pnpm run push` — applied the full Drizzle schema to the PostgreSQL database.
+3. `Start application` workflow restarted — Vite frontend on port 5000, API server on port 8080, both confirmed healthy.
+
+### IP Target Locator — Best Estimate is now real-time IP only
+The "Best Estimate" in the IP Target Locator (`/ip-lookup`) was changed to always use the live IP geolocation consensus (4 external APIs) instead of stored GPS data from PhoneLink contacts. This means searching an IP always reflects its current geolocation — not a contact's last recorded position.
+
+### Ten-minute GPS sharing
+- Every consent grant creates a server-enforced **10-minute** sharing session. The API rejects new location updates after the session expires, even if a client is still running.
+- The consent web page displays the remaining session time and stops its browser GPS watcher when the ten minutes end. Browsers cannot reliably keep sharing after Chrome itself is removed from Android's recent apps; Android terminates the browser process.
+- The native mobile app uses Android's visible foreground-location notification to keep sending updates while the user uses other apps for the same ten-minute window. This requires an installed native/development build and **Allow all the time** location permission; Expo Go cannot provide background location.
 
 ## User preferences
 

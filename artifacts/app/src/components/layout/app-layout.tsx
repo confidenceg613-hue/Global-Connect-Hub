@@ -1,9 +1,11 @@
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { AccountSwitcher } from "@/components/layout/AccountSwitcher";
 import {
-  ShieldCheck, LayoutDashboard, Users, UserCircle, LogOut, Menu,
+  ShieldCheck, LayoutDashboard, Users, UserCircle, Menu,
   Navigation, Clock, Map, Bell, BellOff, BellRing, Camera, Settings,
   Activity as ActivityIcon, Flag, ChevronRight, Radio, Globe,
+  ShieldAlert, Siren, Archive, Info, TrendingUp, Layers, Library,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -114,17 +116,20 @@ const NAV_SECTIONS = [
       { href: "/dashboard",  label: "Overview",     icon: LayoutDashboard },
       { href: "/live-map",   label: "Live Map",      icon: Map },
       { href: "/activity",   label: "Activity",      icon: ActivityIcon },
+      { href: "/library",    label: "Library",       icon: Library },
     ],
   },
   {
     label: "TRACKING",
     items: [
-      { href: "/permissions",       label: "Permissions",       icon: ShieldCheck },
-      { href: "/invites",           label: "Invites",           icon: Users },
-      { href: "/sessions",          label: "Active Sessions",   icon: Radio },
-      { href: "/shared-coordinates",label: "Shared Coordinates",icon: Navigation },
-      { href: "/location-history",  label: "Location History",  icon: Clock },
-      { href: "/location-reports",  label: "Location Reports",  icon: Flag },
+      { href: "/permissions",          label: "Permissions",        icon: ShieldCheck },
+      { href: "/invites",              label: "Invites",            icon: Users },
+      { href: "/sessions",             label: "Active Sessions",    icon: Radio },
+      { href: "/shared-coordinates",   label: "Shared Coordinates", icon: Navigation },
+      { href: "/location-history",     label: "Location History",   icon: Clock },
+      { href: "/movement-patterns",    label: "Movement Patterns",  icon: TrendingUp },
+      { href: "/signal-fusion",        label: "Signal Fusion",      icon: Layers },
+      { href: "/location-reports",     label: "Location Reports",   icon: Flag },
     ],
   },
   {
@@ -136,8 +141,11 @@ const NAV_SECTIONS = [
   {
     label: "SECURITY",
     items: [
-      { href: "/geoboard",    label: "GeoBoard",    icon: Camera },
-      { href: "/surveillance",label: "Surveillance", icon: Camera },
+      { href: "/security-center", label: "Security Center", icon: ShieldAlert },
+      { href: "/geoboard",        label: "GeoBoard",        icon: Camera },
+      { href: "/surveillance",    label: "Surveillance",    icon: Camera },
+      { href: "/panic-log",       label: "Panic Log",       icon: Siren },
+      { href: "/evidence-vault",  label: "Evidence Vault",  icon: Archive },
     ],
   },
   {
@@ -145,13 +153,14 @@ const NAV_SECTIONS = [
     items: [
       { href: "/profile",  label: "Profile",  icon: UserCircle },
       { href: "/settings", label: "Settings", icon: Settings },
+      { href: "/about",    label: "About",    icon: Info },
     ],
   },
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
   const [location, navigate] = useLocation();
-  const { logout, userId } = useAuth();
+  const { userId } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const { state: notifState, subscribe } = useNotificationBell(userId);
@@ -159,9 +168,9 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const BellIcon = notifState === "granted" ? BellRing : notifState === "denied" ? BellOff : Bell;
   const bellColor =
-    notifState === "granted" ? "text-emerald-400" :
+    notifState === "granted" ? "text-amber-400" :
     notifState === "denied" ? "text-red-400" :
-    notifState === "loading" ? "text-yellow-400 animate-pulse" :
+    notifState === "loading" ? "text-amber-300 animate-pulse" :
     "text-muted-foreground";
 
   const handleBellClick = useCallback(() => {
@@ -179,7 +188,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     <button onClick={handleBellClick}
       disabled={notifState === "unsupported" || notifState === "loading"}
       title={bellTitle} aria-label={bellTitle}
-      className={`relative p-2 rounded-lg transition-all hover:bg-secondary ${bellColor}`}>
+      className={`relative h-9 w-9 flex items-center justify-center rounded-lg transition-all hover:bg-secondary ${bellColor}`}>
       <BellIcon size={18} />
       {notifState === "granted" && unreadCount > 0 && (
         <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-1 ring-1 ring-background">
@@ -187,7 +196,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         </span>
       )}
       {notifState === "granted" && unreadCount === 0 && (
-        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400 ring-1 ring-background" />
+        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-1 ring-background" />
       )}
       {notifState === "default" && (
         <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-1 ring-background" />
@@ -201,12 +210,10 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="px-5 py-5 border-b border-border/60">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-md">
-              <ShieldCheck size={18} className="text-white" />
-            </div>
+            <img src="/falcon-logo.png" alt="DeepFalcon" className="w-9 h-9 rounded-xl object-cover shadow-md shadow-amber-500/20 ring-1 ring-amber-500/30" />
             <div>
-              <span className="font-bold text-base tracking-tight text-foreground">PhoneLink</span>
-              <div className="text-[10px] text-muted-foreground font-mono leading-none mt-0.5">Safety Platform</div>
+              <span className="font-bold text-base tracking-tight text-foreground" style={{ fontFamily: "Syne, system-ui, sans-serif", letterSpacing: "-0.02em" }}>DeepFalcon</span>
+              <div className="text-[10px] text-muted-foreground font-mono leading-none mt-0.5">Intelligence Platform</div>
             </div>
           </div>
           {notificationButton}
@@ -232,15 +239,15 @@ export function AppLayout({ children }: AppLayoutProps) {
                     onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { setMobileMenuOpen(false); navigate(item.href); } }}
                     className={`group flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-all cursor-pointer select-none ${
                       isActive
-                        ? "bg-indigo-500/10 text-indigo-400"
+                        ? "bg-amber-500/10 text-amber-400"
                         : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <item.icon size={16} className={isActive ? "text-indigo-400" : ""} />
+                      <item.icon size={16} className={isActive ? "text-amber-400" : ""} />
                       <span className={`text-sm ${isActive ? "font-semibold" : "font-medium"}`}>{item.label}</span>
                     </div>
-                    {isActive && <ChevronRight size={14} className="text-indigo-400" />}
+                    {isActive && <ChevronRight size={14} className="text-amber-400" />}
                   </div>
                 );
               })}
@@ -249,15 +256,9 @@ export function AppLayout({ children }: AppLayoutProps) {
         ))}
       </div>
 
-      {/* Footer */}
+      {/* Footer — account switcher */}
       <div className="px-3 py-3 border-t border-border/60">
-        <button
-          onClick={logout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all text-sm font-medium"
-        >
-          <LogOut size={16} />
-          Sign out
-        </button>
+        <AccountSwitcher />
       </div>
     </div>
   );
@@ -271,12 +272,11 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       {/* Mobile */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-background/95 backdrop-blur border-b border-border">
+        {/* z-[1010] keeps the header above Live Map's Leaflet layers (z-[1000]) */}
+        <header className="md:hidden sticky top-0 z-[1010] flex items-center justify-between px-4 py-3 bg-background border-b border-border">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center">
-              <ShieldCheck size={16} className="text-white" />
-            </div>
-            <span className="font-bold text-base text-foreground tracking-tight">PhoneLink</span>
+            <img src="/falcon-logo.png" alt="DeepFalcon" className="w-8 h-8 rounded-lg object-cover shadow-sm shadow-amber-500/20 ring-1 ring-amber-500/30" />
+            <span className="font-bold text-base text-foreground tracking-tight" style={{ fontFamily: "Syne, system-ui, sans-serif", letterSpacing: "-0.02em" }}>DeepFalcon</span>
           </div>
           <div className="flex items-center gap-1">
             {notificationButton}
@@ -291,7 +291,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           </div>
         </header>
 
-        <main className="flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full">
+        <main className="app-main flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full">
           {children}
         </main>
       </div>

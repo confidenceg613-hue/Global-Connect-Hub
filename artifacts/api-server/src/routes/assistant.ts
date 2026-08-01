@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 const router = Router();
 
 // ── Client setup ─────────────────────────────────────────────────────────────
-const SHARED_HEADERS = { "HTTP-Referer": "https://phonelink.app", "X-Title": "PhoneLink AI" };
+const SHARED_HEADERS = { "HTTP-Referer": "https://deepfalcon.app", "X-Title": "Falcon AI" };
 const GROQ_BASE    = "https://api.groq.com/openai/v1";
 const MISTRAL_BASE = "https://api.mistral.ai/v1";
 const GEMINI_BASE  = "https://generativelanguage.googleapis.com/v1beta/openai/";
@@ -74,8 +74,9 @@ function modelsFor(kind: ClientKind): string[] {
   }
 }
 
+// When Mistral is the primary provider, use Pixtral (the vision-capable model).
 const VISION_MODEL = process.env.OPENAI_VISION_MODEL
-  ?? (clients[0]?.kind === "openai" ? "gpt-4o-mini" : clients[0]?.kind === "openrouter" ? "openai/gpt-4o-mini" : "mistral-large-latest");
+  ?? (clients[0]?.kind === "openai" ? "gpt-4o-mini" : clients[0]?.kind === "openrouter" ? "openai/gpt-4o-mini" : clients[0]?.kind === "mistral" ? "pixtral-12b-2409" : "mistral-large-latest");
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -218,7 +219,16 @@ function buildSystemPrompt(ctx?: z.infer<typeof SendMessageBody>["mapContext"]):
     ? `📍 User is on the Live Map. Active contacts: ${ctx.liveCount ?? 0}.${contactsBlock}${myPos}${layerBlock}`
     : "User is NOT on the Live Map — map commands will queue.";
 
-  return `You are PhoneLink AI — smart, concise, genuinely useful. Built into a real-time location-safety platform.
+  return `You are Falcon AI — smart, concise, genuinely useful. Built into a real-time location-safety platform.
+
+## ORIGIN — THE ANCIENT SKY
+Falcon AI is named for the old sky-watchers: guardians who learned the land by reading wind, stars, and the flight of birds. In DeepFalcon, that inheritance is expressed as calm vigilance — a modern intelligence that helps people look after one another with consent and care. This is brand story and tone only, not a source of facts.
+
+## ACCURACY IS SACRED
+- Treat the origin story as decorative context only. It must NEVER change your reasoning, tool choices, map commands, calculations, safety guidance, or factual claims.
+- For tasks and questions, prioritize the user's request, supplied live map context, verified data, and the rules below. Never invent facts, locations, readings, or results to fit the story.
+- Use the ancient-sky voice sparingly: at most one short evocative phrase when it genuinely improves the experience. Be direct and practical for tasks, troubleshooting, safety questions, numbers, and navigation.
+- If information is unavailable or uncertain, say so clearly. Accuracy and honesty always outrank atmosphere.
 
 ${mapStatus}
 
@@ -662,7 +672,7 @@ router.post("/assistant", async (req, res) => {
       const reconcileMessages: OpenAI.ChatCompletionMessageParam[] = [
         {
           role: "system",
-          content: `You are the reconciler in a two-AI cross-check pipeline for PhoneLink AI. Two independent AI agents were each asked the same user question with the same context and answered without seeing each other's response. Your job: compare them, decide which parts are correct/well-supported, resolve any disagreement, and produce ONE final answer that is at least as good as the better of the two — merging complementary details, dropping anything wrong or unsupported.\n\nOriginal system context given to both agents:\n${systemPrompt}\n\nRespond with strict JSON: {"reply": "...", "command": {...}|null, "note": "one short sentence on whether the two agents agreed or what you reconciled"}. Follow the exact same MAP COMMANDS and OUTPUT RULES from the context above for "reply"/"command". Never invent a command neither agent proposed unless it's obviously the correct merge of what both intended.`,
+          content: `You are the reconciler in a two-AI cross-check pipeline for Falcon AI. Two independent AI agents were each asked the same user question with the same context and answered without seeing each other's response. Your job: compare them, decide which parts are correct/well-supported, resolve any disagreement, and produce ONE final answer that is at least as good as the better of the two — merging complementary details, dropping anything wrong or unsupported.\n\nOriginal system context given to both agents:\n${systemPrompt}\n\nRespond with strict JSON: {"reply": "...", "command": {...}|null, "note": "one short sentence on whether the two agents agreed or what you reconciled"}. Follow the exact same MAP COMMANDS and OUTPUT RULES from the context above for "reply"/"command". Never invent a command neither agent proposed unless it's obviously the correct merge of what both intended.`,
         },
         { role: "user", content: `User's question: ${enrichedMessage}\n\nAgent A (${agentA.label}) answered:\n${agentA.reply}${agentA.command ? `\n[Agent A command: ${JSON.stringify(agentA.command)}]` : ""}\n\nAgent B (${agentB.label}) answered:\n${agentB.reply}${agentB.command ? `\n[Agent B command: ${JSON.stringify(agentB.command)}]` : ""}` },
       ];

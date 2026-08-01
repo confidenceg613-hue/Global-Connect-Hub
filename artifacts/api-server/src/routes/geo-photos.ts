@@ -2,7 +2,6 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { geoPhotosTable, SaveGeoPhotoBody, invitesTable, usersTable } from "@workspace/db/schema";
 import { eq, desc } from "drizzle-orm";
-
 const router = Router();
 
 // POST /api/geo-photos — save a single geo photo from the consent page

@@ -3,6 +3,8 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Camera, Crosshair, AlertCircle, Radio } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { makeEagleMarker } from "@/lib/eagle-map-marker";
+import { MapCloudReveal } from "@/components/map-cloud-reveal";
 
 const API_BASE      = import.meta.env.BASE_URL.replace(/\/$/, "");
 const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}";
@@ -15,7 +17,7 @@ const OVERPASS_MIRRORS = [
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface LocPoint { latitude: number; longitude: number; createdAt: string; }
-interface Invite   { id: number; token: string; toName: string; status: string; }
+interface Invite   { id: number; token: string; toName: string | null; toPhone: string; status: string; }
 
 // ── Prediction ────────────────────────────────────────────────────────────────
 function predictPath(history: LocPoint[]): [number, number][] {
@@ -60,17 +62,6 @@ const meIcon = L.icon({
   </svg>`),
   iconSize: [28,38], iconAnchor: [14,38], popupAnchor: [0,-40],
 });
-
-function makeContactIcon(color = "#3b82f6") {
-  return L.icon({
-    iconUrl: enc(`<svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 30 40">
-      <defs><filter id="s"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="rgba(0,0,0,0.6)"/></filter></defs>
-      <path d="M15 2C8.9 2 4 6.9 4 13c0 8.5 11 25 11 25s11-16.5 11-25C26 6.9 21.1 2 15 2z" fill="${color}" filter="url(#s)" stroke="white" stroke-width="2"/>
-      <circle cx="15" cy="13" r="5" fill="white" opacity="0.85"/>
-    </svg>`),
-    iconSize: [30,40], iconAnchor: [15,40], popupAnchor: [0,-42],
-  });
-}
 
 function predDotIcon(idx: number) {
   const size = 14 - idx * 2;
@@ -184,15 +175,15 @@ class ContactTracker {
 
   render(lat: number, lng: number) {
     if (this.disposed) return;
-    const icon = makeContactIcon("#3b82f6");
+    const icon = makeEagleMarker(this.name, { accent: "#f59e0b" });
 
     if (!this.marker) {
       this.marker = L.marker([lat, lng], { icon, zIndexOffset: 2000 })
-        .bindPopup(popup(`🔵 ${this.name}`, "Live position", `${lat.toFixed(5)}, ${lng.toFixed(5)}`), { className: "surv-pop" })
+        .bindPopup(popup(`🦅 ${this.name}`, "Live position", `${lat.toFixed(5)}, ${lng.toFixed(5)}`), { className: "surv-pop" })
         .addTo(this.layer);
     } else {
       this.marker.setLatLng([lat, lng]);
-      this.marker.setPopupContent(popup(`🔵 ${this.name}`, "Live position", `${lat.toFixed(5)}, ${lng.toFixed(5)}`));
+      this.marker.setPopupContent(popup(`🦅 ${this.name}`, "Live position", `${lat.toFixed(5)}, ${lng.toFixed(5)}`));
     }
 
     // Remove old prediction layers
@@ -367,6 +358,7 @@ export default function Surveillance() {
 
   return (
     <div className="relative -m-4 md:-m-8" style={{ height:"calc(100vh - 64px)" }}>
+      <MapCloudReveal />
       <div ref={mapRef} className="absolute inset-0" style={{ zIndex:0 }} />
 
       {/* HUD */}

@@ -93,7 +93,7 @@ export default function ChatTab() {
   useEffect(() => {
     ctxRef.current = {
       ...ctxRef.current,
-      isTracking: trackingStatus === 'tracking',
+      isTracking: trackingStatus === 'active',
     };
   }, [trackingStatus]);
 
@@ -121,7 +121,7 @@ export default function ChatTab() {
       const { response, nextContext } = await processMessage(
         text,
         ctxRef.current,
-        { isTracking: trackingStatus === 'tracking' },
+        { isTracking: trackingStatus === 'active' },
       );
       ctxRef.current = nextContext;
 
@@ -209,7 +209,7 @@ export default function ChatTab() {
           )}
         </View>
         <View style={styles.headerActions}>
-          <View style={[styles.statusDot, { backgroundColor: trackingStatus === 'tracking' ? c.success : c.muted }]} />
+          <View style={[styles.statusDot, { backgroundColor: trackingStatus === 'active' ? c.success : c.muted }]} />
           <TouchableOpacity onPress={handleClear} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Text style={[styles.clearBtn, { color: c.mutedForeground }]}>Clear</Text>
           </TouchableOpacity>

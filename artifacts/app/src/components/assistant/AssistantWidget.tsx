@@ -41,10 +41,10 @@ const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 const WELCOME: Message = {
   role: "assistant",
-  content: "Hey! 👋 I'm your **PhoneLink AI** — powered by GPT-4o.\n\nI can navigate the map, find **real photos** of any place on Earth, brief you on locations, and much more.",
+  content: "Welcome to **Falcon AI** — the modern keeper of the ancient sky.\n\nOld sky-watchers read wind, stars, and flight to guide those below. I carry that watchful spirit into real-time maps and practical answers — always grounded in your live data and the facts.",
 };
 
-const QUICK_ACTIONS_DEFAULT = ["Show image of Abuja", "Go to Lagos", "What is a geofence?", "Show heatmap"];
+const QUICK_ACTIONS_DEFAULT = ["Show Abuja high-res scan", "Track Lagos air traffic", "Analyze regional geofence", "Generate global heatmap"];
 
 function renderMarkdown(text: string): React.ReactNode[] {
   return text.split("\n").map((line, i) => {
@@ -52,7 +52,7 @@ function renderMarkdown(text: string): React.ReactNode[] {
     if (/^[•\-\*] /.test(line.trim())) {
       return (
         <div key={i} className="flex gap-1.5 items-start">
-          <span className="mt-[5px] shrink-0 w-1.5 h-1.5 rounded-full bg-indigo-400/70" />
+          <span className="mt-[5px] shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400/70" />
           <span>{inlineMarkdown(line.replace(/^[\s•\-\*]+/, ""))}</span>
         </div>
       );
@@ -571,7 +571,7 @@ export default function AssistantWidget() {
 
   const startCall = useCallback(() => {
     setCallMode(true); setOpen(false); setSpeaking(true);
-    speak("PhoneLink AI connected. How can I help you?", () => {
+    speak("Falcon AI connected. How can I help you?", () => {
       setSpeaking(false);
       if (callModeRef.current) setTimeout(() => startListening(), 500);
     });
@@ -650,21 +650,21 @@ export default function AssistantWidget() {
             {(speaking || listening) && (
               <>
                 <div className="absolute inset-0 rounded-full border-2 animate-ping"
-                  style={{ borderColor: speaking ? "rgba(99,102,241,.45)" : "rgba(16,185,129,.45)", animationDuration: "1.4s" }} />
+                  style={{ borderColor: speaking ? "rgba(245,168,8,.55)" : "rgba(217,119,6,.45)", animationDuration: "1.4s" }} />
                 <div className="absolute inset-0 rounded-full border-2 animate-ping"
-                  style={{ borderColor: speaking ? "rgba(99,102,241,.25)" : "rgba(16,185,129,.25)", animationDuration: "2.1s", animationDelay: "0.4s" }} />
+                  style={{ borderColor: speaking ? "rgba(245,168,8,.3)" : "rgba(217,119,6,.25)", animationDuration: "2.1s", animationDelay: "0.4s" }} />
               </>
             )}
             <div className="w-32 h-32 rounded-full flex items-center justify-center border-2 transition-colors duration-300"
               style={{
-                background: speaking ? "rgba(99,102,241,.15)" : listening ? "rgba(16,185,129,.15)" : "rgba(255,255,255,.05)",
-                borderColor: speaking ? "rgba(99,102,241,.6)" : listening ? "rgba(16,185,129,.6)" : "rgba(255,255,255,.15)",
+                background: speaking ? "rgba(245,168,8,.15)" : listening ? "rgba(217,119,6,.15)" : "rgba(245,168,8,.05)",
+                borderColor: speaking ? "rgba(245,168,8,.7)" : listening ? "rgba(217,119,6,.6)" : "rgba(245,168,8,.2)",
               }}>
               <Bot className="w-16 h-16 text-white" />
             </div>
           </div>
-          <div className="text-white text-2xl font-semibold mb-1">PhoneLink AI</div>
-          <div className="text-sm mb-2" style={{ color: speaking ? "#a5b4fc" : listening ? "#6ee7b7" : "#71717a" }}>
+          <div className="text-white text-2xl font-semibold mb-1">Falcon AI</div>
+          <div className="text-sm mb-2" style={{ color: speaking ? "#F5C97A" : listening ? "#FBBF24" : "#78716c" }}>
             {speaking ? "Speaking…" : listening ? "Listening…" : loading ? "Thinking…" : "Connected"}
           </div>
           <div className="text-xs font-mono mb-14" style={{ color: "#52525b" }}>{formatDuration(callDuration)}</div>
@@ -673,15 +673,15 @@ export default function AssistantWidget() {
               <div key={i} className="w-[3px] rounded-full transition-all duration-150"
                 style={{
                   height: speaking || listening ? `${10 + Math.abs(Math.sin(i * 0.7 + callDuration * 3)) * 22}px` : "4px",
-                  backgroundColor: speaking ? `rgba(99,102,241,${0.5 + Math.abs(Math.sin(i * 0.5)) * 0.5})` : listening ? `rgba(16,185,129,${0.5 + Math.abs(Math.sin(i * 0.5)) * 0.5})` : "#3f3f46",
+                  backgroundColor: speaking ? `rgba(245,168,8,${0.5 + Math.abs(Math.sin(i * 0.5)) * 0.5})` : listening ? `rgba(217,119,6,${0.5 + Math.abs(Math.sin(i * 0.5)) * 0.5})` : "#44403c",
                 }} />
             ))}
           </div>
           <div className="flex items-center gap-10">
             <div className="flex flex-col items-center gap-2">
               <button onClick={toggleListening} className="w-14 h-14 rounded-full flex items-center justify-center transition-all"
-                style={{ background: listening ? "rgba(16,185,129,.25)" : "rgba(255,255,255,.08)", border: `2px solid ${listening ? "rgba(16,185,129,.5)" : "rgba(255,255,255,.12)"}` }}>
-                {listening ? <Mic className="w-6 h-6 text-emerald-400" /> : <MicOff className="w-6 h-6 text-zinc-400" />}
+                style={{ background: listening ? "rgba(217,119,6,.25)" : "rgba(245,168,8,.08)", border: `2px solid ${listening ? "rgba(217,119,6,.5)" : "rgba(245,168,8,.2)"}` }}>
+                {listening ? <Mic className="w-6 h-6 text-amber-400" /> : <MicOff className="w-6 h-6 text-stone-400" />}
               </button>
               <span className="text-[10px] font-mono text-zinc-600">{listening ? "Mute" : "Mic"}</span>
             </div>
@@ -708,7 +708,7 @@ export default function AssistantWidget() {
       {countdown !== null && (
         <div className="fixed inset-0 z-[9998] flex flex-col items-center justify-center pointer-events-none">
           <div className="text-[120px] font-black tabular-nums leading-none select-none"
-            style={{ color: "white", textShadow: "0 0 60px rgba(99,102,241,.9), 0 4px 24px rgba(0,0,0,.8)" }}>
+            style={{ color: "#F5C97A", textShadow: "0 0 60px rgba(245,168,8,.9), 0 4px 24px rgba(0,0,0,.8)" }}>
             {countdown}
           </div>
           <p className="mt-4 text-lg font-semibold text-white/80" style={{ textShadow: "0 2px 8px rgba(0,0,0,.8)" }}>Taking screenshot…</p>
@@ -717,37 +717,39 @@ export default function AssistantWidget() {
 
       {/* ── FAB ──────────────────────────────────────────────────────────────── */}
       {!callMode && (
-        <button onClick={() => setOpen(o => !o)} aria-label="Open AI assistant"
-          className="fixed bottom-6 right-6 z-50 flex items-center justify-center w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg transition-all hover:scale-105 active:scale-95">
+        <button onClick={() => setOpen(o => !o)} aria-label="Open Falcon AI"
+          className="fixed bottom-6 right-6 z-50 flex items-center justify-center w-14 h-14 rounded-full text-white shadow-lg transition-all hover:scale-105 active:scale-95"
+          style={{ background: "linear-gradient(135deg, #8B5E3C 0%, #5C3A1E 100%)", boxShadow: "0 0 24px rgba(184,124,64,0.45), 0 4px 14px rgba(0,0,0,0.5)", border: "2px solid rgba(184,124,64,0.5)" }}>
           {alwaysOn && (
-            <span className="absolute inset-0 rounded-full border-2 border-emerald-400 animate-ping opacity-60" />
+            <span className="absolute inset-0 rounded-full border-2 border-amber-400 animate-ping opacity-60" />
           )}
-          <Bot className="w-6 h-6" />
+          <Bot className="w-6 h-6" style={{ color: "#F5C97A" }} />
           {alwaysOn && listening && (
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-background flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-background flex items-center justify-center">
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
             </span>
           )}
           {alwaysOn && !listening && (
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-background" />
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-500 border-2 border-background" />
           )}
         </button>
       )}
 
       {/* ── Chat panel ───────────────────────────────────────────────────────── */}
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 w-80 sm:w-96 flex flex-col bg-background border border-border rounded-2xl shadow-2xl overflow-hidden"
-          style={{ maxHeight: "min(80vh, 640px)" }}>
+        <div className="fixed bottom-24 right-6 z-50 w-80 sm:w-96 flex flex-col rounded-2xl shadow-2xl overflow-hidden"
+          style={{ maxHeight: "min(80vh, 640px)", background: "#1A0F08", border: "1px solid rgba(184,124,64,0.35)" }}>
 
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/40">
+          <div className="flex items-center justify-between px-4 py-3"
+            style={{ borderBottom: "1px solid rgba(184,124,64,0.2)", background: "linear-gradient(135deg, rgba(139,94,60,0.25) 0%, rgba(92,58,30,0.15) 100%)" }}>
             <div className="flex items-center gap-2">
               <div className="relative">
-                <Bot className="w-4 h-4 text-indigo-500" />
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-background" />
+                <Bot className="w-4 h-4" style={{ color: "#F5C97A" }} />
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 border border-background" />
               </div>
-              <span className="font-semibold text-sm">PhoneLink AI</span>
-              <span className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">
+              <span className="font-semibold text-sm" style={{ color: "#F5C97A" }}>Falcon AI</span>
+              <span className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: "rgba(184,124,64,0.15)", color: "#F5C97A", border: "1px solid rgba(184,124,64,0.3)" }}>
                 <Sparkles className="w-2.5 h-2.5" />GPT-4o
               </span>
               {streaming && (
@@ -766,6 +768,9 @@ export default function AssistantWidget() {
                 </span>
               )}
             </div>
+             <span className="hidden sm:block text-[8px] uppercase tracking-[0.18em] text-amber-200/45 font-mono">
+               Keeper of the ancient sky
+             </span>
             <div className="flex items-center gap-1">
               <button onClick={() => setDebateMode(v => !v)} aria-label="Toggle cross-check mode"
                 title={debateMode ? "Cross-check mode on — two AIs answer and reconcile (slower)" : "Enable cross-check: two AIs answer independently, then reconcile"}
@@ -793,20 +798,24 @@ export default function AssistantWidget() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3" style={{ background: "#1A0F08" }}>
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className="flex flex-col gap-1 max-w-[92%]">
                   <div className={`px-3 py-2 rounded-xl text-sm leading-relaxed ${
                     m.role === "user"
-                      ? "bg-indigo-600 text-white rounded-br-sm"
-                      : "bg-muted text-foreground rounded-bl-sm"
-                  }`}>
+                      ? "rounded-br-sm"
+                      : "rounded-bl-sm"
+                  }`}
+                    style={m.role === "user"
+                      ? { background: "linear-gradient(135deg, #8B5E3C 0%, #5C3A1E 100%)", color: "#FFF8ED", border: "1px solid rgba(184,124,64,0.4)" }
+                      : { background: "rgba(92,58,30,0.35)", color: "#EFD9B4", border: "1px solid rgba(184,124,64,0.18)" }
+                    }>
                     {m.role === "assistant"
                       ? <div className="space-y-0.5">
                           {renderMarkdown(m.content || "")}
                           {m.streaming && m.content && (
-                            <span className="inline-block w-0.5 h-3.5 bg-indigo-400 animate-pulse ml-0.5 align-middle" />
+                            <span className="inline-block w-0.5 h-3.5 bg-amber-400 animate-pulse ml-0.5 align-middle" />
                           )}
                           {m.images && m.images.length > 0 && m.command?.type === "showImages" && (
                             <ImageGrid images={m.images} place={(m.command as { type: "showImages"; place: string }).place} />
@@ -853,24 +862,28 @@ export default function AssistantWidget() {
 
             {loading && !streaming && (
               <div className="flex justify-start">
-                <div className="bg-muted px-3 py-2.5 rounded-xl rounded-bl-sm text-xs flex items-center gap-2">
+                <div className="px-3 py-2.5 rounded-xl rounded-bl-sm text-xs flex items-center gap-2"
+                  style={{ background: "rgba(92,58,30,0.35)", border: "1px solid rgba(184,124,64,0.18)" }}>
                   <span className="flex gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:0ms]" />
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:150ms]" />
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:300ms]" />
+                    <span className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:0ms]" style={{ background: "#F5C97A" }} />
+                    <span className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:150ms]" style={{ background: "#F5C97A" }} />
+                    <span className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:300ms]" style={{ background: "#F5C97A" }} />
                   </span>
-                  <span className="text-[10px] text-muted-foreground opacity-60">{debateMode ? "2 AIs answering, then reconciling…" : "Thinking…"}</span>
+                  <span className="text-[10px] opacity-60" style={{ color: "#EFD9B4" }}>{debateMode ? "2 AIs answering, then reconciling…" : "Thinking…"}</span>
                 </div>
               </div>
             )}
 
             {showQuickActions && (
               <div className="pt-1">
-                <p className="text-[10px] text-muted-foreground mb-2 font-mono px-1">Try asking:</p>
+                <p className="text-[10px] mb-2 font-mono px-1" style={{ color: "rgba(245,201,122,0.5)" }}>Try asking:</p>
                 <div className="flex flex-wrap gap-1.5">
                   {quickActions.map(action => (
                     <button key={action} onClick={() => sendMessage(action)}
-                      className="text-[11px] px-2.5 py-1 rounded-full border border-border bg-muted/50 hover:bg-muted text-muted-foreground hover:text-indigo-400 hover:border-indigo-500/40 transition-all">
+                      className="text-[11px] px-2.5 py-1 rounded-full transition-all"
+                      style={{ border: "1px solid rgba(184,124,64,0.3)", background: "rgba(92,58,30,0.3)", color: "#EFD9B4" }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(245,201,122,0.6)"; (e.currentTarget as HTMLButtonElement).style.color = "#F5C97A"; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(184,124,64,0.3)"; (e.currentTarget as HTMLButtonElement).style.color = "#EFD9B4"; }}>
                       {action}
                     </button>
                   ))}
@@ -881,7 +894,7 @@ export default function AssistantWidget() {
           </div>
 
           {/* Input */}
-          <div className="px-3 py-3 border-t border-border bg-muted/20">
+          <div className="px-3 py-3" style={{ borderTop: "1px solid rgba(184,124,64,0.2)", background: "rgba(26,15,8,0.95)" }}>
             {captureError && (
               <div className="flex items-center gap-2 mb-2 text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-2.5 py-1.5">
                 <span className="flex-1">{captureError}</span>
@@ -900,16 +913,18 @@ export default function AssistantWidget() {
             <div className="flex gap-2 items-end">
               <button onClick={toggleListening} title={listening ? "Stop" : "Voice input"}
                 className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center border transition-all ${
-                  listening ? "bg-red-500/20 border-red-500/40 text-red-400 animate-pulse"
-                    : "bg-muted/50 border-border text-muted-foreground hover:text-foreground"}`}>
+                  listening ? "animate-pulse" : ""}`}
+                style={listening
+                  ? { background: "rgba(239,68,68,0.2)", borderColor: "rgba(239,68,68,0.4)", color: "#f87171" }
+                  : { background: "rgba(92,58,30,0.4)", borderColor: "rgba(184,124,64,0.25)", color: "#EFD9B4" }}>
                 {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
               <button onClick={captureScreen} disabled={capturing}
-                className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center border transition-all ${
-                  screenCapture ? "bg-violet-500/20 border-violet-500/40 text-violet-400"
-                    : capturing ? "bg-muted/50 border-border text-muted-foreground animate-pulse"
-                    : "bg-muted/50 border-border text-muted-foreground hover:text-foreground"}`}>
+                className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center border transition-all ${capturing ? "animate-pulse" : ""}`}
+                style={screenCapture
+                  ? { background: "rgba(184,124,64,0.25)", borderColor: "rgba(245,201,122,0.5)", color: "#F5C97A" }
+                  : { background: "rgba(92,58,30,0.4)", borderColor: "rgba(184,124,64,0.25)", color: "#EFD9B4" }}>
                 {supportsScreenShare ? <Monitor className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
               </button>
               <Textarea ref={textareaRef} value={input}
@@ -924,16 +939,17 @@ export default function AssistantWidget() {
                 rows={1} className="flex-1 resize-none text-sm min-h-[36px] max-h-[120px]"
                 disabled={loading || listening || streaming}
                 style={{ fieldSizing: "content" } as React.CSSProperties} />
-              <Button size="icon" onClick={() => sendMessage()}
+              <button onClick={() => sendMessage()}
                 disabled={loading || streaming || !input.trim()}
-                className="h-9 w-9 shrink-0 bg-indigo-600 hover:bg-indigo-500">
+                className="h-9 w-9 shrink-0 rounded-lg flex items-center justify-center transition-all disabled:opacity-40"
+                style={{ background: "linear-gradient(135deg, #8B5E3C 0%, #5C3A1E 100%)", border: "1px solid rgba(184,124,64,0.4)", color: "#F5C97A" }}>
                 <Send className="w-4 h-4" />
-              </Button>
+              </button>
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
-              <button onClick={startCall} className="text-emerald-400 hover:text-emerald-300 hover:underline underline-offset-2">📞 Voice call</button>
+            <p className="text-[10px] mt-1.5 text-center" style={{ color: "rgba(239,217,180,0.45)" }}>
+              <button onClick={startCall} className="hover:underline underline-offset-2" style={{ color: "#F5C97A" }}>📞 Voice call</button>
               {" · "}
-              <button onClick={captureScreen} className="text-violet-400 hover:text-violet-300 hover:underline underline-offset-2">
+              <button onClick={captureScreen} className="hover:underline underline-offset-2" style={{ color: "#F5C97A" }}>
                 {supportsScreenShare ? "🖥️ Share screen" : "📷 Share photo"}
               </button>
               {" · "}Shift+Enter for new line

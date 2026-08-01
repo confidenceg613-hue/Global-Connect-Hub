@@ -4,10 +4,12 @@ import { useListInvites, getListInvitesQueryKey } from "@workspace/api-client-re
 import type { Invite } from "@workspace/api-client-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { makeEagleMarker } from "@/lib/eagle-map-marker";
+import { MapCloudReveal } from "@/components/map-cloud-reveal";
 import "leaflet.heat";
 import { onMapCommand, registerMapContext } from "@/lib/map-command-bus";
 import { format, formatDistanceToNow, differenceInMinutes } from "date-fns";
-import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck, Maximize2 } from "lucide-react";
+import { Download, Layers, Crosshair, RefreshCw, MapPin, AlertTriangle, Satellite, Flame, X, Compass, Map as MapIcon, Eye, Settings2, Mountain, TrainFront, TrafficCone, Bike, Building2, Wind, ShieldCheck, Maximize2, Search, Navigation2, ArrowRightLeft, LocateFixed, Plus, Minus, ChevronUp, BookmarkPlus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { fetchWeather, haversineKm, formatDistance, windDirLabel } from "@/hooks/use-weather";
 import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
@@ -37,6 +39,21 @@ interface LivePos {
   status: "active" | "offline";
   timestamp: string;
   bearing?: number;
+  spoofScore?: number;
+  spoofFlags?: string[];
+}
+
+/** Best-estimate position from the quiet-device signal continuity engine. */
+interface BestEstimate {
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
+  confidence: number;
+  method: "gps_live" | "gps_extrapolated" | "dead_reckoning" | "ip_geo" | "last_known";
+  sources: string[];
+  estimatedAt: string;
+  gpsAgeMs: number;
+  deadReckoningDistanceM?: number;
 }
 
 function computeBearing(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -58,6 +75,8 @@ const TERRAIN_URL   = "https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}";
 const TRANSIT_URL   = "https://mt{s}.google.com/vt/lyrs=m@221097413,transit&x={x}&y={y}&z={z}";
 const TRAFFIC_URL   = "https://mt{s}.google.com/vt/lyrs=m@221097413,traffic&x={x}&y={y}&z={z}";
 const BICYCLE_URL   = "https://mt{s}.google.com/vt/lyrs=m@221097413,bike&x={x}&y={y}&z={z}";
+// NASA GIBS fire hotspots — free public WMTS, no API key required
+const WILDFIRE_URL  = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_Thermal_Anomalies_375m_All/default/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png";
 
 type MapMode = "road" | "hybrid" | "terrain";
 const MAP_MODES: MapMode[] = ["road", "hybrid", "terrain"];
@@ -74,8 +93,8 @@ const MAP_DETAILS: { id: MapDetail; label: string; icon: React.ReactNode; live: 
   { id: "bicycling",  label: "Bicycling",       icon: <Bike className="w-5 h-5" />,        live: true },
   { id: "buildings",  label: "Raised buildings",icon: <Building2 className="w-5 h-5" />,   live: false },
   { id: "streetview", label: "Street View",     icon: <Eye className="w-5 h-5" />,         live: true },
-  { id: "wildfires",  label: "Wildfires",       icon: <Flame className="w-5 h-5" />,       live: false },
-  { id: "airquality", label: "Air Quality",     icon: <Wind className="w-5 h-5" />,        live: false },
+  { id: "wildfires",  label: "Wildfires",       icon: <Flame className="w-5 h-5" />,       live: true },
+  { id: "airquality", label: "Air Quality",     icon: <Wind className="w-5 h-5" />,        live: true },
 ];
 
 /** Convert decimal degrees to DMS string, e.g. 8°56′59.8″N */
@@ -123,6 +142,18 @@ interface SessionTelemetry {
   activityType: ActivityType | null;
   speedMps: number | null;
   lastUpdate: string | null;
+}
+
+interface SessionInfo {
+  openedIp: string | null;
+  openedAt: string | null;
+  openedUserAgent: string | null;
+  grantedIp: string | null;
+  ipInfo: Record<string, unknown> | null;
+  timeToGrantMs: number | null;
+  deviceInfo: Record<string, unknown> | null;
+  source: string | null;
+  accuracy: number | null;
 }
 
 function riskBadgeHtml(level: "low" | "medium" | "high") {
@@ -189,7 +220,7 @@ function csvExport(grants: Invite[]) {
   const csv = [cols, ...rows].map((r) => r.join(",")).join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = `phonelink-${format(new Date(), "yyyy-MM-dd")}.csv`;
+  a.download = `deepfalcon-${format(new Date(), "yyyy-MM-dd")}.csv`;
   a.click();
 }
 
@@ -203,7 +234,9 @@ export default function LiveMap() {
   const mapInst     = useRef<L.Map | null>(null);
   const layersRef   = useRef<L.Layer[]>([]);
   const sseRefs     = useRef<globalThis.Map<string, EventSource>>(new globalThis.Map());
-  const livePos     = useRef<globalThis.Map<string, LivePos>>(new globalThis.Map());
+  const livePos              = useRef<globalThis.Map<string, LivePos>>(new globalThis.Map());
+  /** Best-estimate positions for contacts whose GPS is stale — keyed by invite token. */
+  const bestEstimateByToken  = useRef<globalThis.Map<string, BestEstimate>>(new globalThis.Map());
   const tileBaseRef = useRef<L.TileLayer | null>(null);
   const tileLabelRef= useRef<L.TileLayer | null>(null);
 
@@ -243,6 +276,49 @@ export default function LiveMap() {
   const [showTypePanel,   setShowTypePanel  ] = useState(false);
   const [activeDetails,   setActiveDetails  ] = useState<globalThis.Set<MapDetail>>(new globalThis.Set());
   const detailLayerRefs = useRef<Partial<Record<MapDetail, L.TileLayer>>>({});
+
+  // ── Search ───────────────────────────────────────────────────────────────────
+  const [showSearch,     setShowSearch    ] = useState(false);
+  const [searchQuery,    setSearchQuery   ] = useState("");
+  const [searchResults,  setSearchResults ] = useState<Array<{ display_name: string; lat: string; lon: string; place_id: number }>>([]);
+  const [searchLoading,  setSearchLoading ] = useState(false);
+
+  // ── Fullscreen ───────────────────────────────────────────────────────────────
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // ── Directions ───────────────────────────────────────────────────────────────
+  const [dirMode,  setDirMode ] = useState(false);
+  const [dirStart, setDirStart] = useState<{ lat: number; lng: number } | null>(null);
+  const [dirEnd,   setDirEnd  ] = useState<{ lat: number; lng: number } | null>(null);
+  const [dirInfo,  setDirInfo ] = useState<{ distanceKm: number; durationMin: number } | null>(null);
+  const dirMarkersRef = useRef<L.Layer[]>([]);
+  const dirRouteRef   = useRef<L.Polyline | null>(null);
+  // Refs kept in sync so the map click handler (registered once) always reads fresh values
+  const dirModeRef  = useRef(false);
+  const dirStartRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  // ── Air Quality markers ───────────────────────────────────────────────────────
+  const aqiLayerRefs = useRef<L.Layer[]>([]);
+
+  // ── Manual Pins ──────────────────────────────────────────────────────────────
+  interface ManualPin { id: number; name: string; latitude: number; longitude: number }
+  const [manualPins, setManualPins] = useState<ManualPin[]>([]);
+  const [showPinDialog, setShowPinDialog] = useState(false);
+  const [pinName, setPinName] = useState("");
+  const [pinLat, setPinLat] = useState("");
+  const [pinLng, setPinLng] = useState("");
+  const [pinSaving, setPinSaving] = useState(false);
+  const manualPinLayersRef = useRef<L.Layer[]>([]);
+
+  const loadManualPins = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const r = await fetch(`${API_BASE}/api/manual-pins/${userId}`);
+      if (r.ok) setManualPins(await r.json());
+    } catch { /* non-critical */ }
+  }, [userId]);
+
+  useEffect(() => { loadManualPins(); }, [loadManualPins]);
 
   // Resolve the nearest street-level photo (async, via Mapillary proxy)
   useEffect(() => {
@@ -345,11 +421,12 @@ export default function LiveMap() {
       return acc;
     }, {});
 
-  // ── Device telemetry (battery/activity/speed) ───────────────────────────────
+  // ── Device telemetry (battery/activity/speed) + session intel ───────────────
   // Polled separately from the owner-scoped /api/sessions endpoint since it's
   // never broadcast over the token-authenticated SSE stream (that channel is
   // reachable by whoever holds a contact's share link).
   const [telemetryByToken, setTelemetryByToken] = useState<globalThis.Map<string, SessionTelemetry>>(new globalThis.Map());
+  const [sessionInfoByToken, setSessionInfoByToken] = useState<globalThis.Map<string, SessionInfo>>(new globalThis.Map());
 
   useEffect(() => {
     if (!userId) return;
@@ -361,21 +438,37 @@ export default function LiveMap() {
         const rows: Array<{
           token: string; batteryLevel: number | null; batteryCharging: boolean | null;
           activityType: ActivityType | null; deviceInfo: Record<string, unknown> | null;
-          lastUpdate: string | null;
+          lastUpdate: string | null; source: string | null; accuracy: number | null;
+          openedIp: string | null; openedAt: string | null; openedUserAgent: string | null;
+          grantedIp: string | null; ipInfo: Record<string, unknown> | null;
+          timeToGrantMs: number | null;
         }> = await r.json();
         if (cancelled) return;
-        const next = new globalThis.Map<string, SessionTelemetry>();
+        const nextTelemetry = new globalThis.Map<string, SessionTelemetry>();
+        const nextInfo = new globalThis.Map<string, SessionInfo>();
         for (const row of rows) {
           const speedMps = row.deviceInfo && typeof row.deviceInfo.speedMps === "number" ? row.deviceInfo.speedMps : null;
-          next.set(row.token, {
+          nextTelemetry.set(row.token, {
             batteryLevel: row.batteryLevel,
             batteryCharging: row.batteryCharging,
             activityType: row.activityType,
             speedMps,
             lastUpdate: row.lastUpdate,
           });
+          nextInfo.set(row.token, {
+            openedIp: row.openedIp,
+            openedAt: row.openedAt,
+            openedUserAgent: row.openedUserAgent,
+            grantedIp: row.grantedIp,
+            ipInfo: row.ipInfo,
+            timeToGrantMs: row.timeToGrantMs,
+            deviceInfo: row.deviceInfo,
+            source: row.source,
+            accuracy: row.accuracy,
+          });
         }
-        setTelemetryByToken(next);
+        setTelemetryByToken(nextTelemetry);
+        setSessionInfoByToken(nextInfo);
         scheduleMarkerUpdate();
       } catch { /* non-critical */ }
     };
@@ -408,7 +501,7 @@ export default function LiveMap() {
     if (!mapRef.current || mapInst.current) return;
     try {
       const map = L.map(mapRef.current, { center: [20, 0], zoom: 2, zoomControl: false, maxZoom: 22 });
-      L.control.zoom({ position: "bottomright" }).addTo(map);
+      L.control.scale({ position: "bottomleft", imperial: false }).addTo(map);
       mapInst.current = map;
 
       // Detect genuine user interaction (drag, scroll/pinch zoom, +/- zoom
@@ -434,6 +527,7 @@ export default function LiveMap() {
           .leaflet-tooltip-left:before,.leaflet-tooltip-right:before{border-right-color:#111113!important;border-left-color:#111113!important;}
           .leaflet-control-attribution{background:rgba(0,0,0,.55)!important;color:#52525b!important;font-size:8px!important;padding:2px 6px!important;border-radius:4px!important;}
           .leaflet-control-attribution a{color:#6366f1!important;}
+          .leaflet-bottom{bottom:148px!important;}
           @keyframes pl-pulse{0%,100%{transform:scale(1);opacity:.25;}50%{transform:scale(1.35);opacity:.1;}}
         `;
         document.head.appendChild(s);
@@ -478,9 +572,10 @@ export default function LiveMap() {
     if (!map) return;
 
     const overlayUrls: Partial<Record<MapDetail, string>> = {
-      transit: TRANSIT_URL,
-      traffic: TRAFFIC_URL,
+      transit:   TRANSIT_URL,
+      traffic:   TRAFFIC_URL,
       bicycling: BICYCLE_URL,
+      wildfires: WILDFIRE_URL,
     };
 
     (Object.keys(overlayUrls) as MapDetail[]).forEach((id) => {
@@ -488,11 +583,12 @@ export default function LiveMap() {
       const existing = detailLayerRefs.current[id];
       if (shouldShow && !existing) {
         try {
+          const isWildfire = id === "wildfires";
           const layer = L.tileLayer(overlayUrls[id]!, {
             maxZoom: 22,
-            maxNativeZoom: 20,
-            subdomains: "0123",
-            opacity: id === "traffic" ? 0.85 : 0.9,
+            maxNativeZoom: isWildfire ? 8 : 20,
+            ...(isWildfire ? {} : { subdomains: "0123" }),
+            opacity: id === "traffic" ? 0.85 : id === "wildfires" ? 0.75 : 0.9,
             zIndex: 500,
           }).addTo(map);
           // If Google's overlay tile pattern breaks (rotated/removed), most
@@ -552,6 +648,8 @@ export default function LiveMap() {
     showHeatmapRef.current  = showHeatmap;
     showJourneysRef.current = showJourneys;
     showClustersRef.current = showClusters;
+    dirModeRef.current      = dirMode;
+    dirStartRef.current     = dirStart;
   });
 
   // ── AI command bus ────────────────────────────────────────────────────────────
@@ -669,6 +767,71 @@ export default function LiveMap() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapInst.current != null]);
 
+  // ── Directions click handler ──────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapInst.current;
+    if (!map) return;
+    const handler = (e: L.LeafletMouseEvent) => {
+      if (!dirModeRef.current) return;
+      const { lat, lng } = e.latlng;
+      if (!dirStartRef.current) {
+        // First click — set start point
+        const start = { lat, lng };
+        dirStartRef.current = start;
+        setDirStart(start);
+        const m = L.marker([lat, lng], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="background:#22c55e;color:white;font-weight:800;font-size:11px;padding:4px 10px;border-radius:8px;border:2px solid white;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.6);font-family:system-ui,sans-serif;">A</div>`,
+            iconSize: [28, 26], iconAnchor: [14, 13],
+          }),
+        }).addTo(map);
+        dirMarkersRef.current.push(m);
+        toast({ title: "Start set — click your destination" });
+      } else {
+        // Second click — set end point, fetch route
+        const startLatLng = dirStartRef.current;
+        dirModeRef.current = false;
+        setDirMode(false);
+        setDirEnd({ lat, lng });
+        const m = L.marker([lat, lng], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="background:#ef4444;color:white;font-weight:800;font-size:11px;padding:4px 10px;border-radius:8px;border:2px solid white;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.6);font-family:system-ui,sans-serif;">B</div>`,
+            iconSize: [28, 26], iconAnchor: [14, 13],
+          }),
+        }).addTo(map);
+        dirMarkersRef.current.push(m);
+        // Fetch route from OSRM public router
+        fetch(`https://router.project-osrm.org/route/v1/driving/${startLatLng.lng},${startLatLng.lat};${lng},${lat}?overview=full&geometries=geojson`)
+          .then((r) => r.json())
+          .then((json) => {
+            const route = json?.routes?.[0];
+            if (!route) { toast({ title: "No route found between those points", variant: "destructive" }); return; }
+            const coords: [number, number][] = route.geometry.coordinates.map((c: number[]) => [c[1], c[0]]);
+            if (dirRouteRef.current) { try { dirRouteRef.current.remove(); } catch { /* */ } }
+            dirRouteRef.current = L.polyline(coords, { color: "#6366f1", weight: 5, opacity: 0.9 }).addTo(map);
+            withProgrammaticMove(() => { if (dirRouteRef.current) map.fitBounds(dirRouteRef.current.getBounds().pad(0.1)); });
+            const distKm = (route.distance / 1000).toFixed(1);
+            const durMin = Math.round(route.duration / 60);
+            setDirInfo({ distanceKm: parseFloat(distKm), durationMin: durMin });
+            toast({ title: `Route: ${distKm} km · ${durMin} min driving` });
+          })
+          .catch(() => toast({ title: "Could not calculate route", variant: "destructive" }));
+      }
+    };
+    map.on("click", handler);
+    return () => { map.off("click", handler); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapInst.current != null]);
+
+  // ── Fullscreen listener ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
   // ── Heatmap fetch & render ────────────────────────────────────────────────────
   const buildHeatmap = useCallback(async (tokens: string[], basePoints: L.HeatLatLngTuple[]) => {
     setHeatLoading(true);
@@ -734,6 +897,50 @@ export default function LiveMap() {
     };
   }, [showHeatmap, (invites ?? []).map((inv: Invite) => inv.token).join(","), buildHeatmap]);
 
+  // ── Air Quality markers ───────────────────────────────────────────────────────
+  const airQualityActive = activeDetails.has("airquality");
+  useEffect(() => {
+    const map = mapInst.current;
+    // Always clean up existing AQI markers first
+    for (const layer of aqiLayerRefs.current) { try { layer.remove(); } catch { /* */ } }
+    aqiLayerRefs.current = [];
+    if (!airQualityActive || !map) return;
+
+    const positions = latest
+      .map((inv) => {
+        const live = livePos.current.get(inv.token);
+        return { lat: live ? live.lat : inv.grantedLatitude!, lng: live ? live.lng : inv.grantedLongitude!, name: inv.toName ?? inv.toPhone };
+      })
+      .filter((p) => isFinite(p.lat) && isFinite(p.lng));
+
+    if (positions.length === 0) return;
+    let cancelled = false;
+
+    (async () => {
+      for (const pos of positions) {
+        try {
+          const r = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${pos.lat.toFixed(4)}&longitude=${pos.lng.toFixed(4)}&current=us_aqi`);
+          if (!r.ok || cancelled) continue;
+          const json = await r.json();
+          const aqi: number = json?.current?.us_aqi ?? 0;
+          if (cancelled) return;
+          const color = aqi <= 50 ? "#22c55e" : aqi <= 100 ? "#eab308" : aqi <= 150 ? "#f97316" : aqi <= 200 ? "#ef4444" : aqi <= 300 ? "#a855f7" : "#7f1d1d";
+          const aqiLabel = aqi <= 50 ? "Good" : aqi <= 100 ? "Moderate" : aqi <= 150 ? "Unhealthy (Sensitive)" : aqi <= 200 ? "Unhealthy" : aqi <= 300 ? "Very Unhealthy" : "Hazardous";
+          const icon = L.divIcon({
+            className: "",
+            html: `<div style="background:${color}20;border:1.5px solid ${color}88;border-radius:10px;padding:3px 8px;font-size:10px;font-weight:700;color:${color};white-space:nowrap;font-family:system-ui,sans-serif;line-height:1.4;box-shadow:0 2px 8px rgba(0,0,0,.4);">💨 AQI ${aqi}<br/><span style="font-size:9px;opacity:.75;">${aqiLabel}</span></div>`,
+            iconSize: [100, 36], iconAnchor: [50, 50],
+          });
+          const marker = L.marker([pos.lat + 0.0025, pos.lng], { icon, interactive: false, zIndexOffset: -200 }).addTo(map);
+          aqiLayerRefs.current.push(marker);
+        } catch { /* non-critical */ }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [airQualityActive, latest.map((i) => i.toPhone).join(","), tick]);
+
   // ── SSE subscriptions ─────────────────────────────────────────────────────────
   useEffect(() => {
     const tokens = new Set((invites ?? [])
@@ -781,6 +988,38 @@ export default function LiveMap() {
     const id = setInterval(() => { scheduleMarkerUpdate(); }, 30_000);
     return () => clearInterval(id);
   }, [scheduleMarkerUpdate]);
+
+  // ── Quiet-device position estimates ──────────────────────────────────────────
+  // For contacts whose GPS is stale (> 5 min), periodically fetch a synthesised
+  // best-estimate position (dead reckoning / IP geo) so the map continues to
+  // show something meaningful even when the device is quiet or low-power.
+  useEffect(() => {
+    const fetchEstimates = async () => {
+      const staleInvites = latest.filter((inv) => {
+        const live = livePos.current.get(inv.token);
+        return !live || live.status !== "active" || isLiveStale(live.timestamp);
+      });
+      if (staleInvites.length === 0) return;
+
+      await Promise.allSettled(staleInvites.map(async (inv) => {
+        try {
+          const r = await fetch(`${API_BASE}/api/signals/estimate/${inv.token}`);
+          if (!r.ok) return;
+          const est: BestEstimate = await r.json();
+          if (est && typeof est.latitude === "number" && typeof est.longitude === "number") {
+            bestEstimateByToken.current.set(inv.token, est);
+          }
+        } catch { /* non-critical */ }
+      }));
+
+      scheduleMarkerUpdate();
+    };
+
+    fetchEstimates(); // run immediately on mount / contact list change
+    const id = setInterval(fetchEstimates, 30_000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latest.map((i) => i.token).join(","), scheduleMarkerUpdate]);
 
   // ── Render markers ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -831,8 +1070,15 @@ export default function LiveMap() {
 
     latest.forEach((inv) => {
       const rawLive = livePos.current.get(inv.token);
-      const lat = rawLive ? rawLive.lat : inv.grantedLatitude!;
-      const lng = rawLive ? rawLive.lng : inv.grantedLongitude!;
+      const estimate = bestEstimateByToken.current.get(inv.token);
+      // For dead-reckoning estimates, project the marker to the estimated position
+      // so the owner can see roughly where a moving but GPS-dark device has travelled.
+      const useEstimatedPos =
+        !rawLive &&
+        estimate?.method === "dead_reckoning" &&
+        estimate.gpsAgeMs < 30 * 60_000;
+      const lat = useEstimatedPos ? estimate!.latitude  : (rawLive ? rawLive.lat : inv.grantedLatitude!);
+      const lng = useEstimatedPos ? estimate!.longitude : (rawLive ? rawLive.lng : inv.grantedLongitude!);
       const isLive = rawLive?.status === "active" && !isLiveStale(rawLive.timestamp);
 
       if (!isFinite(lat) || !isFinite(lng)) return;
@@ -881,6 +1127,29 @@ export default function LiveMap() {
           layersRef.current.push(ring);
         }
 
+        // ── Estimated position ring (quiet / GPS-dark devices) ─────────────────
+        // Show a dashed uncertainty ring when GPS is stale but the signal
+        // continuity engine has a usable estimate (< 90 min old).
+        // Colour encodes the method: amber = dead reckoning, violet = IP geo,
+        // slate = simple extrapolation / last known.
+        if (!isLive && estimate && estimate.gpsAgeMs < 90 * 60_000) {
+          const estLat    = estimate.method === "ip_geo" ? estimate.latitude  : lat;
+          const estLng    = estimate.method === "ip_geo" ? estimate.longitude : lng;
+          const estRadius = Math.min(Math.max(estimate.accuracyMeters, 150), 200_000);
+          const ringColor =
+            estimate.method === "ip_geo"        ? "#8b5cf6" :
+            estimate.method === "dead_reckoning" ? "#f59e0b" : "#94a3b8";
+          const estRing = L.circle([estLat, estLng], {
+            radius: estRadius,
+            color:       ringColor,
+            fillColor:   ringColor,
+            fillOpacity: 0.04,
+            weight:      1.5,
+            dashArray:   "6 5",
+          }).addTo(map);
+          layersRef.current.push(estRing);
+        }
+
         if (showClusters && geoClusteredPhones.has(inv.toPhone)) {
           const ring = L.circle([lat, lng], {
             radius: 2000,
@@ -892,8 +1161,11 @@ export default function LiveMap() {
         }
 
         const telemetry = telemetryByToken.get(inv.token);
+        const sessionInfo = sessionInfoByToken.get(inv.token);
         const lowBattery = isLive && telemetry?.batteryLevel != null && telemetry.batteryLevel <= 15 && !telemetry.batteryCharging;
-        const marker = L.marker([lat, lng], { icon: makePin(pinColor, initials(inv.toName, inv.toPhone), false, isLive ? rawLive?.bearing : undefined, lowBattery) }).addTo(map);
+        const marker = L.marker([lat, lng], {
+          icon: makeEagleMarker(contactLabel(inv.toName, inv.toPhone), { accent: pinColor, lowBattery }),
+        }).addTo(map);
         layersRef.current.push(marker);
 
         marker.bindPopup("", { className: "pl-popup", maxWidth: 320, minWidth: 280 });
@@ -942,6 +1214,47 @@ export default function LiveMap() {
                 ${rawLive?.accuracy != null ? `<div style="font-size:10px;color:#a1a1aa;margin-top:2px;">🎯 ±${esc(Math.round(rawLive.accuracy))}m accuracy</div>` : ""}
                 ${distRow}
               </div>
+              ${(() => {
+                // ── Anti-spoof trust shield ────────────────────────────────────
+                const sc = rawLive?.spoofScore;
+                if (sc == null) return "";
+                const flags = rawLive?.spoofFlags ?? [];
+                const { color, label, icon } =
+                  sc <= 10 ? { color: "#10b981", label: "Trusted",          icon: "✅" } :
+                  sc <= 25 ? { color: "#84cc16", label: "Low risk",         icon: "🟢" } :
+                  sc <= 45 ? { color: "#f59e0b", label: "Suspicious",       icon: "⚠️" } :
+                  sc <= 65 ? { color: "#f97316", label: "Likely spoofed",   icon: "🚨" } :
+                             { color: "#ef4444", label: "Confirmed spoof",  icon: "🛑" };
+                const flagMap: Record<string, string> = {
+                  impossible_speed:        "Impossible speed",
+                  implausible_speed:       "Implausible speed",
+                  emulator_gpu:            "Emulator GPU",
+                  vpn_proxy:               "VPN / proxy",
+                  datacenter_hosting:      "Datacenter IP",
+                  datacenter_org:          "Datacenter ISP",
+                  zero_speed_with_motion:  "Speed field frozen",
+                  activity_mismatch:       "Activity mismatch",
+                  jamming_accuracy_spike:  "GPS jamming signal",
+                  gps_to_network_fallback: "GPS→network drop",
+                  source_flapping:         "Source flapping",
+                  battery_jump:            "Battery anomaly",
+                  scripted_interval:       "Scripted intervals",
+                  perfect_accuracy:        "Mock accuracy",
+                };
+                const flagHtml = flags.length > 0
+                  ? flags.slice(0, 5).map((f) =>
+                      `<span style="display:inline-block;margin:2px 3px 0 0;padding:2px 6px;border-radius:4px;background:${color}18;border:1px solid ${color}50;color:${color};font-size:9px;font-weight:700;">${esc(flagMap[f] ?? f)}</span>`
+                    ).join("")
+                  : "";
+                return `
+                <div style="background:${color}0d;border:1px solid ${color}40;border-radius:8px;padding:9px 11px;margin-bottom:10px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${flags.length > 0 ? "6px" : "0"};">
+                    <span style="font-size:9px;font-weight:700;letter-spacing:.1em;color:${color};text-transform:uppercase;">${icon} Trust / Anti-spoof</span>
+                    <span style="font-size:11px;font-weight:800;color:${color};">${esc(label)} <span style="font-size:10px;font-weight:600;opacity:.7;">(${esc(String(sc))}/100)</span></span>
+                  </div>
+                  ${flagHtml ? `<div style="margin-top:2px;">${flagHtml}</div>` : ""}
+                </div>`;
+              })()}
               ${telemetry && (telemetry.activityType || telemetry.batteryLevel != null) ? `
               <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
                 ${telemetry.activityType ? (() => {
@@ -951,6 +1264,88 @@ export default function LiveMap() {
                 })() : ""}
                 ${telemetry.batteryLevel != null ? `<span style="font-size:10px;font-weight:700;font-family:ui-monospace,monospace;padding:3px 7px;border-radius:999px;border:1px solid ${telemetry.batteryLevel <= 15 && !telemetry.batteryCharging ? "rgba(239,68,68,.4)" : "rgba(255,255,255,.12)"};background:${telemetry.batteryLevel <= 15 && !telemetry.batteryCharging ? "rgba(239,68,68,.12)" : "rgba(255,255,255,.05)"};color:${telemetry.batteryLevel <= 15 && !telemetry.batteryCharging ? "#fca5a5" : "#d4d4d8"};">${telemetry.batteryCharging ? "⚡" : "🔋"} ${esc(telemetry.batteryLevel)}%</span>` : ""}
               </div>` : ""}
+              ${(() => {
+                // ── Device fingerprint ─────────────────────────────────────────
+                const di = sessionInfo?.deviceInfo;
+                const device = di && typeof di.device === "object" && di.device ? di.device as Record<string, unknown> : null;
+                const net = di && typeof di.network === "object" && di.network ? di.network as Record<string, unknown> : null;
+                const platform = device?.platform ?? (di?.platform) ?? null;
+                const model = device?.model ?? null;
+                const brand = device?.brand ?? null;
+                const isMobile = device?.mobile ?? null;
+                const netType = net?.effectiveType ?? net?.type ?? null;
+                const downlink = net?.downlink != null ? `${net.downlink} Mbps` : null;
+                const ua = (device?.userAgent ?? di?.userAgent ?? sessionInfo?.openedUserAgent ?? null) as string | null;
+                const browserMatch = ua ? ua.match(/(?:Chrome|Firefox|Safari|Edg|OPR|SamsungBrowser)\/([\d.]+)/i) : null;
+                const browserName = browserMatch ? browserMatch[0].replace(/\/[\d.]+/, "") : null;
+                const osFromUa = ua ? (
+                  /Android ([\d.]+)/.exec(ua)?.[0] ??
+                  /iPhone OS ([\d_]+)/.exec(ua)?.[0]?.replace(/_/g,".") ??
+                  /Windows NT ([\d.]+)/.exec(ua)?.[0] ??
+                  null
+                ) : null;
+                const rows: string[] = [];
+                if (brand || model) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Device</span><span style="color:#e4e4e7;font-weight:600;">${esc([brand, model].filter(Boolean).join(" ") || "—")}</span></div>`);
+                if (platform) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">OS</span><span style="color:#e4e4e7;">${esc(String(platform))}${osFromUa && !String(platform).toLowerCase().includes("android") ? ` (${esc(osFromUa)})` : ""}</span></div>`);
+                if (isMobile != null) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Type</span><span style="color:#e4e4e7;">${isMobile ? "📱 Mobile" : "💻 Desktop"}</span></div>`);
+                if (browserName) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Browser</span><span style="color:#e4e4e7;">${esc(browserName)}</span></div>`);
+                if (netType) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Network</span><span style="color:#e4e4e7;">${esc(String(netType))}${downlink ? ` · ${esc(downlink)}` : ""}</span></div>`);
+                if (sessionInfo?.source) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">GPS source</span><span style="color:#e4e4e7;">${esc(sessionInfo.source)}</span></div>`);
+                return rows.length > 0 ? `
+                <div style="background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.18);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:10px;line-height:1.7;font-family:ui-monospace,monospace;">
+                  <div style="font-size:9px;font-weight:700;letter-spacing:.1em;color:#34d399;text-transform:uppercase;margin-bottom:5px;">🖥 Device</div>
+                  ${rows.join("")}
+                </div>` : "";
+              })()}
+              ${(() => {
+                // ── IP Intelligence ────────────────────────────────────────────
+                const ip = sessionInfo?.ipInfo;
+                if (!ip && !sessionInfo?.openedIp && !sessionInfo?.grantedIp) return "";
+                const query = (ip?.query ?? sessionInfo?.openedIp ?? null) as string | null;
+                const isp = (ip?.isp ?? ip?.org ?? null) as string | null;
+                const city = (ip?.city ?? null) as string | null;
+                const region = (ip?.regionName ?? null) as string | null;
+                const country = (ip?.country ?? null) as string | null;
+                const mobile = ip?.mobile as boolean | null;
+                const proxy = ip?.proxy as boolean | null;
+                const hosting = ip?.hosting as boolean | null;
+                const grantedIp = sessionInfo?.grantedIp ?? null;
+                const ipChanged = grantedIp && query && grantedIp !== query;
+                const locationStr = [city, region, country].filter(Boolean).join(", ");
+                const rows: string[] = [];
+                if (query) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">IP (open)</span><span style="color:#e4e4e7;font-family:ui-monospace,monospace;">${esc(query)}</span></div>`);
+                if (ipChanged) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#f59e0b;">IP (grant)</span><span style="color:#fcd34d;font-family:ui-monospace,monospace;">${esc(grantedIp!)}</span></div>`);
+                if (isp) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">ISP / Carrier</span><span style="color:#e4e4e7;max-width:140px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(isp)}</span></div>`);
+                if (locationStr) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">IP location</span><span style="color:#e4e4e7;max-width:150px;text-align:right;">${esc(locationStr)}</span></div>`);
+                const flags: string[] = [];
+                if (mobile) flags.push("📶 Mobile data");
+                if (proxy) flags.push("🔀 Proxy/VPN");
+                if (hosting) flags.push("🖥 Hosting/DC");
+                if (flags.length) rows.push(`<div style="color:#f59e0b;margin-top:2px;">${flags.map(esc).join(" · ")}</div>`);
+                return rows.length > 0 ? `
+                <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:10px;line-height:1.7;">
+                  <div style="font-size:9px;font-weight:700;letter-spacing:.1em;color:#f87171;text-transform:uppercase;margin-bottom:5px;">🌐 Network Identity</div>
+                  ${rows.join("")}
+                </div>` : "";
+              })()}
+              ${(() => {
+                // ── Session timeline ───────────────────────────────────────────
+                const openedAt = sessionInfo?.openedAt ?? null;
+                const timeToGrantMs = sessionInfo?.timeToGrantMs ?? null;
+                if (!openedAt && timeToGrantMs == null) return "";
+                const rows: string[] = [];
+                if (openedAt) rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Link opened</span><span style="color:#e4e4e7;">${esc(formatDistanceToNow(new Date(openedAt), { addSuffix: true }))}</span></div>`);
+                if (timeToGrantMs != null) {
+                  const secs = Math.round(timeToGrantMs / 1000);
+                  const grantLabel = secs < 60 ? `${secs}s` : secs < 3600 ? `${Math.floor(secs/60)}m ${secs%60}s` : `${Math.floor(secs/3600)}h ${Math.floor((secs%3600)/60)}m`;
+                  rows.push(`<div style="display:flex;justify-content:space-between;"><span style="color:#71717a;">Time to grant</span><span style="color:#e4e4e7;">${esc(grantLabel)}</span></div>`);
+                }
+                return rows.length > 0 ? `
+                <div style="background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.18);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:10px;line-height:1.7;">
+                  <div style="font-size:9px;font-weight:700;letter-spacing:.1em;color:#a5b4fc;text-transform:uppercase;margin-bottom:5px;">⏱ Session</div>
+                  ${rows.join("")}
+                </div>` : "";
+              })()}
               <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:10px;">
                 <span style="font-size:10px;color:#71717a;font-family:ui-monospace,monospace;">🔁 ${esc(grantCount)} grant${grantCount !== 1 ? "s" : ""}</span>
                 <div style="display:flex;gap:6px;">
@@ -1019,6 +1414,43 @@ export default function LiveMap() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest.map((i) => i.toPhone).join(","), tick, showJourneys, showClusters, showGeofences, geofences, myPos]);
+
+  // ── Manual pin markers ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapInst.current;
+    if (!map) return;
+    for (const l of manualPinLayersRef.current) { try { l.remove(); } catch { /* */ } }
+    manualPinLayersRef.current = [];
+    for (const pin of manualPins) {
+      try {
+        const marker = L.marker([pin.latitude, pin.longitude], {
+          icon: L.divIcon({
+            className: "",
+            html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);">
+              <div style="background:#f59e0b;color:#1c1917;font-size:10px;font-weight:800;font-family:system-ui,sans-serif;padding:3px 8px;border-radius:8px 8px 8px 0;border:2px solid rgba(255,255,255,0.25);box-shadow:0 3px 12px rgba(245,158,11,.6);white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis;">${esc(pin.name)}</div>
+              <div style="width:2px;height:8px;background:#f59e0b;margin-top:-1px;"></div>
+              <div style="width:8px;height:8px;background:#f59e0b;border-radius:50%;margin-top:-1px;box-shadow:0 0 6px rgba(245,158,11,.8);"></div>
+            </div>`,
+            iconSize: [0, 0],
+            iconAnchor: [0, 0],
+          }),
+          zIndexOffset: 500,
+        }).addTo(map);
+        marker.bindPopup(
+          `<div style="color:#f4f4f5;font-family:system-ui,sans-serif;font-size:12px;">
+            <div style="font-weight:800;font-size:14px;margin-bottom:4px;">📌 ${esc(pin.name)}</div>
+            <div style="color:#a1a1aa;font-size:10px;font-family:ui-monospace,monospace;">${formatDMS(pin.latitude, pin.longitude)}</div>
+            <div style="color:#71717a;font-size:10px;margin-top:1px;">${pin.latitude.toFixed(6)}, ${pin.longitude.toFixed(6)}</div>
+            <div style="margin-top:8px;display:flex;gap:8px;">
+              <a href="https://www.google.com/maps?q=${pin.latitude},${pin.longitude}" target="_blank" style="color:#f59e0b;text-decoration:none;font-size:11px;font-weight:600;">Open in Maps ↗</a>
+            </div>
+          </div>`,
+          { className: "pl-popup", maxWidth: 260, minWidth: 200 },
+        );
+        manualPinLayersRef.current.push(marker);
+      } catch { /* ignore */ }
+    }
+  }, [manualPins]);
 
   // ── Compass marker heading update ─────────────────────────────────────────────
   useEffect(() => {
@@ -1139,10 +1571,108 @@ export default function LiveMap() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refetch(), loadGeofences()]);
+    await Promise.all([refetch(), loadGeofences(), loadManualPins()]);
     setRefreshing(false);
     toast({ title: "Map refreshed" });
   };
+
+  const handleSavePin = async () => {
+    const lat = parseFloat(pinLat);
+    const lng = parseFloat(pinLng);
+    if (!pinName.trim() || isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      toast({ title: "Please enter a valid name, latitude (−90 to 90), and longitude (−180 to 180)", variant: "destructive" });
+      return;
+    }
+    setPinSaving(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/manual-pins`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, name: pinName.trim(), latitude: lat, longitude: lng }),
+      });
+      if (!r.ok) throw new Error("Save failed");
+      const pin: ManualPin = await r.json();
+      setManualPins((prev) => [...prev, pin]);
+      // Fly to the new pin
+      const map = mapInst.current;
+      if (map) {
+        userViewLockRef.current = true;
+        withProgrammaticMove(() => map.flyTo([lat, lng], 14, { duration: 1.5 }));
+      }
+      setPinName(""); setPinLat(""); setPinLng("");
+      setShowPinDialog(false);
+      toast({ title: `📌 "${pin.name}" pinned on the map` });
+    } catch {
+      toast({ title: "Could not save pin", variant: "destructive" });
+    } finally {
+      setPinSaving(false);
+    }
+  };
+
+  const handleDeletePin = async (id: number) => {
+    try {
+      await fetch(`${API_BASE}/api/manual-pins/${id}`, { method: "DELETE" });
+      setManualPins((prev) => prev.filter((p) => p.id !== id));
+    } catch {
+      toast({ title: "Could not delete pin", variant: "destructive" });
+    }
+  };
+
+  const handleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  }, []);
+
+  const clearDirections = useCallback(() => {
+    for (const l of dirMarkersRef.current) { try { l.remove(); } catch { /* */ } }
+    dirMarkersRef.current = [];
+    if (dirRouteRef.current) { try { dirRouteRef.current.remove(); } catch { /* */ } dirRouteRef.current = null; }
+    dirModeRef.current = false;
+    setDirMode(false);
+    setDirStart(null);
+    setDirEnd(null);
+    setDirInfo(null);
+  }, []);
+
+  const handleSearch = useCallback(async (q: string) => {
+    setSearchQuery(q);
+    if (!q.trim()) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6`,
+        { headers: { "Accept-Language": "en" } },
+      );
+      if (r.ok) setSearchResults(await r.json());
+    } catch { /* ignore */ }
+    setSearchLoading(false);
+  }, []);
+
+  const handleSelectResult = useCallback(
+    (result: { display_name: string; lat: string; lon: string }) => {
+      const map = mapInst.current;
+      if (!map) return;
+      const lat = parseFloat(result.lat);
+      const lng = parseFloat(result.lon);
+      userViewLockRef.current = true;
+      withProgrammaticMove(() => map.flyTo([lat, lng], 14, { duration: 1.5 }));
+      setSearchQuery(result.display_name.split(",")[0]);
+      setSearchResults([]);
+      // Drop a brief pin so the result location is obvious
+      const pin = L.marker([lat, lng], {
+        icon: L.divIcon({
+          className: "",
+          html: `<div style="width:14px;height:14px;background:#6366f1;border-radius:50%;border:2px solid white;box-shadow:0 2px 10px rgba(99,102,241,.8);"></div>`,
+          iconSize: [14, 14], iconAnchor: [7, 7],
+        }),
+      }).addTo(map);
+      setTimeout(() => { try { pin.remove(); } catch { /* */ } }, 8000);
+    },
+    [withProgrammaticMove],
+  );
 
   const mapRotorStyle: React.CSSProperties =
     compassMode && heading != null ? { transform: `rotate(${-heading}deg) scale(1.6)` } : {};
@@ -1154,52 +1684,288 @@ export default function LiveMap() {
   };
 
   return (
-    <div className={`relative flex flex-col -m-4 md:-m-8 ${compassMode ? "pl-compass-mode" : ""}`} style={{ height: "calc(100vh - 64px)", minHeight: 400 }}>
-      {/* Map viewport */}
-      <div className="relative flex-1 w-full overflow-hidden" style={{ zIndex: 0, minHeight: 300 }}>
-        <div ref={mapRef} className="pl-map-rotor absolute inset-0" style={mapRotorStyle} />
-      </div>
+    <div
+      className={`relative -m-4 md:-m-8 ${compassMode ? "pl-compass-mode" : ""}`}
+      style={{ height: "calc(100vh - 64px)", minHeight: 400 }}
+    >
+      <MapCloudReveal />
+      {/* ── Full-bleed map canvas ── */}
+      <div ref={mapRef} className="pl-map-rotor absolute inset-0" style={mapRotorStyle} />
 
-      {/* HUD — top left */}
-      <div className="absolute top-3 left-3 z-[1000] pointer-events-none">
-        <div className="pl-hud-card flex items-center gap-4 px-4 py-2.5">
-          <HudStat label="Contacts" value={latest.length} />
-          <div className="w-px h-7 bg-white/10" />
-          <HudStat label="Grants" value={granted.length} />
-          {liveCount > 0 && <><div className="w-px h-7 bg-white/10" /><HudStat label="Live" value={liveCount} accent="#10b981" /></>}
-          {showClusters && clusterCount > 0 && <><div className="w-px h-7 bg-white/10" /><HudStat label="Flags" value={clusterCount} accent="#f59e0b" /></>}
-          {myPos && <><div className="w-px h-7 bg-white/10" /><HudStat label="You" value="📍" /></>}
-          <div className="w-px h-7 bg-white/10" />
-          <HudStat label="View" value={MAP_MODE_LABELS[mapMode]} accent="#a1a1aa" />
+      {/* ════════════════════════════════════════
+          TOP BAR: search pill + quick chips
+      ════════════════════════════════════════ */}
+      <div className="absolute top-3 left-3 right-3 z-[1000] flex flex-col gap-2 pointer-events-none">
+
+        {/* Search pill — mirrors Google Maps' floating search bar */}
+        <div
+          className="flex items-center gap-2.5 rounded-full px-3 py-2 pointer-events-auto"
+          style={{
+            background: "hsl(var(--card) / 0.97)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            border: "1px solid hsl(var(--border))",
+            boxShadow: "0 4px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)",
+          }}
+        >
+          {/* App logo dot */}
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: "hsl(var(--primary))" }}
+          >
+            <MapPin className="w-4 h-4 text-white" />
+          </div>
+
+          {/* Input or placeholder */}
+          {showSearch ? (
+            <>
+              <input
+                autoFocus
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Search places…"
+                className="flex-1 bg-transparent text-sm outline-none min-w-0"
+                style={{ color: "hsl(var(--foreground))" }}
+              />
+              {searchLoading && (
+                <div
+                  className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin flex-shrink-0"
+                  style={{ borderColor: "hsl(var(--primary) / 0.4)", borderTopColor: "hsl(var(--primary))" }}
+                />
+              )}
+              <button
+                onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }}
+                className="flex-shrink-0 transition-colors"
+                style={{ color: "hsl(var(--muted-foreground))" }}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <button
+              className="flex-1 text-sm text-left transition-colors"
+              style={{ color: "hsl(var(--muted-foreground))" }}
+              onClick={() => setShowSearch(true)}
+            >
+              Search here
+            </button>
+          )}
+
+          {/* Divider */}
+          {!showSearch && (
+            <>
+              <button
+                onClick={() => setShowSearch(true)}
+                className="flex-shrink-0 transition-colors"
+                style={{ color: "hsl(var(--muted-foreground))" }}
+              >
+                <Search className="w-4 h-4" />
+              </button>
+              <div className="w-px h-5 flex-shrink-0" style={{ background: "hsl(var(--border))" }} />
+              {/* Avatar */}
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border-2"
+                style={{
+                  background: "hsl(var(--primary) / 0.15)",
+                  borderColor: "hsl(var(--primary) / 0.4)",
+                }}
+              >
+                <span className="text-[10px] font-black" style={{ color: "hsl(var(--primary))" }}>PL</span>
+              </div>
+            </>
+          )}
         </div>
+
+        {/* Search results dropdown */}
+        {showSearch && (searchResults.length > 0 || (!searchLoading && searchQuery.trim())) && (
+          <div
+            className="rounded-2xl overflow-hidden pointer-events-auto"
+            style={{
+              background: "hsl(var(--card) / 0.98)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              border: "1px solid hsl(var(--border))",
+              boxShadow: "0 12px 48px rgba(0,0,0,0.55)",
+            }}
+          >
+            {searchResults.length > 0 ? (
+              <div className="divide-y" style={{ borderColor: "hsl(var(--border) / 0.5)" }}>
+                {searchResults.map((r) => (
+                  <button
+                    key={r.place_id}
+                    onClick={() => handleSelectResult(r)}
+                    className="w-full text-left px-4 py-3 flex items-center gap-3 transition-colors hover:opacity-80"
+                  >
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{ background: "hsl(var(--muted))" }}
+                    >
+                      <MapPin className="w-3.5 h-3.5" style={{ color: "hsl(var(--muted-foreground))" }} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground))" }}>
+                        {r.display_name.split(",")[0]}
+                      </p>
+                      <p className="text-xs truncate mt-0.5" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        {r.display_name.split(",").slice(1, 3).join(", ")}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="px-4 py-3 text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+                No results found
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Quick-action chips row — like Google Maps' "Home · 25 min" pills */}
+        {!showSearch && (
+          <div className="flex gap-2 overflow-x-auto pointer-events-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
+            <MapChip
+              icon={<Crosshair className="w-3.5 h-3.5" />}
+              label={locating ? "Locating…" : "Find me"}
+              onClick={handleFindMe}
+              disabled={locating}
+            />
+            <MapChip
+              icon={<Maximize2 className="w-3.5 h-3.5" />}
+              label="Recenter"
+              onClick={handleRecenter}
+            />
+            <MapChip
+              icon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />}
+              label="Refresh"
+              onClick={handleRefresh}
+              disabled={refreshing}
+            />
+            <MapChip
+              icon={<ArrowRightLeft className="w-3.5 h-3.5" />}
+              label={dirMode ? "Cancel dir." : "Directions"}
+              onClick={() => { if (dirMode) clearDirections(); else { clearDirections(); setDirMode(true); } }}
+              active={dirMode}
+            />
+            <MapChip
+              icon={<Flame className="w-3.5 h-3.5" />}
+              label={heatLoading ? "Loading…" : "Heatmap"}
+              onClick={() => setShowHeatmap((v) => !v)}
+              active={showHeatmap}
+              disabled={heatLoading && !showHeatmap}
+            />
+            <MapChip
+              icon={<TrafficCone className="w-3.5 h-3.5" />}
+              label="Traffic"
+              onClick={() => toggleDetail("traffic")}
+              active={activeDetails.has("traffic")}
+            />
+            <MapChip
+              icon={<BookmarkPlus className="w-3.5 h-3.5" />}
+              label="Add Pin"
+              onClick={() => setShowPinDialog(true)}
+            />
+            <MapChip
+              icon={<Download className="w-3.5 h-3.5" />}
+              label="Export"
+              onClick={() => csvExport(granted)}
+              disabled={granted.length === 0}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Compass readout — top right */}
+      {/* Compass readout badge — floats below search when active */}
       {compassMode && (
-        <div className="absolute top-3 right-3 z-[1000] pointer-events-none">
-          <div className="pl-hud-card flex items-center gap-2 px-3 py-2">
-            <Compass className="w-4 h-4 text-sky-400 flex-shrink-0" style={heading != null ? { transform: `rotate(${heading}deg)` } : undefined} />
-            <span className="text-xs font-mono text-zinc-300 tabular-nums">
+        <div className="absolute top-28 left-3 z-[1000]">
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-xl"
+            style={{
+              background: "hsl(var(--card) / 0.92)",
+              backdropFilter: "blur(16px)",
+              WebkitBackdropFilter: "blur(16px)",
+              border: "1px solid hsl(var(--border))",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+            }}
+          >
+            <Compass
+              className="w-4 h-4 text-sky-400 flex-shrink-0"
+              style={heading != null ? { transform: `rotate(${heading}deg)` } : undefined}
+            />
+            <span className="text-xs font-mono tabular-nums" style={{ color: "hsl(var(--foreground))" }}>
               {heading != null ? `${Math.round(heading)}° ${cardinal(heading)}` : "Locating…"}
             </span>
           </div>
         </div>
       )}
 
+      {/* Directions info banner — floats top-center */}
+      {(dirMode || dirInfo) && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[1002]">
+          <div
+            className="flex items-center gap-3 px-4 py-2.5 rounded-full"
+            style={{
+              background: "hsl(var(--card) / 0.97)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              border: "1px solid hsl(var(--border))",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            }}
+          >
+            {dirMode && !dirStart && (
+              <span className="text-xs font-semibold text-emerald-400">📍 Click to set start point</span>
+            )}
+            {dirMode && dirStart && !dirEnd && (
+              <span className="text-xs font-semibold text-red-400">📍 Click to set destination</span>
+            )}
+            {dirInfo && (
+              <>
+                <Navigation2 className="w-4 h-4 flex-shrink-0" style={{ color: "hsl(var(--primary))" }} />
+                <span className="text-sm font-bold" style={{ color: "hsl(var(--foreground))" }}>{dirInfo.distanceKm} km</span>
+                <div className="w-px h-4" style={{ background: "hsl(var(--border))" }} />
+                <span className="text-sm font-bold" style={{ color: "hsl(var(--foreground))" }}>{dirInfo.durationMin} min</span>
+              </>
+            )}
+            <button
+              onClick={clearDirections}
+              className="ml-1 transition-colors"
+              style={{ color: "hsl(var(--muted-foreground))" }}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Street View panel */}
       {streetView && (
-        <div className="absolute inset-x-3 top-14 z-[1001] bg-[#111113] border border-white/10 rounded-2xl overflow-hidden shadow-2xl" style={{ height: 280 }}>
-          <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+        <div
+          className="absolute inset-x-3 top-28 z-[1001] overflow-hidden rounded-3xl"
+          style={{
+            height: 280,
+            background: "hsl(var(--card) / 0.98)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            border: "1px solid hsl(var(--border))",
+            boxShadow: "0 20px 64px rgba(0,0,0,0.65)",
+          }}
+        >
+          <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid hsl(var(--border))" }}>
             <div>
-              <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Street View</span>
-              <span className="text-xs text-zinc-500 ml-2">{streetView.name}</span>
+              <span className="text-xs font-black text-sky-400 uppercase tracking-[0.15em]">Street View</span>
+              <span className="text-xs ml-2" style={{ color: "hsl(var(--muted-foreground))" }}>{streetView.name}</span>
             </div>
-            <button onClick={() => setStreetView(null)} className="text-zinc-500 hover:text-zinc-200 transition-colors p-1">
-              <X className="w-4 h-4" />
+            <button
+              onClick={() => setStreetView(null)}
+              className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+              style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+            >
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
           {svLoading ? (
-            <div className="flex items-center justify-center text-xs text-zinc-500" style={{ height: 238 }}>
+            <div className="flex items-center justify-center text-xs" style={{ height: 238, color: "hsl(var(--muted-foreground))" }}>
               Looking for nearby street-level photos…
             </div>
           ) : svResult?.available && svResult.imageUrl ? (
@@ -1212,73 +1978,109 @@ export default function LiveMap() {
               />
               <a
                 href={svResult.imageId ? mapillaryViewerUrl(svResult.imageId) : streetViewUrl(streetView.lat, streetView.lng)}
-                target="_blank"
-                rel="noreferrer"
-                className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/70 hover:bg-black/90 text-white text-xs font-semibold px-2.5 py-1.5 rounded-full backdrop-blur-sm transition-all"
+                target="_blank" rel="noreferrer"
+                className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/75 hover:bg-black/90 text-white text-xs font-bold px-3 py-1.5 rounded-full backdrop-blur-sm transition-all"
               >
-                View in Mapillary →
+                Mapillary →
               </a>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center gap-2 text-center px-6" style={{ height: 238 }}>
-              <span className="text-xs text-zinc-500">No street-level imagery available near this location.</span>
+            <div className="flex flex-col items-center justify-center gap-3 text-center px-6" style={{ height: 238 }}>
+              <Eye className="w-8 h-8 opacity-20" style={{ color: "hsl(var(--foreground))" }} />
+              <span className="text-sm" style={{ color: "hsl(var(--muted-foreground))" }}>
+                No street-level imagery available near this location.
+              </span>
               <a
                 href={streetViewUrl(streetView.lat, streetView.lng)}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-sky-400 hover:text-sky-300 underline"
+                target="_blank" rel="noreferrer"
+                className="text-xs underline"
+                style={{ color: "hsl(var(--primary))" }}
               >
-                View satellite map instead
+                Open satellite view →
               </a>
             </div>
           )}
         </div>
       )}
 
-      {/* Map type panel */}
+      {/* ════════════════════════════════════════
+          MAP TYPE PANEL — slides up from bottom
+      ════════════════════════════════════════ */}
       {showTypePanel && (
-        <div className="absolute inset-0 z-[1002] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowTypePanel(false)}>
+        <div
+          className="absolute inset-0 z-[1002] flex items-end justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
+          onClick={() => setShowTypePanel(false)}
+        >
           <div
-            className="bg-[#111113] border border-white/10 rounded-2xl shadow-2xl w-full max-w-sm max-h-[85vh] overflow-y-auto"
+            className="w-full max-w-sm max-h-[85vh] overflow-y-auto rounded-3xl"
+            style={{
+              background: "hsl(var(--card) / 0.98)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              border: "1px solid hsl(var(--border))",
+              boxShadow: "0 -8px 64px rgba(0,0,0,0.6)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-              <h3 className="text-base font-bold text-zinc-100">Map type</h3>
-              <button onClick={() => setShowTypePanel(false)} className="text-zinc-500 hover:text-zinc-200 transition-colors p-1">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid hsl(var(--border))" }}>
+              <h3 className="text-base font-black" style={{ color: "hsl(var(--foreground))" }}>Map type</h3>
+              <button
+                onClick={() => setShowTypePanel(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
+                style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
+            {/* Map mode thumbnails */}
             <div className="grid grid-cols-3 gap-3 px-5 py-4">
               {MAP_MODES.map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMapMode(m)}
-                  className="flex flex-col items-center gap-2 group"
-                >
-                  <div className={`w-full aspect-square rounded-xl flex items-center justify-center transition-all ${
-                    mapMode === m ? "ring-2 ring-teal-400 bg-white/10" : "bg-white/5 group-hover:bg-white/10"
-                  }`}>
+                <button key={m} onClick={() => setMapMode(m)} className="flex flex-col items-center gap-2 group">
+                  <div
+                    className="w-full aspect-square rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all"
+                    style={{
+                      border: mapMode === m ? "2px solid hsl(var(--accent))" : "1px solid hsl(var(--border))",
+                      background: mapMode === m ? "hsl(var(--accent) / 0.15)" : "hsl(var(--muted) / 0.5)",
+                      boxShadow: mapMode === m ? "0 0 20px hsl(var(--accent) / 0.25)" : "none",
+                    }}
+                  >
                     {MAP_MODE_ICONS[m]}
                   </div>
-                  <span className={`text-xs font-semibold ${mapMode === m ? "text-teal-400" : "text-zinc-300"}`}>{MAP_MODE_LABELS[m]}</span>
+                  <span
+                    className="text-xs font-bold"
+                    style={{ color: mapMode === m ? "hsl(var(--accent))" : "hsl(var(--muted-foreground))" }}
+                  >
+                    {MAP_MODE_LABELS[m]}
+                  </span>
                 </button>
               ))}
             </div>
 
-            <div className="border-t border-white/10 px-5 py-4">
-              <h4 className="text-sm font-bold text-zinc-100 mb-3">Map details</h4>
+            {/* Map detail toggles */}
+            <div className="px-5 pb-5" style={{ borderTop: "1px solid hsl(var(--border))", paddingTop: 16 }}>
+              <h4 className="text-sm font-bold mb-3" style={{ color: "hsl(var(--foreground))" }}>Map details</h4>
               <div className="grid grid-cols-4 gap-3">
                 {MAP_DETAILS.map((d) => {
                   const isOn = d.id === "streetview" ? streetView != null : activeDetails.has(d.id);
                   return (
                     <button key={d.id} onClick={() => toggleDetail(d.id)} className="flex flex-col items-center gap-1.5">
-                      <div className={`w-full aspect-square rounded-xl flex items-center justify-center transition-all ${
-                        isOn ? "bg-teal-500/20 text-teal-300 ring-1 ring-teal-400/40" : "bg-white/5 text-zinc-300 hover:bg-white/10"
-                      } ${!d.live ? "opacity-50" : ""}`}>
+                      <div
+                        className="w-full aspect-square rounded-xl flex items-center justify-center transition-all"
+                        style={{
+                          background: isOn ? "hsl(var(--accent) / 0.2)" : "hsl(var(--muted) / 0.5)",
+                          border: isOn ? "1px solid hsl(var(--accent) / 0.5)" : "1px solid hsl(var(--border))",
+                          color: isOn ? "hsl(var(--accent))" : "hsl(var(--muted-foreground))",
+                          opacity: !d.live ? 0.5 : 1,
+                        }}
+                      >
                         {d.icon}
                       </div>
-                      <span className="text-[10px] text-center leading-tight text-zinc-400">{d.label}</span>
+                      <span className="text-[10px] text-center leading-tight" style={{ color: "hsl(var(--muted-foreground))" }}>
+                        {d.label}
+                      </span>
                     </button>
                   );
                 })}
@@ -1288,54 +2090,406 @@ export default function LiveMap() {
         </div>
       )}
 
-      {/* Command bar — bottom center */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000]">
-        <div className="pl-command-bar flex items-center gap-0.5 px-1.5 py-1.5">
-          <CmdBtn active={false} onClick={handleFindMe} disabled={locating} icon={<Crosshair className="w-3.5 h-3.5" />} label={locating ? "Locating…" : "Find me"} />
-          <CmdBtn active={false} onClick={handleRecenter} icon={<Maximize2 className="w-3.5 h-3.5" />} label="Recenter" />
-          <CmdBtn active={false} onClick={handleRefresh} disabled={refreshing} icon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />} label="Refresh" />
-          <div className="w-px h-5 bg-white/10 mx-1" />
-          <CmdBtn active={showTypePanel || activeDetails.size > 0} onClick={() => setShowTypePanel(true)} icon={<Settings2 className="w-3.5 h-3.5" />} label={MAP_MODE_LABELS[mapMode]} activeClass="border-violet-500/40 text-violet-300 bg-violet-500/10" />
-          <div className="w-px h-5 bg-white/10 mx-1" />
-          <CmdBtn active={compassMode} onClick={handleToggleCompass} icon={<Compass className="w-3.5 h-3.5" />} label={compassMode ? "Compass on" : "Compass"} activeClass="border-sky-500/40 text-sky-300 bg-sky-500/10" />
-          <div className="w-px h-5 bg-white/10 mx-1" />
-          <CmdBtn active={showJourneys} onClick={() => setShowJourneys((v) => !v)} icon={<Layers className="w-3.5 h-3.5" />} label="Journeys" activeClass="border-indigo-500/40 text-indigo-300 bg-indigo-500/10" />
-          <CmdBtn active={showClusters} onClick={() => setShowClusters((v) => !v)} icon={<AlertTriangle className="w-3.5 h-3.5" />} label="Clusters" activeClass="border-amber-500/40 text-amber-300 bg-amber-500/10" />
-          <CmdBtn active={showHeatmap} onClick={() => setShowHeatmap((v) => !v)} disabled={heatLoading && !showHeatmap} icon={<Flame className="w-3.5 h-3.5" />} label={heatLoading ? "Loading…" : "Heat"} activeClass="border-orange-500/40 text-orange-300 bg-orange-500/10" />
-          <CmdBtn active={showGeofences} onClick={() => setShowGeofences((v) => !v)} disabled={geofences.length === 0} icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Geofences" activeClass="border-violet-500/40 text-violet-300 bg-violet-500/10" />
-          <div className="w-px h-5 bg-white/10 mx-1" />
-          <CmdBtn active={false} onClick={() => csvExport(granted)} disabled={granted.length === 0} icon={<Download className="w-3.5 h-3.5" />} label="Export" />
+      {/* ════════════════════════════════════════
+          RIGHT SIDE FABs — stacked vertically
+          (like Google Maps' layer + compass stack)
+      ════════════════════════════════════════ */}
+      <div className="absolute right-3 z-[1000] flex flex-col gap-2" style={{ bottom: 212 }}>
+        {/* Zoom in */}
+        <MapFab
+          icon={<Plus className="w-5 h-5" />}
+          onClick={() => { mapInst.current?.zoomIn(1, { animate: true }); }}
+          label="Zoom in"
+        />
+        {/* Zoom out */}
+        <MapFab
+          icon={<Minus className="w-5 h-5" />}
+          onClick={() => { mapInst.current?.zoomOut(1, { animate: true }); }}
+          label="Zoom out"
+        />
+      </div>
+
+      <div className="absolute right-3 z-[1000] flex flex-col gap-2" style={{ bottom: 360 }}>
+        {/* Map type/layers */}
+        <MapFab
+          icon={<Settings2 className="w-5 h-5" />}
+          onClick={() => setShowTypePanel(true)}
+          active={showTypePanel || activeDetails.size > 0}
+          label="Map type"
+        />
+        {/* Compass */}
+        <MapFab
+          icon={
+            <Compass
+              className="w-5 h-5"
+              style={heading != null && compassMode ? { transform: `rotate(${heading}deg)` } : undefined}
+            />
+          }
+          onClick={handleToggleCompass}
+          active={compassMode}
+          label="Compass"
+        />
+        {/* Fullscreen */}
+        <MapFab
+          icon={<Maximize2 className="w-5 h-5" />}
+          onClick={handleFullscreen}
+          active={isFullscreen}
+          label="Fullscreen"
+        />
+      </div>
+
+      {/* Primary navigation FAB — large teal, bottom-right above sheet */}
+      <button
+        onClick={handleFindMe}
+        disabled={locating}
+        className="absolute right-3 z-[1001] w-14 h-14 rounded-2xl flex items-center justify-center transition-all active:scale-95 disabled:opacity-50"
+        style={{
+          bottom: 158,
+          background: "hsl(var(--accent))",
+          boxShadow: "0 8px 32px hsl(var(--accent) / 0.55), 0 2px 8px rgba(0,0,0,0.35)",
+        }}
+        title="Find my location"
+      >
+        <Navigation2 className="w-6 h-6 text-white" />
+      </button>
+
+      {/* ════════════════════════════════════════
+          BOTTOM SHEET — info + tab nav
+          mirrors Google Maps' slide-up panel
+      ════════════════════════════════════════ */}
+      <div className="absolute bottom-0 left-0 right-0 z-[1000]">
+        <div
+          className="rounded-t-[28px] pt-3"
+          style={{
+            background: "hsl(var(--card) / 0.97)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            borderTop: "1px solid hsl(var(--border))",
+            boxShadow: "0 -8px 40px rgba(0,0,0,0.45)",
+          }}
+        >
+          {/* Drag handle */}
+          <div className="flex justify-center mb-3">
+            <div className="w-10 h-1 rounded-full" style={{ background: "hsl(var(--muted-foreground) / 0.3)" }} />
+          </div>
+
+          {/* Info row */}
+          <div className="flex items-center gap-3 px-4 pb-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-black truncate" style={{ color: "hsl(var(--foreground))" }}>
+                {MAP_MODE_LABELS[mapMode]} View
+                {activeDetails.size > 0 && (
+                  <span className="ml-2 text-xs font-bold" style={{ color: "hsl(var(--accent))" }}>
+                    +{activeDetails.size} layer{activeDetails.size > 1 ? "s" : ""}
+                  </span>
+                )}
+              </p>
+              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                <span className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                  {latest.length} contact{latest.length !== 1 ? "s" : ""} · {granted.length} granted
+                </span>
+                {liveCount > 0 && (
+                  <span className="flex items-center gap-1 text-xs font-bold text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                    {liveCount} live
+                  </span>
+                )}
+                {showClusters && clusterCount > 0 && (
+                  <span className="text-xs font-bold text-amber-400">{clusterCount} clusters</span>
+                )}
+              </div>
+            </div>
+            {myPos && (
+              <div
+                className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center border-2"
+                style={{
+                  background: "hsl(var(--primary) / 0.15)",
+                  borderColor: "hsl(var(--primary) / 0.4)",
+                }}
+              >
+                <LocateFixed className="w-4 h-4" style={{ color: "hsl(var(--primary))" }} />
+              </div>
+            )}
+            {/* Expand / up-swipe affordance */}
+            <button
+              onClick={() => setShowTypePanel(true)}
+              className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+              style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+            >
+              <ChevronUp className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Tab bar — like Google Maps Explore / You / Contribute */}
+          <div className="grid grid-cols-4" style={{ borderTop: "1px solid hsl(var(--border))" }}>
+            <BottomTab
+              icon={<Layers className="w-5 h-5" />}
+              label="Journeys"
+              active={showJourneys}
+              onClick={() => setShowJourneys((v) => !v)}
+            />
+            <BottomTab
+              icon={<AlertTriangle className="w-5 h-5" />}
+              label={clusterCount > 0 ? `Clusters (${clusterCount})` : "Clusters"}
+              active={showClusters}
+              onClick={() => setShowClusters((v) => !v)}
+            />
+            <BottomTab
+              icon={<ShieldCheck className="w-5 h-5" />}
+              label="Geofences"
+              active={showGeofences}
+              onClick={() => setShowGeofences((v) => !v)}
+              disabled={geofences.length === 0}
+            />
+            <BottomTab
+              icon={<Eye className="w-5 h-5" />}
+              label="Street View"
+              active={streetView != null}
+              onClick={() => toggleDetail("streetview")}
+            />
+          </div>
         </div>
       </div>
+
+      {/* ════════════════════════════════════════
+          ADD PIN DIALOG — enter name + coordinates
+      ════════════════════════════════════════ */}
+      {showPinDialog && (
+        <div
+          className="absolute inset-0 z-[2000] flex items-end sm:items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPinDialog(false); }}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl p-6 flex flex-col gap-5"
+            style={{
+              background: "hsl(var(--card))",
+              border: "1px solid hsl(var(--border))",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.7)",
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0"
+                style={{ background: "hsl(var(--primary) / 0.15)" }}
+              >
+                <BookmarkPlus className="w-5 h-5" style={{ color: "hsl(var(--primary))" }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-black text-base" style={{ color: "hsl(var(--foreground))" }}>Pin a Location</p>
+                <p className="text-xs mt-0.5" style={{ color: "hsl(var(--muted-foreground))" }}>Save coordinates directly to your map</p>
+              </div>
+              <button
+                onClick={() => setShowPinDialog(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
+                style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Fields */}
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider" style={{ color: "hsl(var(--muted-foreground))" }}>Name</label>
+                <input
+                  type="text"
+                  value={pinName}
+                  onChange={(e) => setPinName(e.target.value)}
+                  placeholder="e.g. John's last known location"
+                  className="rounded-xl px-3 py-2.5 text-sm outline-none w-full"
+                  style={{
+                    background: "hsl(var(--muted))",
+                    border: "1px solid hsl(var(--border))",
+                    color: "hsl(var(--foreground))",
+                  }}
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && handleSavePin()}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider" style={{ color: "hsl(var(--muted-foreground))" }}>Latitude</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={pinLat}
+                    onChange={(e) => setPinLat(e.target.value)}
+                    placeholder="e.g. 40.7128"
+                    className="rounded-xl px-3 py-2.5 text-sm outline-none w-full font-mono"
+                    style={{
+                      background: "hsl(var(--muted))",
+                      border: "1px solid hsl(var(--border))",
+                      color: "hsl(var(--foreground))",
+                    }}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider" style={{ color: "hsl(var(--muted-foreground))" }}>Longitude</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={pinLng}
+                    onChange={(e) => setPinLng(e.target.value)}
+                    placeholder="e.g. -74.0060"
+                    className="rounded-xl px-3 py-2.5 text-sm outline-none w-full font-mono"
+                    style={{
+                      background: "hsl(var(--muted))",
+                      border: "1px solid hsl(var(--border))",
+                      color: "hsl(var(--foreground))",
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && handleSavePin()}
+                  />
+                </div>
+              </div>
+              <p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                Paste coordinates in decimal degrees (e.g. <span className="font-mono">40.7128, -74.0060</span>)
+              </p>
+            </div>
+
+            {/* Saved pins list */}
+            {manualPins.length > 0 && (
+              <div
+                className="rounded-2xl overflow-hidden"
+                style={{ border: "1px solid hsl(var(--border))" }}
+              >
+                <div
+                  className="px-3 py-2 text-xs font-bold uppercase tracking-wider"
+                  style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+                >
+                  Saved Pins ({manualPins.length})
+                </div>
+                <div className="divide-y max-h-40 overflow-y-auto" style={{ borderColor: "hsl(var(--border) / 0.5)" }}>
+                  {manualPins.map((pin) => (
+                    <div key={pin.id} className="flex items-center gap-2 px-3 py-2">
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "rgba(245,158,11,0.15)" }}>
+                        <div className="w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground))" }}>{pin.name}</p>
+                        <p className="text-[10px] font-mono" style={{ color: "hsl(var(--muted-foreground))" }}>
+                          {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleDeletePin(pin.id)}
+                        className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:opacity-80"
+                        style={{ background: "hsl(var(--destructive) / 0.12)", color: "hsl(var(--destructive))" }}
+                        title="Remove pin"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowPinDialog(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                style={{ background: "hsl(var(--muted))", color: "hsl(var(--muted-foreground))" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSavePin}
+                disabled={pinSaving || !pinName.trim() || !pinLat || !pinLng}
+                className="flex-1 py-2.5 rounded-xl text-sm font-black transition-all disabled:opacity-40"
+                style={{ background: "hsl(var(--primary))", color: "#fff" }}
+              >
+                {pinSaving ? "Saving…" : "📌 Pin It"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function HudStat({ label, value, accent }: { label: string; value: number | string; accent?: string }) {
-  return (
-    <div className="flex flex-col items-center min-w-[36px]">
-      <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-mono">{label}</span>
-      <span className="text-sm font-black font-mono leading-none" style={{ color: accent ?? "#f4f4f5" }}>{value}</span>
-    </div>
-  );
-}
+// ── Google Maps–style helper components ───────────────────────────────────────
 
-function CmdBtn({
-  active, onClick, icon, label, activeClass = "", disabled = false,
+/** Pill chip in the quick-action row below the search bar */
+function MapChip({
+  icon, label, onClick, active = false, disabled = false,
 }: {
-  active: boolean; onClick: () => void; icon: React.ReactNode;
-  label: string; activeClass?: string; disabled?: boolean;
+  icon: React.ReactNode; label: string; onClick: () => void;
+  active?: boolean; disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold font-mono transition-all disabled:opacity-40 ${
-        active ? activeClass : "border-transparent text-zinc-400 hover:text-zinc-200 hover:border-white/10"
-      }`}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold flex-shrink-0 transition-all disabled:opacity-40 active:scale-95"
+      style={{
+        background: active ? "hsl(var(--primary))" : "hsl(var(--card) / 0.95)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        border: active ? "1px solid hsl(var(--primary))" : "1px solid hsl(var(--border))",
+        color: active ? "#ffffff" : "hsl(var(--foreground))",
+        boxShadow: active
+          ? "0 4px 16px hsl(var(--primary) / 0.4)"
+          : "0 2px 10px rgba(0,0,0,0.35)",
+      }}
     >
       {icon}
-      <span className="hidden sm:inline">{label}</span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/** Square FAB on the right side of the map */
+function MapFab({
+  icon, onClick, active = false, disabled = false, label,
+}: {
+  icon: React.ReactNode; onClick: () => void;
+  active?: boolean; disabled?: boolean; label?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      className="w-11 h-11 rounded-2xl flex items-center justify-center transition-all disabled:opacity-40 active:scale-95"
+      style={{
+        background: active ? "hsl(var(--accent) / 0.2)" : "hsl(var(--card) / 0.95)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        border: active ? "1px solid hsl(var(--accent) / 0.5)" : "1px solid hsl(var(--border))",
+        color: active ? "hsl(var(--accent))" : "hsl(var(--muted-foreground))",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+      }}
+    >
+      {icon}
+    </button>
+  );
+}
+
+/** Tab button in the bottom navigation bar */
+function BottomTab({
+  icon, label, active = false, onClick, disabled = false,
+}: {
+  icon: React.ReactNode; label: string;
+  active?: boolean; onClick: () => void; disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="flex flex-col items-center gap-1 py-2.5 transition-all disabled:opacity-40 active:opacity-70"
+      style={{ color: active ? "hsl(var(--accent))" : "hsl(var(--muted-foreground))" }}
+    >
+      {icon}
+      <span
+        className="text-[10px] font-semibold truncate max-w-full px-1 leading-tight"
+        style={{ color: active ? "hsl(var(--accent))" : "hsl(var(--muted-foreground))" }}
+      >
+        {label}
+      </span>
     </button>
   );
 }

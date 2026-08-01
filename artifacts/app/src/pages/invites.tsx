@@ -14,9 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Users, Shield, Copy, MapPin, ExternalLink, CheckCircle } from "lucide-react";
-import { SiWhatsapp } from "react-icons/si";
-import { useQueryClient } from "@tanstack/react-query";
+import { Send, Users, Shield, Copy, MapPin, ExternalLink, CheckCircle, RefreshCw, Clock, ChevronDown, ChevronUp, MessageSquare, Smartphone } from "lucide-react";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import PhoneInput, { parsePhoneNumber } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
@@ -40,13 +39,11 @@ export default function Invites() {
       if (p) setPhone(p);
       if (n) setName(n);
     };
-    window.addEventListener("phonelink:prefill-invite", handler);
-    return () => window.removeEventListener("phonelink:prefill-invite", handler);
+    window.addEventListener("deepfalcon:prefill-invite", handler);
+    return () => window.removeEventListener("deepfalcon:prefill-invite", handler);
   }, []);
 
-  const [message, setMessage] = useState(
-    "Yo, you gotta check this out… PhoneLink just added a new location thing. I tried it and it's actually really useful. Can I send you the invite real quick?",
-  );
+  const [message, setMessage] = useState("");
   const [consentType, setConsentType] = useState<string>("location");
   const [optIn, setOptIn] = useState(false);
   const [lastCreated, setLastCreated] = useState<Invite | null>(null);
@@ -113,9 +110,9 @@ export default function Invites() {
 
       queryClient.invalidateQueries({ queryKey: getListInvitesQueryKey({ userId: userId! }) });
       setLastCreated(created);
-      // Open WhatsApp with the pre-filled message that already contains the link
+      // Open native SMS app with the pre-filled message that already contains the link
       window.open(created.whatsappLink, "_blank");
-      toast({ title: "Invite created — WhatsApp opened!" });
+      toast({ title: "Invite created — SMS app opened!" });
       setPhone("");
       setName("");
       setOptIn(false);
@@ -151,32 +148,32 @@ export default function Invites() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="invite-workspace space-y-8 mobile-screen-enter">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">WhatsApp Invites</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">SMS Invites</h1>
         <p className="text-muted-foreground mt-1">
-          Send a trackable link — when your contact clicks it, their location is shared with you.
+          Send a trackable link via SMS — when your contact clicks it, their location is shared with you.
         </p>
       </div>
 
       {/* Success banner after creating invite */}
       {lastCreated?.consentPageUrl && (
-        <Card className="border-emerald-500/30 bg-emerald-500/10 shadow-none">
+        <Card className="border-amber-500/30 bg-amber-500/10 shadow-none">
           <CardContent className="pt-4 pb-4">
             <div className="flex items-start gap-3">
-              <CheckCircle className="h-5 w-5 text-emerald-500 mt-0.5 flex-shrink-0" />
+              <CheckCircle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-emerald-400 mb-1">
-                  Invite sent — WhatsApp opened with this consent link:
+                <p className="text-sm font-semibold text-amber-400 mb-1">
+                  Invite sent — SMS app opened with this consent link:
                 </p>
                 <div className="flex items-center gap-2">
-                  <code className="text-xs bg-background border border-emerald-500/30 rounded px-2 py-1 truncate flex-1 text-emerald-400">
+                  <code className="text-xs bg-background border border-amber-500/30 rounded px-2 py-1 truncate flex-1 text-amber-400">
                     {lastCreated.consentPageUrl}
                   </code>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="flex-shrink-0 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 h-7 text-xs"
+                    className="flex-shrink-0 border-amber-500/40 text-amber-400 hover:bg-amber-500/10 h-7 text-xs"
                     onClick={() => copyToClipboard(lastCreated.consentPageUrl!, "Link")}
                     data-testid="button-copy-consent-link"
                   >
@@ -193,14 +190,14 @@ export default function Invites() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Form */}
         <div className="lg:col-span-1">
-          <Card className="border-border/60 shadow-sm sticky top-24">
+          <Card className="border-border/60 shadow-sm lg:sticky lg:top-24">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <SiWhatsapp className="text-[#25D366]" />
+                <MessageSquare size={18} className="text-amber-400" />
                 New Location Request
               </CardTitle>
               <CardDescription>
-                A unique tracking link is embedded in the WhatsApp message.
+                A unique tracking link is embedded in the SMS message.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -217,7 +214,7 @@ export default function Invites() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="phone">WhatsApp Number *</Label>
+                  <Label htmlFor="phone">Mobile Number *</Label>
                   <PhoneInput
                     international
                     defaultCountry="US"
@@ -244,10 +241,11 @@ export default function Invites() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="message">Message</Label>
+                  <Label htmlFor="message">Message <span className="text-muted-foreground font-normal">(Optional)</span></Label>
                   <Textarea
                     id="message"
                     rows={3}
+                    placeholder="Add a personal message, or leave blank to send just the link."
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     className="resize-none"
@@ -269,18 +267,18 @@ export default function Invites() {
                     htmlFor="optin"
                     className="text-xs leading-tight text-muted-foreground cursor-pointer"
                   >
-                    I confirm the recipient has opted in to receive WhatsApp messages.
+                    I confirm the recipient has opted in to receive SMS messages.
                   </label>
                 </div>
 
                 <Button
                   type="submit"
-                  className="w-full bg-[#25D366] hover:bg-[#1EBE5D] text-white"
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-[#1A0F08] font-bold"
                   disabled={createInvite.isPending}
                   data-testid="button-send-invite"
                 >
-                  <Send className="mr-2 h-4 w-4" />
-                  {createInvite.isPending ? "Creating…" : "Send via WhatsApp"}
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                  {createInvite.isPending ? "Creating…" : "Send via SMS"}
                 </Button>
               </form>
             </CardContent>
@@ -320,7 +318,7 @@ export default function Invites() {
                   </div>
                   <h3 className="text-lg font-medium text-foreground mb-1">No invites yet</h3>
                   <p className="max-w-xs text-sm">
-                    Use the form to send your first WhatsApp location request.
+                    Use the form to send your first SMS location request.
                   </p>
                 </div>
               )}
@@ -336,6 +334,20 @@ export default function Invites() {
   );
 }
 
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+interface InviteSessionData {
+  id: number;
+  inviteToken: string;
+  sessionToken: string;
+  grantedAt?: string | null;
+  grantedLatitude?: number | null;
+  grantedLongitude?: number | null;
+  grantedAddress?: string | null;
+  status: "active" | "ended";
+  createdAt: string;
+}
+
 function InviteCard({
   invite,
   onCopy,
@@ -343,13 +355,51 @@ function InviteCard({
   invite: Invite;
   onCopy: (text: string, label: string) => void;
 }) {
-  const accepted = invite.status === "accepted";
+  const { toast } = useToast();
+  const [sessionsExpanded, setSessionsExpanded] = useState(false);
+  const [sendingInApp, setSendingInApp] = useState(false);
+
+  const handleSendInApp = async () => {
+    setSendingInApp(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/invites/${invite.id}/send-in-app`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (r.status === 404) {
+        const body = await r.json().catch(() => ({}));
+        const msg = body?.error ?? "Recipient is not registered in this app";
+        toast({ title: msg, variant: "destructive" });
+        return;
+      }
+      if (!r.ok) throw new Error("Failed");
+      toast({ title: "📱 In-app request sent!", description: `${invite.toName || invite.toPhone} will see the request in the app.` });
+    } catch {
+      toast({ title: "Could not send in-app request", variant: "destructive" });
+    } finally {
+      setSendingInApp(false);
+    }
+  };
+
+  const { data: sessions = [] } = useQuery<InviteSessionData[]>({
+    queryKey: ["invite-sessions", invite.token],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/invites/by-token/${invite.token}/sessions`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 8000, // poll so new sessions surface while the dashboard is open
+  });
+
+  const sessionCount = sessions.length;
+  const latestSession = sessions[0] ?? null; // sessions are ordered desc
+
+  // First-session snapshot for the map (the invite's own grantedLatitude/Longitude)
+  const hasFirstLocation = invite.grantedLatitude != null && invite.grantedLongitude != null;
 
   return (
     <div
-      className={`p-4 border rounded-xl transition-colors ${
-        accepted ? "border-emerald-500/30 bg-emerald-500/10" : "border-border hover:bg-muted/20"
-      }`}
+      className="p-4 border border-border rounded-xl transition-colors hover:bg-muted/10"
       data-testid={`card-invite-${invite.id}`}
     >
       {/* Top row */}
@@ -374,18 +424,20 @@ function InviteCard({
             )}
           </div>
         </div>
-        <Badge
-          variant={
-            accepted ? "default" : invite.status === "declined" ? "destructive" : "secondary"
-          }
-          className={`capitalize flex-shrink-0 ${accepted ? "bg-emerald-600 text-white" : ""}`}
-        >
-          {accepted ? (
-            <><CheckCircle className="h-3 w-3 mr-1" /> Granted</>
-          ) : (
-            invite.status
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Permanent link indicator */}
+          <Badge variant="outline" className="text-xs gap-1 border-primary/30 text-primary">
+            <RefreshCw className="h-2.5 w-2.5" />
+            Permanent link
+          </Badge>
+          {/* Session count */}
+          {sessionCount > 0 && (
+            <Badge className="bg-amber-600 text-white text-xs">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              {sessionCount} {sessionCount === 1 ? "session" : "sessions"}
+            </Badge>
           )}
-        </Badge>
+        </div>
       </div>
 
       {/* Consent link row */}
@@ -408,43 +460,50 @@ function InviteCard({
             variant="ghost"
             className="h-7 px-2 flex-shrink-0"
             onClick={() => window.open(invite.whatsappLink, "_blank")}
-            data-testid={`button-open-wa-${invite.id}`}
+            data-testid={`button-open-sms-${invite.id}`}
+            title="Send via SMS"
           >
-            <SiWhatsapp className="text-[#25D366] h-3.5 w-3.5" />
+            <MessageSquare className="text-amber-400 h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 flex-shrink-0"
+            onClick={handleSendInApp}
+            disabled={sendingInApp}
+            title="Send in-app request"
+            data-testid={`button-send-inapp-${invite.id}`}
+          >
+            <Smartphone className={`h-3.5 w-3.5 ${sendingInApp ? "animate-pulse" : "text-sky-400"}`} />
           </Button>
         </div>
       )}
 
-      {/* Location granted */}
-      {accepted && invite.grantedLatitude != null && invite.grantedLongitude != null && (
-        <div className="border border-emerald-500/30 rounded-xl overflow-hidden mt-2">
-          {/* Map embed */}
-          <div className="relative w-full" style={{ height: 200 }}>
+      {/* First-grant location map (always shown if available) */}
+      {hasFirstLocation && (
+        <div className="border border-amber-500/20 rounded-xl overflow-hidden mt-2 mb-3">
+          <div className="relative w-full" style={{ height: 160 }}>
             <iframe
-              title={`Location for invite #${invite.id}`}
-              src={`https://www.openstreetmap.org/export/embed.html?bbox=${invite.grantedLongitude - 0.01},${invite.grantedLatitude - 0.01},${invite.grantedLongitude + 0.01},${invite.grantedLatitude + 0.01}&layer=mapnik&marker=${invite.grantedLatitude},${invite.grantedLongitude}`}
+              title={`First location for invite #${invite.id}`}
+              src={`https://www.openstreetmap.org/export/embed.html?bbox=${invite.grantedLongitude! - 0.01},${invite.grantedLatitude! - 0.01},${invite.grantedLongitude! + 0.01},${invite.grantedLatitude! + 0.01}&layer=mapnik&marker=${invite.grantedLatitude},${invite.grantedLongitude}`}
               className="w-full h-full border-0"
               loading="lazy"
               data-testid={`map-invite-${invite.id}`}
             />
           </div>
-
-          {/* Coords + actions bar */}
-          <div className="bg-muted/40 px-3 py-2.5 flex items-center justify-between gap-2">
+          <div className="bg-muted/40 px-3 py-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <MapPin className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+              <MapPin className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
               <div className="min-w-0">
-                <p className="text-xs font-mono font-semibold text-foreground leading-tight">
-                  {invite.grantedLatitude.toFixed(5)}, {invite.grantedLongitude.toFixed(5)}
+                <p className="text-xs font-mono text-foreground leading-tight">
+                  {invite.grantedLatitude!.toFixed(5)}, {invite.grantedLongitude!.toFixed(5)}
                 </p>
                 {invite.grantedAddress && (
-                  <p className="text-xs text-muted-foreground truncate">
-                    {invite.grantedAddress}
-                  </p>
+                  <p className="text-xs text-muted-foreground truncate">{invite.grantedAddress}</p>
                 )}
                 {invite.grantedAt && (
                   <p className="text-xs text-muted-foreground">
-                    Granted {format(new Date(invite.grantedAt), "MMM d, yyyy 'at' h:mm a")}
+                    First session {format(new Date(invite.grantedAt), "MMM d, yyyy")}
                   </p>
                 )}
               </div>
@@ -452,19 +511,66 @@ function InviteCard({
             <Button
               size="sm"
               variant="outline"
-              className="flex-shrink-0 text-xs h-7 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
-              onClick={() =>
-                window.open(
-                  `https://www.google.com/maps?q=${invite.grantedLatitude},${invite.grantedLongitude}`,
-                  "_blank",
-                )
-              }
+              className="flex-shrink-0 text-xs h-7 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+              onClick={() => window.open(`https://www.google.com/maps?q=${invite.grantedLatitude},${invite.grantedLongitude}`, "_blank")}
               data-testid={`button-maps-${invite.id}`}
             >
               <ExternalLink className="h-3 w-3 mr-1" />
-              Open in Maps
+              Maps
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Sessions history collapsible */}
+      {sessionCount > 0 && (
+        <div className="border border-border/50 rounded-lg overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/30 transition-colors"
+            onClick={() => setSessionsExpanded((e) => !e)}
+          >
+            <span className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              Session history ({sessionCount})
+            </span>
+            {sessionsExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+          {sessionsExpanded && (
+            <div className="divide-y divide-border/40">
+              {sessions.map((session, idx) => (
+                <div key={session.id} className="px-3 py-2.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${session.status === "active" ? "bg-amber-500" : "bg-muted-foreground/40"}`} />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-foreground">
+                        Session #{sessionCount - idx}
+                        {idx === 0 && <span className="ml-1.5 text-amber-400 font-normal">(latest)</span>}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {format(new Date(session.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {session.grantedLatitude != null && session.grantedLongitude != null && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-amber-400"
+                        onClick={() => window.open(`https://www.google.com/maps?q=${session.grantedLatitude},${session.grantedLongitude}`, "_blank")}
+                      >
+                        <MapPin className="h-3 w-3 mr-1" />
+                        Map
+                      </Button>
+                    )}
+                    <Badge variant="outline" className={`text-xs h-5 ${session.status === "active" ? "border-amber-500/30 text-amber-400" : "text-muted-foreground"}`}>
+                      {session.status}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

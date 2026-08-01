@@ -245,7 +245,7 @@ export const CreateInviteBody = zod.object({
   "fromUserId": zod.number(),
   "toPhone": zod.string().min(1),
   "toName": zod.string().optional(),
-  "message": zod.string().min(1),
+  "message": zod.string().optional(),
   "consentType": zod.enum(['location', 'notification', 'messaging']).optional(),
   "baseUrl": zod.string().optional().describe('Origin URL to build the consent page link (e.g. https:\/\/app.replit.app)')
 })
@@ -297,8 +297,24 @@ export const GrantLocationConsentResponse = zod.object({
   "grantedLongitude": zod.number().nullish(),
   "grantedAddress": zod.string().nullish(),
   "grantedAt": zod.coerce.date().nullish(),
-  "sentAt": zod.coerce.date()
+  "sentAt": zod.coerce.date(),
+  /** Session token for this specific sharing session — use for location pushes */
+  "sessionToken": zod.string(),
 })
+
+export const InviteSessionItem = zod.object({
+  "id": zod.number(),
+  "inviteToken": zod.string(),
+  "sessionToken": zod.string(),
+  "grantedAt": zod.coerce.date().nullish(),
+  "grantedLatitude": zod.number().nullish(),
+  "grantedLongitude": zod.number().nullish(),
+  "grantedAddress": zod.string().nullish(),
+  "status": zod.enum(["active", "ended"]),
+  "createdAt": zod.coerce.date(),
+})
+
+export const GetInviteSessionsResponse = zod.array(InviteSessionItem)
 
 
 /**

@@ -6,6 +6,7 @@ import {
   timestamp,
   doublePrecision,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -35,6 +36,14 @@ export const invitesTable = pgTable("invites", {
   grantedAddress: text("granted_address"),
   grantedAt: timestamp("granted_at"),
   sentAt: timestamp("sent_at").defaultNow().notNull(),
+  // Captured when the contact first opens the consent page
+  openedIp: text("opened_ip"),
+  openedAt: timestamp("opened_at"),
+  openedUserAgent: text("opened_user_agent"),
+  // JSON blob from ip-api.com lookup — city, ISP, org, timezone, etc.
+  ipInfo: jsonb("ip_info"),
+  // IP at the moment they actually tap "Grant"
+  grantedIp: text("granted_ip"),
 });
 
 export const insertInviteSchema = createInsertSchema(invitesTable).omit({

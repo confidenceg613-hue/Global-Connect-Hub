@@ -4,6 +4,8 @@ import type { Invite } from "@workspace/api-client-react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { makeEagleMarker } from "@/lib/eagle-map-marker";
+import { MapCloudReveal } from "@/components/map-cloud-reveal";
 import {
   Clock, MapPin, User, Navigation, ChevronDown, BarChart3,
   ExternalLink, Copy, Wifi, WifiOff, Route, CalendarDays,
@@ -110,15 +112,12 @@ function TrailMap({ updates, contactName, isLive }: { updates: LocationUpdate[];
         .addTo(map)
     );
 
-    // End marker (pulsing if live, grey if not)
+    // The current invite position is anchored to the eagle's talons.
     const last = updates[updates.length - 1];
-    const endHtml = isLive
-      ? `<div style="position:relative;width:16px;height:16px;"><div style="position:absolute;inset:0;border-radius:50%;background:#ef4444;opacity:0.4;animation:pl-pulse 1.4s ease-in-out infinite;"></div><div style="position:absolute;inset:2px;border-radius:50%;background:#ef4444;border:2px solid #fff;"></div></div>`
-      : `<div style="width:14px;height:14px;border-radius:50%;background:#71717a;border:2px solid #fff;"></div>`;
-    const endIcon = L.divIcon({ className: "", html: endHtml, iconSize: [16, 16], iconAnchor: [8, 8] });
+    const endIcon = makeEagleMarker(contactName, { accent: isLive ? "#10b981" : "#f59e0b" });
     layersRef.current.push(
       L.marker(latlngs[latlngs.length - 1], { icon: endIcon })
-        .bindTooltip(`<span style="font-size:11px;font-family:monospace;">${isLive ? "🔴 Live" : "⬜ Last"} · ${format(new Date(last.createdAt), "HH:mm:ss")}</span>`)
+        .bindTooltip(`<span style="font-size:11px;font-family:monospace;">🦅 ${isLive ? "Live" : "Last"} · ${format(new Date(last.createdAt), "HH:mm:ss")}</span>`)
         .addTo(map)
     );
 
@@ -406,6 +405,7 @@ export default function LocationHistory() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
+      <MapCloudReveal />
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">

@@ -1,0 +1,34 @@
+You are an expert full-stack developer. I need you to integrate robust notifications access into my app's "Active Sessions" feature.
+
+### Requirements:
+- Users in the Active Sessions view/dashboard should see **all app notifications** (real-time + historical) related to their active sessions.
+- Notifications should include system events, user actions, errors, session updates, alerts, etc.
+- Support both **push notifications** (if browser/PWA) and **in-app notifications** (bell icon, list, real-time updates).
+- Make it work across client and server side securely.
+
+### Core Features to Implement:
+1. **Notification System**:
+   - Backend: Store notifications in database (with user/session ID, timestamp, type, message, read status, etc.).
+   - Real-time updates using WebSockets / Server-Sent Events (SSE) / or your preferred method.
+   - Mark as read, clear, filter by session or type.
+
+2. **Active Sessions Integration**:
+   - In the Active Sessions page/component, add a notifications panel or expandable section.
+   - Show aggregated or filtered notifications for all active sessions the user owns/manages.
+   - Auto-refresh or live updates when new notifications arrive.
+
+3. **Permissions & Access**:
+   - Proper authentication/authorization so users only see their own notifications.
+   - Request browser notification permission gracefully with fallback.
+
+### Testing Instructions:
+- Perform **comprehensive end-to-end testing from both sides** (sender side that triggers notifications + receiver side that views them in Active Sessions).
+- Test multiple scenarios: new session created, session ended/updated, errors, manual triggers, etc.
+- Try **alternative implementations** (e.g., different real-time libraries, polling vs WebSocket vs SSE, different storage approaches) and evaluate which works best for reliability, performance, and simplicity.
+- Ensure cross-browser compatibility and mobile responsiveness.
+- Add proper error handling, loading states, and user feedback.
+- Finally, make sure the chosen solution **works reliably** — fix any issues until it's production-ready.
+
+Provide the complete code changes, file structure updates if needed, and step-by-step implementation guide. Explain your choices and show test cases you ran. Start by asking for any missing context about my current tech stack (e.g. frontend framework, backend, database) if required, otherwise assume standard modern stack (Node.js/Express + React + Socket.io + MongoDB/PostgreSQL) and proceed.
+
+Make this integration clean, scalable, and well-documented.
