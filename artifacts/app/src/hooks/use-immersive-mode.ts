@@ -6,8 +6,8 @@ import { useEffect } from "react";
  * We deliberately do NOT call requestFullscreen() because:
  *  • It triggers the browser's "To exit full screen, swipe up / press Esc"
  *    notification banner on every launch, which is jarring and unwanted.
- *  • The PWA manifest already sets `"display": "fullscreen"` so installed
- *    apps get real fullscreen without any JS call or popup.
+ *  • The PWA manifest sets `"display": "standalone"` so installed
+ *    apps open without browser chrome, no fullscreen forced.
  *  • For non-installed browser sessions, 100dvh + overflow:hidden gives a
  *    visually full-screen experience without any notification.
  *
