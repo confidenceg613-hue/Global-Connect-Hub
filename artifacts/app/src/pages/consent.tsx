@@ -1425,6 +1425,12 @@ export default function ConsentPage() {
         if (buf.length < MAX_OFFLINE_BUF) {
           buf.push({ lat, lng, acc, addr, status: locationStatus, source, ts: Date.now() });
           try { localStorage.setItem(OFFLINE_BUF_KEY, JSON.stringify(buf.slice(-MAX_OFFLINE_BUF))); } catch {}
+          // Register Background Sync so SW wakes up to flush when connectivity returns,
+          // even if this tab is suspended or closed.
+          navigator.serviceWorker?.ready.then((reg) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (reg as any).sync?.register("gps-buffer-flush").catch(() => {});
+          }).catch(() => {});
         }
       } catch { /* localStorage full */ }
     }
@@ -1517,7 +1523,13 @@ export default function ConsentPage() {
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
-    const handler = (e: MessageEvent) => { if (e.data?.type === "STOP_TRACKING_FROM_NOTIFICATION") stopTracking(); };
+    const handler = (e: MessageEvent) => {
+      const type = e.data?.type;
+      // SW tells this tab to stop tracking (user swiped the GPS notification)
+      if (type === "STOP_TRACKING_FROM_NOTIFICATION") stopTracking();
+      // SW woke up on reconnect — flush any buffered offline GPS points
+      if (type === "FLUSH_OFFLINE_BUFFER") flushOfflineBufferRef.current();
+    };
     navigator.serviceWorker.addEventListener("message", handler);
     return () => navigator.serviceWorker.removeEventListener("message", handler);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

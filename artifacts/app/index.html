@@ -3,13 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+
+    <!-- Chrome / Android PWA theme -->
     <meta name="theme-color" content="#0D0A06" />
+    <!-- iOS PWA meta -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="DeepFalcon" />
+    <!-- Android / generic PWA -->
     <meta name="mobile-web-app-capable" content="yes" />
-    <!-- Android PWA fullscreen: hides status bar + nav bar when installed from Chrome -->
+    <meta name="application-name" content="DeepFalcon" />
     <meta name="screen-orientation" content="portrait" />
     <meta name="format-detection" content="telephone=no" />
+    <!-- MS Tiles -->
+    <meta name="msapplication-TileColor" content="#0D0A06" />
+    <meta name="msapplication-tap-highlight" content="no" />
 
     <title>DeepFalcon — Secure Location Intelligence</title>
     <meta name="description" content="Real-time location intelligence with surveillance-grade security. No app install required." />
@@ -19,7 +27,7 @@
     <meta property="og:title" content="DeepFalcon — Secure Location Intelligence" />
     <meta property="og:description" content="Tap to grant secure location access. No account required." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image" content="/opengraph.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
 
@@ -27,38 +35,83 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="DeepFalcon — Secure Location Intelligence" />
     <meta name="twitter:description" content="Tap to grant secure location access. No account required." />
+    <meta name="twitter:image" content="/opengraph.jpg" />
 
+    <!-- Icons -->
     <link rel="icon" type="image/png" href="/falcon-logo.png" />
-    <link rel="apple-touch-icon" href="/falcon-logo.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/falcon-logo.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/falcon-logo.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/falcon-logo.png" />
     <link rel="manifest" href="/manifest.json" />
 
-    <!-- Fonts -->
+    <!--
+      Apple Splash Screens — shown during PWA launch on iOS before the app paints.
+      The background matches background_color in manifest so there's no flash.
+      Media queries target the most common iPhone/iPad viewport sizes.
+    -->
+    <!-- iPhone 14 Pro Max / 15 Pro Max (430×932) -->
+    <link rel="apple-touch-startup-image" media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/falcon-logo.png" />
+    <!-- iPhone 14 Pro / 15 Pro (393×852) -->
+    <link rel="apple-touch-startup-image" media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/falcon-logo.png" />
+    <!-- iPhone 14 / 13 / 12 (390×844) -->
+    <link rel="apple-touch-startup-image" media="screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/falcon-logo.png" />
+    <!-- iPhone SE 3rd gen / 8 (375×667) -->
+    <link rel="apple-touch-startup-image" media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/falcon-logo.png" />
+
+    <!-- Fonts: preconnect first, then swap so text never blocks render -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
 
-    <!-- Inline critical CSS: dark background before JS/CSS loads -->
+    <!-- Preload critical app assets so they're ready before JS runs -->
+    <link rel="preload" as="image" href="/falcon-logo.png" />
+
+    <!-- Inline critical CSS: paint the correct dark background before any JS arrives -->
     <style>
       *,*::before,*::after{box-sizing:border-box}
-      html,body{margin:0;padding:0;background:#0D0A06;color:#fafafa;font-family:Inter,system-ui,-apple-system,sans-serif;min-height:100dvh;height:100%;overflow-x:hidden}
-      #root{min-height:100dvh;min-height:100%;background:#0D0A06}
-      #pre-react-loader{
-        position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
-        justify-content:center;background:#0D0A06;z-index:9999;gap:16px;
-        transition:opacity .4s ease;
+      html,body{
+        margin:0;padding:0;
+        background:#0D0A06;color:#fafafa;
+        font-family:Inter,system-ui,-apple-system,sans-serif;
+        min-height:100dvh;height:100%;overflow-x:hidden;
+        /* Safe-area insets for notched/punch-hole phones */
+        padding-top:env(safe-area-inset-top);
+        padding-bottom:env(safe-area-inset-bottom);
+        padding-left:env(safe-area-inset-left);
+        padding-right:env(safe-area-inset-right);
       }
-      #pre-react-loader .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;color:#F5C97A;font-family:Syne,system-ui,sans-serif;letter-spacing:-0.02em}
-      #pre-react-loader .brand img{width:36px;height:36px;border-radius:10px;object-fit:cover}
-      #pre-react-loader .spinner{width:32px;height:32px;border:2px solid rgba(245,201,122,0.15);border-top-color:#F5C97A;border-radius:50%;animation:spin 0.8s linear infinite}
-      #pre-react-loader .hint{font-size:12px;color:#78716c;letter-spacing:0.05em;font-family:monospace}
+      #root{min-height:100dvh;background:#0D0A06}
+      /* Pre-React loader — shown until the first React paint */
+      #pre-react-loader{
+        position:fixed;inset:0;
+        display:flex;flex-direction:column;align-items:center;justify-content:center;
+        background:#0D0A06;z-index:9999;gap:16px;
+        transition:opacity .35s ease;
+      }
+      #pre-react-loader .brand{
+        display:flex;align-items:center;gap:10px;
+        font-weight:800;font-size:20px;color:#F5C97A;
+        font-family:Syne,system-ui,sans-serif;letter-spacing:-0.02em;
+      }
+      #pre-react-loader .brand img{
+        width:40px;height:40px;border-radius:11px;object-fit:cover;
+        box-shadow:0 0 18px rgba(245,159,11,0.4);
+      }
+      #pre-react-loader .spinner{
+        width:28px;height:28px;
+        border:2px solid rgba(245,201,122,0.12);
+        border-top-color:#F5C97A;
+        border-radius:50%;animation:spin 0.75s linear infinite;
+      }
+      #pre-react-loader .hint{font-size:11px;color:#52504c;letter-spacing:0.07em;font-family:monospace}
       @keyframes spin{to{transform:rotate(360deg)}}
     </style>
   </head>
   <body>
-    <!-- Pre-React loader: visible until React mounts and removes it -->
+    <!-- Pre-React loader: shows instantly — React removes it on first mount -->
     <div id="pre-react-loader" aria-hidden="true">
       <div class="brand">
-        <img src="/falcon-logo.png" alt="DeepFalcon" />
+        <img src="/falcon-logo.png" alt="" />
         DeepFalcon
       </div>
       <div class="spinner"></div>

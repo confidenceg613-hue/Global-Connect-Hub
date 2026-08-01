@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" style="background:#0D0A06;color-scheme:dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0D0A06">
+  <title>DeepFalcon — Offline</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{
+      margin:0;padding:0;
+      background:#0D0A06;color:#e2e5ee;
+      font-family:system-ui,-apple-system,sans-serif;
+      min-height:100dvh;display:flex;
+      align-items:center;justify-content:center;
+    }
+    .wrap{text-align:center;padding:32px 28px;max-width:340px}
+    .logo{
+      width:64px;height:64px;border-radius:18px;margin:0 auto 20px;
+      background:linear-gradient(135deg,#D97706,#F59E0B);
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 0 28px rgba(245,159,11,0.35);
+    }
+    .logo svg{width:32px;height:32px}
+    h1{
+      font-size:22px;font-weight:800;letter-spacing:-0.02em;
+      color:#F5C97A;margin:0 0 10px;
+    }
+    p{
+      color:#78716c;font-size:14px;line-height:1.65;
+      margin:0 0 28px;
+    }
+    .badge{
+      display:inline-flex;align-items:center;gap:6px;
+      background:rgba(245,159,11,0.1);border:1px solid rgba(245,159,11,0.2);
+      border-radius:8px;padding:6px 14px;
+      font-size:12px;color:#F5C97A;letter-spacing:0.05em;
+      margin-bottom:24px;
+    }
+    .dot{width:7px;height:7px;border-radius:50%;background:#F59E0B;
+      animation:pulse 1.5s ease-in-out infinite;}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+    button{
+      background:linear-gradient(135deg,#D97706,#F59E0B);
+      color:#000;border:none;padding:13px 32px;
+      border-radius:14px;font-size:15px;font-weight:700;
+      cursor:pointer;letter-spacing:0.01em;
+      box-shadow:0 4px 16px rgba(245,159,11,0.3);
+      transition:opacity .15s;width:100%;
+    }
+    button:active{opacity:0.8}
+    .hint{
+      margin-top:16px;font-size:12px;color:#44403c;
+      letter-spacing:0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.5" stroke-linejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+    </div>
+    <div class="badge">
+      <span class="dot"></span>
+      OFFLINE MODE
+    </div>
+    <h1>No Connection</h1>
+    <p>
+      DeepFalcon can't reach the server right now.
+      Any GPS points buffered on this device will
+      sync automatically when you're back online.
+    </p>
+    <button onclick="location.reload()">Try Again</button>
+    <p class="hint">BUFFERED DATA IS SAFE — WILL SYNC ON RECONNECT</p>
+  </div>
+</body>
+</html>
