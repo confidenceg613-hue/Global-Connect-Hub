@@ -16,8 +16,9 @@ export function useImmersiveMode() {
     if (!isPwa) return;
 
     const lockOrientation = () => {
-      if (screen.orientation?.lock) {
-        screen.orientation.lock("portrait").catch(() => {/* non-critical */});
+      const orient = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+      if (orient?.lock) {
+        orient.lock("portrait").catch(() => {/* non-critical */});
       }
     };
 
