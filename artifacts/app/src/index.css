@@ -303,9 +303,7 @@
   }
 
   /* Avoid the known fixed + blur + transform compositor path on mobile Chrome. */
-  [class*="backdrop-blur"],
-  .audio-player-bar,
-  .audio-player-bar * {
+  [class*="backdrop-blur"] {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
@@ -320,33 +318,6 @@
   .mobile-screen-enter {
     animation: none !important;
     transform: none !important;
-  }
-
-  .audio-player-bar {
-    height: calc(60px + var(--sai-bottom)) !important;
-    padding: 0 14px var(--sai-bottom) !important;
-    contain: layout paint;
-    isolation: isolate;
-  }
-
-  .audio-player-bar__progress,
-  .audio-player-bar__library {
-    display: none !important;
-  }
-
-  .audio-player-bar__track {
-    max-width: none !important;
-    flex: 1 1 auto !important;
-    margin-right: 10px !important;
-  }
-
-  .audio-player-bar__toggle {
-    margin-left: 0 !important;
-    padding: 8px 14px !important;
-  }
-
-  .app-main {
-    padding-bottom: calc(84px + var(--sai-bottom)) !important;
   }
 
   .dashboard-action-grid {

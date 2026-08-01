@@ -6,7 +6,6 @@ import NotFound from "@/pages/not-found";
 import { useAuth, AuthProvider } from "@/hooks/use-auth";
 import { useAccess, AccessProvider } from "@/hooks/use-access";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
-import { AudioPlayerBar } from "@/components/audio-player-bar";
 import { useImmersiveMode } from "@/hooks/use-immersive-mode";
 import { InAppBrowserProvider, useInAppBrowser } from "@/components/in-app-browser";
 import { AudioPlayerProvider } from "@/hooks/audio-player-context";
@@ -472,16 +471,6 @@ function AppInner() {
     // Provide the single audio player instance to every child (Library page, etc.)
     <AudioPlayerProvider value={{ soundOn, trackName, progress, currentTime, duration, toggleSound, playTrack, seek, startMusic: toggleSound }}>
       <AncientSky />
-      <AudioPlayerBar
-        soundOn={soundOn}
-        trackName={trackName}
-        progress={progress}
-        currentTime={currentTime}
-        duration={duration}
-        onToggle={toggleSound}
-        onSeek={seek}
-        onPlayTrack={playTrack}
-      />
       <ServiceWorkerManager userId={userId} />
       <InstallBanner />
       <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
