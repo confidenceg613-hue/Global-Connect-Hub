@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import {
   ShieldCheck, LayoutDashboard, Users, UserCircle, LogOut, Menu,
@@ -150,7 +150,7 @@ const NAV_SECTIONS = [
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { logout, userId } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -224,22 +224,24 @@ export function AppLayout({ children }: AppLayoutProps) {
               {section.items.map(item => {
                 const isActive = location === item.href;
                 return (
-                  <Link key={item.href} href={item.href}>
-                    <div
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={`group flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-all cursor-pointer ${
-                        isActive
-                          ? "bg-indigo-500/10 text-indigo-400"
-                          : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <item.icon size={16} className={isActive ? "text-indigo-400" : ""} />
-                        <span className={`text-sm ${isActive ? "font-semibold" : "font-medium"}`}>{item.label}</span>
-                      </div>
-                      {isActive && <ChevronRight size={14} className="text-indigo-400" />}
+                  <div
+                    key={item.href}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => { setMobileMenuOpen(false); navigate(item.href); }}
+                    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { setMobileMenuOpen(false); navigate(item.href); } }}
+                    className={`group flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-all cursor-pointer select-none ${
+                      isActive
+                        ? "bg-indigo-500/10 text-indigo-400"
+                        : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <item.icon size={16} className={isActive ? "text-indigo-400" : ""} />
+                      <span className={`text-sm ${isActive ? "font-semibold" : "font-medium"}`}>{item.label}</span>
                     </div>
-                  </Link>
+                    {isActive && <ChevronRight size={14} className="text-indigo-400" />}
+                  </div>
                 );
               })}
             </div>
