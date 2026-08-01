@@ -93,6 +93,11 @@ The live map's Street View button resolves nearby crowdsourced imagery via Mapil
 - The `postgresql-16` Nix module in `.replit` is required for the Replit-managed PostgreSQL to be available — do not remove it.
 - `artifacts/mockup-sandbox` has no `dev` script by default — it's scaffolded on demand by the mockup-sandbox skill when canvas prototyping is used, so its workflow showing `FINISHED` at rest is expected.
 
+### Post-import setup performed (2026-08-01)
+1. `pnpm install` — installed all workspace packages (lockfile updated for new mobile dependency `babel-plugin-react-compiler`).
+2. `cd lib/db && pnpm run push` — applied schema to PostgreSQL; no schema changes detected.
+3. `Start application` workflow restarted — Vite frontend on port 5000, API server on port 8080, both confirmed healthy.
+
 ### Post-import setup performed (2026-07-28)
 1. `pnpm install` — installed all 1107 workspace packages from the lockfile.
 2. `cd lib/db && pnpm run push` — applied the full Drizzle schema to the PostgreSQL database.
