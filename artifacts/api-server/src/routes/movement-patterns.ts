@@ -61,22 +61,32 @@ const GAP_THRESHOLD_MINUTES = 5;
 
 router.get("/movement-patterns", async (req: Request, res: Response): Promise<void> => {
   const inviteId = parseInt(req.query.inviteId as string, 10);
+  const userId   = parseInt(req.query.userId   as string, 10);
   const daysBack = Math.min(365, Math.max(1, parseInt(req.query.daysBack as string, 10) || 30));
 
   if (isNaN(inviteId)) {
     res.status(400).json({ error: "inviteId is required" });
     return;
   }
+  if (isNaN(userId)) {
+    res.status(400).json({ error: "userId is required" });
+    return;
+  }
 
-  // Resolve invite → token
+  // Resolve invite → token, and verify ownership in the same query
   const inviteRows = await db
-    .select({ token: invitesTable.token })
+    .select({ token: invitesTable.token, fromUserId: invitesTable.fromUserId })
     .from(invitesTable)
     .where(eq(invitesTable.id, inviteId))
     .limit(1);
 
   if (inviteRows.length === 0) {
     res.status(404).json({ error: "Invite not found" });
+    return;
+  }
+
+  if (inviteRows[0].fromUserId !== userId) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 

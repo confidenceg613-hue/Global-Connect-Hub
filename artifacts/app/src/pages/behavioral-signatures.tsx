@@ -789,7 +789,7 @@ export default function BehavioralSignatures() {
     setLoading(true);
     setRawData(null);
     try {
-      const r = await fetch(`${API_BASE}/api/movement-patterns?inviteId=${selectedInviteId}&daysBack=${daysBack}`);
+      const r = await fetch(`${API_BASE}/api/movement-patterns?inviteId=${selectedInviteId}&userId=${userId}&daysBack=${daysBack}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setRawData(await r.json());
     } catch (e: any) {
