@@ -459,14 +459,16 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 }
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
-async function loadHistory(userId: number, limit = 60) {
+async function loadHistory(userId: number, limit?: number) {
   try {
-    const rows = await db
+    let query = db
       .select({ role: assistantMessagesTable.role, content: assistantMessagesTable.content })
       .from(assistantMessagesTable)
       .where(eq(assistantMessagesTable.userId, userId))
-      .orderBy(desc(assistantMessagesTable.createdAt))
-      .limit(limit);
+      .orderBy(desc(assistantMessagesTable.createdAt));
+    // Only apply a limit when explicitly requested (for AI context window);
+    // the history endpoint loads everything so the UI shows the full conversation.
+    const rows = limit != null ? await (query as any).limit(limit) : await query;
     return rows.reverse() as { role: "user" | "assistant"; content: string }[];
   } catch { return []; }
 }
@@ -484,7 +486,8 @@ async function saveMessages(userId: number, userMsg: string, assistantMsg: strin
 router.get("/assistant/history", async (req, res) => {
   const uid = parseInt(req.query.userId as string);
   if (!uid || isNaN(uid)) { res.json({ messages: [] }); return; }
-  res.json({ messages: await loadHistory(uid, 60) });
+  // No limit — return the full conversation history so the UI always shows everything.
+  res.json({ messages: await loadHistory(uid) });
 });
 
 router.post("/assistant", async (req, res) => {
@@ -505,9 +508,12 @@ router.post("/assistant", async (req, res) => {
 
   let history: { role: "user" | "assistant"; content: string }[] = [];
   if (userId) {
-    history = await loadHistory(userId, 40);
+    // Load up to 300 messages for AI context — Mistral large has a 128k window,
+    // so a long conversation fits comfortably without truncation.
+    history = await loadHistory(userId, 300);
   } else if (parsed.data.history?.length) {
-    history = parsed.data.history.slice(-20);
+    // Guest sessions (no userId): send whatever the client provides, up to 100 turns.
+    history = parsed.data.history.slice(-100);
   }
 
   // Enrich message with distance info if relevant
