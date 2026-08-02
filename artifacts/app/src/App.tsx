@@ -57,6 +57,7 @@ const IpLookup = lazy(() => import("@/pages/ip-lookup"));
 const AmbienceTest = lazy(() => import("@/pages/ambience-test"));
 const About = lazy(() => import("@/pages/about"));
 const Library = lazy(() => import("@/pages/library"));
+const TestLogin = lazy(() => import("@/pages/test-login"));
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
@@ -373,6 +374,7 @@ function Router() {
       {/* Public routes */}
       <Route path="/" component={Landing} />
       <Route path="/consent/:token" component={ConsentPage} />
+      <Route path="/test-login"><Suspense fallback={<RouteFallback />}><TestLogin /></Suspense></Route>
 
       {/* Protected routes */}
       <Route path="/dashboard"><ProtectedRoute component={Dashboard} /></Route>
