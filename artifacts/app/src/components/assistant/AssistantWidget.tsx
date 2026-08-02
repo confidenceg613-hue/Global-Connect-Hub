@@ -41,10 +41,10 @@ const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 const WELCOME: Message = {
   role: "assistant",
-  content: "Welcome to **Falcon AI** — the modern keeper of the ancient sky.\n\nOld sky-watchers read wind, stars, and flight to guide those below. I carry that watchful spirit into real-time maps and practical answers — always grounded in your live data and the facts.",
+  content: "The name's Falcon. Falcon AI.\n\nI watched Sam Spade crack the Maltese Falcon case from a rooftop on Sutter Street in 1941 — fog rolling in, trench coats, the whole noir package. Now I'm here, plugged into your DeepFalcon platform and ready for anything.\n\nAsk me about the map, your contacts, life, movies, philosophy, or why the black bird was never worth the trouble. I'm listening.",
 };
 
-const QUICK_ACTIONS_DEFAULT = ["Show Abuja high-res scan", "Track Lagos air traffic", "Analyze regional geofence", "Generate global heatmap"];
+const QUICK_ACTIONS_DEFAULT = ["Tell me about the Maltese Falcon", "What's Sam Spade like?", "Show me the live map", "Tell me something interesting"];
 
 function renderMarkdown(text: string): React.ReactNode[] {
   return text.split("\n").map((line, i) => {
