@@ -145,10 +145,9 @@ export function AncientSky() {
               opacity: b.opacity,
               animationDuration: `${b.dur}s`,
               animationDelay:    `${b.delay}s`,
-              // No CSS filter on mobile — prevents Android Chrome compositor glitch
-              filter: mobile ? "none"
-                : "drop-shadow(0 6px 14px rgba(0,0,0,0.7)) sepia(0.2) saturate(1.2)",
-              willChange: "transform",
+              // No CSS filter at all — filter+fixed+transform triggers the
+              // Android Chrome compositor-tile scan-line glitch universally.
+              // willChange omitted for the same reason.
               // slight body bob
               animation: `sky-path-${b.path} ${b.dur}s ${b.delay}s linear infinite,
                           sky-body-bob 1.8s ${rand(0,1.8).toFixed(2)}s ease-in-out infinite`,
@@ -170,7 +169,6 @@ export function AncientSky() {
             fontSize:  `${f.size}px`,
             opacity:   f.opacity,
             animation: `feather-drift-${f.path} ${f.dur}s ${f.delay}s ease-in-out infinite`,
-            willChange:"transform, opacity",
             pointerEvents: "none",
           }}
         >
@@ -191,7 +189,6 @@ export function AncientSky() {
             color:     "rgba(245,193,108,0.7)",
             fontFamily:"monospace",
             animation: `glyph-breathe ${g.dur}s ${g.delay}s ease-in-out infinite`,
-            willChange:"transform, opacity",
             pointerEvents:"none",
           }}
         >
