@@ -14,7 +14,7 @@ import "leaflet/dist/leaflet.css";
 import {
   Brain, User, AlertTriangle, Clock, MapPin, TrendingUp,
   Shield, Zap, Eye, Navigation, ChevronDown, RefreshCw,
-  Target, Activity, Radio, Info, BarChart3, Route,
+  Target, Activity, Radio, Info, BarChart3, Route, FileDown,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -804,6 +804,175 @@ export default function BehavioralSignatures() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedInviteId, daysBack]);
 
+  const generateReport = () => {
+    if (!rawData || !analytics) return;
+    const contactName = selectedInvite?.toName || selectedInvite?.toPhone || "Unknown";
+    const generatedAt = new Date().toLocaleString();
+    const dateFrom = new Date(rawData.summary.dateFrom).toLocaleDateString();
+    const dateTo   = new Date(rawData.summary.dateTo).toLocaleDateString();
+
+    const evasionColour = analytics.evasion.level === "critical" ? "#ef4444"
+      : analytics.evasion.level === "high"     ? "#f97316"
+      : analytics.evasion.level === "elevated" ? "#eab308"
+      : "#22c55e";
+
+    const rows = {
+      dwell: analytics.dwellZones.map((z, i) => `
+        <tr>
+          <td>#${i + 1}</td>
+          <td>${z.label}</td>
+          <td>${z.visitCount}</td>
+          <td>${z.totalMinutes >= 60 ? `${Math.round(z.totalMinutes / 60)}h ${z.totalMinutes % 60}m` : `${z.totalMinutes}m`}</td>
+          <td>${format(new Date(z.lastSeen), "MMM d, HH:mm")}</td>
+        </tr>`).join(""),
+
+      anomalies: analytics.anomalies.map((a) => `
+        <tr>
+          <td><span class="tag tag-${a.kind === "reversal" ? "warn" : "danger"}">${a.kind.toUpperCase()}</span></td>
+          <td>${format(new Date(a.ts), "MMM d, HH:mm")}</td>
+          <td>${a.description}</td>
+          <td class="mono">${a.lat.toFixed(4)}°, ${a.lng.toFixed(4)}°</td>
+        </tr>`).join(""),
+
+      corridors: analytics.corridors.map((c) => `
+        <tr>
+          <td>${c.label}</td>
+          <td>${c.dayCount}</td>
+          <td>${c.avgSpeedKph < 1 ? "Walk" : `${Math.round(c.avgSpeedKph)} km/h`}</td>
+          <td>${c.commonDays.join(", ") || "—"}</td>
+        </tr>`).join(""),
+
+      predictions: analytics.predictions.map((p) => `
+        <tr>
+          <td class="mono">${p.likelyTime}</td>
+          <td>${p.address || `${p.lat.toFixed(4)}°, ${p.lng.toFixed(4)}°`}</td>
+          <td>${Math.round(p.confidence * 100)}%</td>
+          <td>${p.reasoning}</td>
+        </tr>`).join(""),
+
+      signals: analytics.evasion.signals.map((s) => `
+        <tr>
+          <td>${s.label}</td>
+          <td>${s.weight > 15 ? "HIGH" : s.weight > 7 ? "MED" : "LOW"}</td>
+          <td>${s.description}</td>
+        </tr>`).join(""),
+    };
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Behavioral Signatures Report — ${contactName}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:"Segoe UI",system-ui,sans-serif;font-size:11px;color:#0f172a;background:#fff;padding:28px 32px}
+    h1{font-size:20px;font-weight:700;letter-spacing:-.3px;color:#0f172a}
+    h2{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin:22px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:5px}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;padding-bottom:16px;border-bottom:2px solid #0f172a}
+    .header-meta{font-size:10px;color:#64748b;line-height:1.8;text-align:right}
+    .kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:4px}
+    .kpi{border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;background:#f8fafc}
+    .kpi-val{font-size:18px;font-weight:700;color:#0f172a}
+    .kpi-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#94a3b8;margin-top:2px}
+    .evasion-row{display:flex;align-items:center;gap:16px;margin:10px 0}
+    .evasion-score{font-size:36px;font-weight:800;color:${evasionColour}}
+    .evasion-level{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${evasionColour}}
+    table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:4px}
+    th{text-align:left;padding:5px 8px;background:#f1f5f9;font-weight:600;color:#475569;font-size:9.5px;text-transform:uppercase;letter-spacing:.06em}
+    td{padding:5px 8px;border-bottom:1px solid #f1f5f9;color:#1e293b;vertical-align:top}
+    tr:last-child td{border-bottom:none}
+    .tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:.06em}
+    .tag-danger{background:#fee2e2;color:#b91c1c}
+    .tag-warn{background:#ffedd5;color:#c2410c}
+    .mono{font-family:monospace;font-size:10px}
+    .footer{margin-top:24px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:9.5px;color:#94a3b8;line-height:1.6}
+    .no-data{color:#94a3b8;font-style:italic;font-size:10px;padding:6px 0}
+    @media print{body{padding:16px 20px}h2{margin-top:16px}}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:#94a3b8;margin-bottom:4px">DeepFalcon · Intelligence Platform</div>
+      <h1>Behavioral Signatures Report</h1>
+      <div style="font-size:12px;color:#475569;margin-top:4px">Subject: <strong>${contactName}</strong></div>
+    </div>
+    <div class="header-meta">
+      Generated: ${generatedAt}<br/>
+      Period: ${dateFrom} — ${dateTo}<br/>
+      Analysis window: ${daysBack} days
+    </div>
+  </div>
+
+  <h2>Summary</h2>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-val">${rawData.summary.totalPoints.toLocaleString()}</div><div class="kpi-lbl">Location points</div></div>
+    <div class="kpi"><div class="kpi-val">${rawData.summary.activeDays}</div><div class="kpi-lbl">Active days</div></div>
+    <div class="kpi"><div class="kpi-val">${rawData.summary.totalRealKm.toFixed(1)} km</div><div class="kpi-lbl">Distance tracked</div></div>
+    <div class="kpi"><div class="kpi-val">${rawData.summary.totalGaps}</div><div class="kpi-lbl">Signal gaps</div></div>
+    <div class="kpi" style="border-color:${evasionColour};background:${evasionColour}11">
+      <div class="kpi-val" style="color:${evasionColour}">${analytics.evasion.score}</div>
+      <div class="kpi-lbl">Evasion score</div>
+    </div>
+  </div>
+
+  <h2>Evasion Assessment</h2>
+  <div class="evasion-row">
+    <div class="evasion-score">${analytics.evasion.score}<span style="font-size:18px;color:#94a3b8">/100</span></div>
+    <div>
+      <div class="evasion-level">${analytics.evasion.level}</div>
+      <div style="font-size:10px;color:#64748b;margin-top:2px">${analytics.evasion.signals.length} contributing signal${analytics.evasion.signals.length !== 1 ? "s" : ""}</div>
+    </div>
+  </div>
+  ${analytics.evasion.signals.length > 0 ? `
+  <table>
+    <thead><tr><th>Signal</th><th>Weight</th><th>Detail</th></tr></thead>
+    <tbody>${rows.signals}</tbody>
+  </table>` : `<p class="no-data">No evasion signals detected.</p>`}
+
+  <h2>Dwell Zones (${analytics.dwellZones.length})</h2>
+  ${analytics.dwellZones.length > 0 ? `
+  <table>
+    <thead><tr><th>#</th><th>Location</th><th>Visits</th><th>Total time</th><th>Last seen</th></tr></thead>
+    <tbody>${rows.dwell}</tbody>
+  </table>` : `<p class="no-data">No significant dwell zones detected.</p>`}
+
+  <h2>Habitual Corridors (${analytics.corridors.length})</h2>
+  ${analytics.corridors.length > 0 ? `
+  <table>
+    <thead><tr><th>Route</th><th>Days used</th><th>Avg speed</th><th>Common days</th></tr></thead>
+    <tbody>${rows.corridors}</tbody>
+  </table>` : `<p class="no-data">No habitual corridors detected.</p>`}
+
+  <h2>Speed &amp; Direction Anomalies (${analytics.anomalies.length})</h2>
+  ${analytics.anomalies.length > 0 ? `
+  <table>
+    <thead><tr><th>Type</th><th>Time</th><th>Description</th><th>Coordinates</th></tr></thead>
+    <tbody>${rows.anomalies}</tbody>
+  </table>` : `<p class="no-data">No anomalies detected in this period.</p>`}
+
+  <h2>Predictive Intel (${analytics.predictions.length})</h2>
+  ${analytics.predictions.length > 0 ? `
+  <table>
+    <thead><tr><th>Expected time</th><th>Location</th><th>Confidence</th><th>Reasoning</th></tr></thead>
+    <tbody>${rows.predictions}</tbody>
+  </table>` : `<p class="no-data">Insufficient pattern data for predictions.</p>`}
+
+  <div class="footer">
+    <strong>Methodology:</strong> All analysis is computed from GPS location history. Dwell zones cluster points within 120 m for &gt;4 min. Habitual corridors require 2+ distinct days on the same route. Evasion scoring is indicative — individual signals must be assessed in context. Predictions are probabilistic estimates based on observed patterns only and should not be used as sole evidence.
+  </div>
+
+  <script>window.onload = function(){ window.print(); }</script>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank");
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+    }
+  };
+
   // Derive behavioral analytics
   const allPoints = useMemo<RawPoint[]>(() => {
     if (!rawData) return [];
@@ -886,6 +1055,17 @@ export default function BehavioralSignatures() {
               <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
               {loading ? "Analyzing…" : "Refresh"}
             </Button>
+            {rawData && allPoints.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={generateReport}
+                className="h-7 text-xs gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/50"
+              >
+                <FileDown size={11} />
+                Export Report
+              </Button>
+            )}
             {rawData && (
               <span className="text-[10px] text-muted-foreground font-mono ml-auto">
                 {allPoints.length.toLocaleString()} pts · {rawData.summary.activeDays}d active
