@@ -1,11 +1,7 @@
 /**
- * Permanent manual pin seeds.
- * These are inserted (upserted) on every server start so they survive
- * push/pull to a new environment.  Add new pins here to persist them
- * permanently in the repository.
- *
- * userId references the first registered user (id = 1).  Adjust the
- * userId field if pins belong to a specific account.
+ * Optional manual pin seeds.
+ * Keep this empty by default: pins represent user location data and must only
+ * be created by the user through the application.
  */
 
 import { db } from "../index";
@@ -20,9 +16,6 @@ export interface SeedPin {
 }
 
 export const SEED_PINS: SeedPin[] = [
-  // ── Add or edit pins here ────────────────────────────────────────────────
-  { userId: 1, name: "Sarah's Home - London", latitude: 51.5074, longitude: -0.1278 },
-  // ────────────────────────────────────────────────────────────────────────
 ];
 
 /**

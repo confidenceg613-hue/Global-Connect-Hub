@@ -14,10 +14,14 @@
     "push": "drizzle-kit push"
   },
   "dependencies": {
+    "drizzle-orm": "catalog:",
     "drizzle-zod": "^0.8.3",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/pg": "^8.15.6",
     "drizzle-kit": "^0.31.0"
   }
 }

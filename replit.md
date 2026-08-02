@@ -38,6 +38,17 @@ There is also a `Start application` workflow (`PORT=5000 pnpm --filter @workspac
 
 Fresh environment setup is handled automatically by `scripts/post-merge.sh` (runs `pnpm install --frozen-lockfile` then `pnpm --filter db push`).
 
+## Imported-project setup status
+
+The imported workspace has been prepared for Replit:
+
+- Dependencies are installed with `pnpm install --frozen-lockfile`.
+- The development database schema has been applied with `pnpm --filter @workspace/db run push`.
+- Use the **Start application** workflow for the browser preview. It starts the Vite app on port 5000 and API server on port 8080 together.
+- The frontend and API production builds both pass.
+
+The AI assistant, street-level imagery, and web-push delivery remain unavailable until their optional API keys/secrets are configured. The Expo mobile and Canvas preview workflows are intentionally separate and only need to be started when those previews are needed.
+
 ## Environment variables
 
 Set in `.replit` shared env:
