@@ -773,7 +773,7 @@ export default function BehavioralSignatures() {
   const [rawData, setRawData] = useState<MovementResult | null>(null);
 
   const grantedInvites = useMemo(
-    () => (invites ?? []).filter((inv: Invite) => inv.status === "granted"),
+    () => (invites ?? []).filter((inv: Invite) => inv.status === "accepted"),
     [invites],
   );
 

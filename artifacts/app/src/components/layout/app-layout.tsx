@@ -5,7 +5,7 @@ import {
   ShieldCheck, LayoutDashboard, Users, UserCircle, Menu,
   Navigation, Clock, Map, Bell, BellOff, BellRing, Camera, Settings,
   Activity as ActivityIcon, Flag, ChevronRight, Radio, Globe,
-  ShieldAlert, Siren, Archive, Info, TrendingUp, Layers, Library, Brain,
+  ShieldAlert, Siren, Archive, Info, TrendingUp, Layers, Library, Brain, Wifi,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -143,6 +143,7 @@ const NAV_SECTIONS = [
     label: "SECURITY",
     items: [
       { href: "/security-center", label: "Security Center", icon: ShieldAlert },
+      { href: "/ip-lookup",       label: "IP Lookup",       icon: Wifi },
       { href: "/geoboard",        label: "GeoBoard",        icon: Camera },
       { href: "/surveillance",    label: "Surveillance",    icon: Camera },
       { href: "/panic-log",       label: "Panic Log",       icon: Siren },

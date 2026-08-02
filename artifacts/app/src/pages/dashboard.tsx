@@ -3,7 +3,7 @@ import { useGetUser, useGetConsentSummary, useListInvites, getGetUserQueryKey, g
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Shield, ShieldAlert, ShieldCheck, MapPin, Bell, MessageSquare, Send, Map, Users, Clock, ArrowRight, Activity, Sparkles, Wifi } from "lucide-react";
+import { Shield, ShieldAlert, ShieldCheck, MapPin, Bell, MessageSquare, Send, Map, Users, Clock, ArrowRight, Activity, Sparkles } from "lucide-react";
 import { format } from "date-fns";
 import { Link } from "wouter";
 
@@ -76,7 +76,6 @@ export default function Dashboard() {
     { label: "Send Invite",    icon: Users,        href: "/invites",    color: "bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 border-yellow-500/20" },
     { label: "Guardian Brief", icon: Sparkles,     href: "/guardian",   color: "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border-orange-500/20" },
     { label: "Permissions",    icon: ShieldCheck,  href: "/permissions",color: "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border-amber-400/30" },
-    { label: "IP Lookup",      icon: Wifi,         href: "/ip-lookup",  color: "bg-yellow-500/10 text-yellow-300 hover:bg-yellow-500/20 border-yellow-500/20" },
   ];
 
   const totalGrants = (summary?.location?.granted ?? 0) + (summary?.notification?.granted ?? 0) + (summary?.messaging?.granted ?? 0);
