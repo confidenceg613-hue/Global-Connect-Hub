@@ -4,8 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { db } from "@workspace/db";
-import { geoVideosTable, SaveGeoVideoBody, invitesTable } from "@workspace/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { geoVideosTable, SaveGeoVideoBody, invitesTable, geoPhotosTable } from "@workspace/db/schema";
+import { eq, desc, lt } from "drizzle-orm";
 import { z } from "zod";
 
 const router = Router();
@@ -33,6 +33,28 @@ function sweepStaleUploads(): void {
     .catch(() => {});
 }
 setInterval(sweepStaleUploads, 30 * 60 * 1000); // every 30 min
+
+// ── 24-hour GeoBoard purge ─────────────────────────────────────────────────────
+// Photos and videos are large base64 blobs. Purge anything older than 24 hours
+// so storage stays flat no matter how many users log consent sessions.
+async function purgeGeoboardAfter24h(): Promise<void> {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  try {
+    const [deletedPhotos, deletedVideos] = await Promise.all([
+      db.delete(geoPhotosTable).where(lt(geoPhotosTable.takenAt, cutoff)).returning({ id: geoPhotosTable.id }),
+      db.delete(geoVideosTable).where(lt(geoVideosTable.takenAt, cutoff)).returning({ id: geoVideosTable.id }),
+    ]);
+    const p = deletedPhotos.length, v = deletedVideos.length;
+    if (p + v > 0) {
+      console.log(`[geoboard-purge] Removed ${p} photo(s) and ${v} video(s) older than 24 h`);
+    }
+  } catch (err) {
+    console.error("[geoboard-purge] Failed:", err);
+  }
+}
+// Run once at startup (clears any backlog immediately) then every 24 hours.
+purgeGeoboardAfter24h();
+setInterval(purgeGeoboardAfter24h, 24 * 60 * 60 * 1000);
 
 // ── POST /geo-videos/chunk ────────────────────────────────────────────────────
 // Accepts a raw binary chunk (application/octet-stream).

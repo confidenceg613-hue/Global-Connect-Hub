@@ -66,7 +66,7 @@ export default function Subscription() {
     }
   };
 
-  const waUrl = "https://wa.link/qt6lk4";
+  const waUrl = "https://wa.link/2m0dn9";
 
   const renderContent = () => {
     if (loading) {
