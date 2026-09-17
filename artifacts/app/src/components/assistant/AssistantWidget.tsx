@@ -468,6 +468,11 @@ export default function AssistantWidget() {
           if (errData?.reply) errMsg = errData.reply;
           else if (errData?.error) errMsg = errData.error;
         } catch { /* */ }
+        // 404/405 = no backend in this environment (static production hosting).
+        // Give a friendly explanation instead of a raw error code.
+        if (resp.status === 404 || resp.status === 405 || resp.status === 501) {
+          errMsg = "🛰️ Falcon AI needs the DeepFalcon server, which isn't connected in this environment yet.\n\nEverything else works — invites, live map and GPS tracking run device-to-device. Falcon AI (chat, voice, vision) will switch on the moment the backend is linked.";
+        }
         setMessages(prev => [...prev, { role: "assistant", content: errMsg }]);
         return;
       }
@@ -752,7 +757,7 @@ export default function AssistantWidget() {
               </div>
               <span className="font-semibold text-sm" style={{ color: "#F5C97A" }}>Falcon AI</span>
               <span className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: "rgba(184,124,64,0.15)", color: "#F5C97A", border: "1px solid rgba(184,124,64,0.3)" }}>
-                <Sparkles className="w-2.5 h-2.5" />GPT-4o
+                <Sparkles className="w-2.5 h-2.5" />Mistral
               </span>
               {streaming && (
                 <span className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 animate-pulse">

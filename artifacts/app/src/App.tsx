@@ -64,6 +64,7 @@ const TestLogin = lazy(() => import("@/pages/test-login"));
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { GrantNotifier } from "@/components/grant-notifier";
+import LiveGpsNotifier from "@/components/live-gps-notifier";
 import { ErrorBoundary } from "@/components/error-boundary";
 import AssistantWidget from "@/components/assistant/AssistantWidget";
 import { AppCommandHandler } from "@/components/assistant/AppCommandHandler";
@@ -508,6 +509,7 @@ function AppInner() {
         <AppCommandHandler />
       </WouterRouter>
       <GrantNotifier />
+      <LiveGpsNotifier />
       <IncomingRequestModal />
       <AssistantWidget />
       <Toaster />

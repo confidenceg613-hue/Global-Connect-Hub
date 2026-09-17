@@ -15,7 +15,15 @@ const MISTRAL_BASE = "https://api.mistral.ai/v1";
 const GEMINI_BASE  = "https://generativelanguage.googleapis.com/v1beta/openai/";
 
 const geminiKey  = process.env.GEMINI_API_KEY?.trim();
-const mistralKey = process.env.MISTRAL_API_KEY?.trim();
+// Accept common spelling variants so a key saved as "Mistral_API_KEY" etc. still works.
+// Also keep only the FIRST line: a malformed .env entry (missing newline) can glue
+// the next variable onto the key value, which would corrupt the auth header.
+const mistralKey = (
+  process.env.MISTRAL_API_KEY ??
+  process.env.Mistral_API_KEY ??
+  process.env.mistral_api_key ??
+  ""
+).trim().split(/\r?\n/)[0] || undefined;
 const groqKey1   = process.env.GROQ_API_KEY_1?.trim();
 const groqKey2   = process.env.GROQ_API_KEY_2?.trim();
 // Legacy single-key fallback kept for backward-compat
@@ -23,6 +31,16 @@ const legacyKey  = process.env.OPENAI_API_KEY?.trim();
 
 if (!geminiKey && !mistralKey && !groqKey1 && !groqKey2 && !legacyKey) {
   console.error("[assistant] No API keys set — /api/assistant will return 503");
+  // Name-only diagnostic (never prints values) — helps spot keys saved under
+  // unexpected env var names.
+  const hint = Object.keys(process.env).filter((k) =>
+    /mistral|groq|gemini|openai/i.test(k),
+  );
+  console.error(
+    hint.length
+      ? `[assistant] AI-looking env names present: ${hint.join(", ")} (not consumed — expected MISTRAL_API_KEY / GEMINI_API_KEY / GROQ_API_KEY_1/2)`
+      : "[assistant] No AI-looking env names present at all",
+  );
 } else {
   if (geminiKey)  console.log("[assistant] Gemini key ready (primary)");
   if (mistralKey) console.log("[assistant] Mistral key ready");
@@ -66,7 +84,9 @@ function modelsFor(kind: ClientKind): string[] {
   if (process.env.OPENAI_MODEL) return [process.env.OPENAI_MODEL];
   switch (kind) {
     case "gemini":     return ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
-    case "mistral":    return ["mistral-large-latest"];
+    // Free tier allows nemo/ministral/pixtral; large is paywalled (403 tier_not_allowed).
+    // Ordered best→cheapest; withFallback tries the next on 403/429.
+    case "mistral":    return ["open-mistral-nemo", "ministral-8b-latest", "pixtral-12b-2409"];
     case "openrouter": return ["openai/gpt-4o-mini"];
     case "openai":     return ["gpt-4o-mini", "gpt-4o"];
     case "groq":

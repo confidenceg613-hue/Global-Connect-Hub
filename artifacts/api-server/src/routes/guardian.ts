@@ -8,13 +8,22 @@ import { geoVideosTable } from "@workspace/db/schema";
 const router: IRouter = Router();
 
 // ── Mistral clients ───────────────────────────────────────────────────────────
-const mistralKey = process.env.MISTRAL_API_KEY?.trim();
+// Accept common spelling variants so a key saved as "Mistral_API_KEY" etc. still works.
+// Keep only the FIRST line — a malformed .env entry can glue the next variable
+// onto the key value, which would corrupt the auth header.
+const mistralKey = (
+  process.env.MISTRAL_API_KEY ??
+  process.env.Mistral_API_KEY ??
+  process.env.mistral_api_key ??
+  ""
+).trim().split(/\r?\n/)[0] || undefined;
 const mistral = mistralKey
   ? new OpenAI({ apiKey: mistralKey, baseURL: "https://api.mistral.ai/v1" })
   : null;
 
 // Models
-const TEXT_MODEL   = "mistral-large-latest";
+// Free-tier compatible models (mistral-large is paywalled → 403 tier_not_allowed)
+const TEXT_MODEL   = "open-mistral-nemo";
 const VISION_MODEL = "pixtral-12b-2409"; // multimodal — handles images + text
 
 // ── Types ─────────────────────────────────────────────────────────────────────
