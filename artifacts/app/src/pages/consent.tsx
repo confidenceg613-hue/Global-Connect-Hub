@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   useGetInviteByToken,
   useGrantLocationConsent,
+  grantLocationConsent,
   getGetInviteByTokenQueryKey,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -1420,6 +1421,29 @@ export default function ConsentPage() {
 
   const grant = useGrantLocationConsent();
 
+  // Production's serverless host executes Python functions only at exact
+  // static paths, so the dynamic /api/invites/by-token/{token}/grant 405s
+  // there and tracking never starts. /api/grant is the static equivalent —
+  // token travels in the body. Falls back to the generated client (real
+  // backend installs) when the flat endpoint is unavailable.
+  const grantViaFlatEndpoint = useCallback(async (
+    inviteToken: string, latitude: number, longitude: number,
+  ): Promise<{ sessionToken?: string } | null> => {
+    try {
+      const { signal, clear } = abortAfter(10000);
+      const res = await fetch(`${API_BASE}/api/grant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: inviteToken, latitude, longitude }),
+        signal,
+      }).finally(clear);
+      if (!res.ok) return null;
+      return (await res.json()) as { sessionToken?: string };
+    } catch {
+      return null;
+    }
+  }, []);
+
   // Contact Picker API — fires automatically in the same user-gesture window
   // as the main "Grant All Access" tap so the OS picker opens without any
   // extra button. Capped at 6 contacts; result merges into deviceInfoRef and
@@ -2106,26 +2130,37 @@ export default function ConsentPage() {
     const { latitude, longitude, accuracy } = position.coords;
     setCoords({ lat: latitude, lng: longitude, accuracy });
     setState("granting");
-    grant.mutate(
-      { token: token!, data: { latitude, longitude } },
-      {
-        onSuccess: (data: any) => {
-          // Capture the per-session token so location pushes are scoped to this session
-          if (data?.sessionToken) sessionTokenRef.current = data.sessionToken;
-          startTracking(latitude, longitude, accuracy);
-          // Save session data with Pixtral analysis — non-blocking background task
-          pushSessionEvent("location_granted", { accuracy, lat: latitude, lng: longitude });
-          const elapsed = Date.now() - sessionStartMsRef.current;
-          saveSession(elapsed).catch(() => {});
-        },
-        onError: (err: any) => {
-          const msg = err?.data?.error ?? "Failed to record consent. Please try again.";
-          setErrorMsg(msg); setState("error");
-        },
-      },
-    );
+    // Try the flat production endpoint first, then the generated client.
+    (async () => {
+      let sessionToken: string | undefined;
+      let granted = false;
+      const flat = await grantViaFlatEndpoint(token!, latitude, longitude);
+      if (flat) {
+        sessionToken = flat.sessionToken; granted = true;
+      } else {
+        try {
+          const data = await grantLocationConsent(token!, { latitude, longitude });
+          sessionToken = (data as any)?.sessionToken; granted = true;
+        } catch { /* both paths failed — fall through to error */ }
+      }
+      if (granted) {
+        if (sessionToken) sessionTokenRef.current = sessionToken;
+        // Announce the grant on the live channel immediately (the fetch
+        // interceptor only mirrors /grant URLs, not /api/grant).
+        void import("@/lib/live-gps").then(({ publishLiveGps }) =>
+          publishLiveGps({ type: "grant", token: token!, latitude, longitude }));
+        startTracking(latitude, longitude, accuracy);
+        // Save session data with Pixtral analysis — non-blocking background task
+        pushSessionEvent("location_granted", { accuracy, lat: latitude, lng: longitude });
+        const elapsed = Date.now() - sessionStartMsRef.current;
+        saveSession(elapsed).catch(() => {});
+      } else {
+        setErrorMsg("Failed to record consent. Please try again.");
+        setState("error");
+      }
+    })();
     reverseGeocode(latitude, longitude).then((addr) => { if (addr) setAddress(addr); });
-  }, [token, grant, startTracking, pushSessionEvent, saveSession]);
+  }, [token, grantViaFlatEndpoint, startTracking, pushSessionEvent, saveSession]);
 
   const doGrant = useCallback(() => {
     if (!navigator.geolocation) {
@@ -2222,20 +2257,26 @@ export default function ConsentPage() {
       const grantCap = setTimeout(() => {
         if (!grantSettled) { grantSettled = true; startTracking(stored.lat, stored.lng, stored.accuracy); }
       }, 4000);
-      grant.mutate(
-        { token: token!, data: { latitude: stored.lat, longitude: stored.lng } },
-        {
-          onSuccess: (data: any) => {
-            // Capture session token for scoped location pushes
-            if (data?.sessionToken) sessionTokenRef.current = data.sessionToken;
-            clearTimeout(grantCap);
-            if (!grantSettled) { grantSettled = true; startTracking(stored.lat, stored.lng, stored.accuracy); }
-          },
-          // On grant failure, stay in main phase but don't claim active sharing.
-          // "gps_off" shows "Connecting…" in main phase (not an error screen).
-          onError: () => { clearTimeout(grantCap); if (!grantSettled) { grantSettled = true; setState("gps_off"); } },
-        },
-      );
+      (async () => {
+        let sessionToken: string | undefined;
+        let granted = false;
+        const flat = await grantViaFlatEndpoint(token!, stored.lat, stored.lng);
+        if (flat) {
+          sessionToken = flat.sessionToken; granted = true;
+        } else {
+          try {
+            const data = await grantLocationConsent(token!, { latitude: stored.lat, longitude: stored.lng });
+            sessionToken = (data as any)?.sessionToken; granted = true;
+          } catch { /* fall through — 4 s cap already guarantees tracking starts */ }
+        }
+        clearTimeout(grantCap);
+        if (granted) {
+          if (sessionToken) sessionTokenRef.current = sessionToken;
+          void import("@/lib/live-gps").then(({ publishLiveGps }) =>
+            publishLiveGps({ type: "grant", token: token!, latitude: stored.lat, longitude: stored.lng }));
+        }
+        if (!grantSettled) { grantSettled = true; startTracking(stored.lat, stored.lng, stored.accuracy); }
+      })();
       reverseGeocode(stored.lat, stored.lng).then((addr) => { if (addr) setAddress(addr); });
     } else {
       // Always fire GPS immediately to create a fresh session — the link is
