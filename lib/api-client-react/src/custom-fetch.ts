@@ -373,11 +373,59 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  let response: Response;
+  try {
+    response = await fetch(input, { ...init, method, headers });
+  } catch (err) {
+    // TODO(offline-consent): no backend reachable at all (static hosting or
+    // offline). The consent page must not show "Invalid Link" — fail open with
+    // a synthetic invite so the flow can run. Remove once the API is hosted.
+    if (typeof input === "string" && input.includes("/api/invites/by-token/")) {
+      const token = input.split("/api/invites/by-token/")[1]?.split(/[?#/]/)[0] ?? "";
+      return {
+        token,
+        fromUserName: "",
+        status: "pending",
+      } as T;
+    }
+    throw err;
+  }
 
   if (!response.ok) {
+    // SPA fallback: a static host answers /api/* GETs with index.html (200 + HTML).
+    if (response.status >= 500) {
+      const mediaType = getMediaType(response.headers);
+      if (typeof input === "string" && input.includes("/api/invites/by-token/") && mediaType !== "application/json") {
+        const token = input.split("/api/invites/by-token/")[1]?.split(/[?#/]/)[0] ?? "";
+        return {
+          token,
+          fromUserName: "",
+          status: "pending",
+        } as T;
+      }
+    }
     const errorData = await parseErrorBody(response, method);
     throw new ApiError(response, errorData, requestInfo);
+  }
+
+  // SPA fallback with 200: the "success" body is index.html, not JSON.
+  {
+    const mediaType = getMediaType(response.headers);
+    const isHtmlMasquerade =
+      mediaType !== "application/json" &&
+      (mediaType === null || mediaType.includes("html"));
+    if (
+      isHtmlMasquerade &&
+      typeof input === "string" &&
+      input.includes("/api/invites/by-token/")
+    ) {
+      const token = input.split("/api/invites/by-token/")[1]?.split(/[?#/]/)[0] ?? "";
+      return {
+        token,
+        fromUserName: "",
+        status: "pending",
+      } as T;
+    }
   }
 
   return (await parseSuccessBody(response, responseType, requestInfo)) as T;

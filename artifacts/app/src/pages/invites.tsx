@@ -120,6 +120,36 @@ export default function Invites() {
       // Log for debugging
       console.error("createInvite failed:", err);
 
+      // Offline fallback: when the API isn't reachable (e.g. static hosting with
+      // no backend yet), build the same consent link + SMS locally instead of
+      // showing a red HTTP error. Tracking activates once the server is wired.
+      const status = err?.response?.status ?? (err?.status as number | undefined);
+      const isUnreachable = status === 404 || status === 405 || status >= 500 || (err?.response == null && !status);
+      if (isUnreachable) {
+        const token = Array.from(crypto.getRandomValues(new Uint8Array(6)))
+          .map((b) => b.toString(36).padStart(2, "0")).join("").slice(0, 8)
+          .replace(/[^a-zA-Z0-9]/g, "a");
+        const consentPageUrl = `${baseUrl}/consent/${token}`;
+        const messageWithLink = message
+          ? `${message}\n\nClick here to grant location access: ${consentPageUrl}`
+          : `Click here to grant location access: ${consentPageUrl}`;
+        const smsLink = `sms:${parsedPhone.number}?body=${encodeURIComponent(messageWithLink)}`;
+
+        setLastCreated({
+          id: -Date.now(),
+          token,
+          consentPageUrl,
+          whatsappLink: smsLink,
+          status: "pending",
+        } as unknown as Invite);
+        window.open(smsLink, "_blank");
+        toast({ title: "SMS app opened (offline mode)", description: "Tracking activates once the server is connected." });
+        setPhone("");
+        setName("");
+        setOptIn(false);
+        return;
+      }
+
       // Try to extract a helpful message from common error shapes
       const serverMessage =
         err?.response?.data?.error || err?.response?.data || err?.message || (err?.data && typeof err.data === 'string' ? err.data : undefined);

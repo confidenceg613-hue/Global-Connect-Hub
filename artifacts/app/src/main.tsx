@@ -1,7 +1,12 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/error-boundary";
+import { installHighAccuracyGeo } from "./lib/geo-accuracy";
 import "./index.css";
+
+// GPS accuracy priority: force high-accuracy, fresh fixes app-wide
+// (consent tracking, group share, live map) before any page can call it.
+installHighAccuracyGeo();
 
 // Remove the pre-React loader once JS is executing
 const loader = document.getElementById("pre-react-loader");
