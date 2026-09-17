@@ -12,8 +12,10 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useEffect, useState, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { NotificationPanel, useNotificationCount } from "@/components/notification-panel";
+import { FeatherBackdrop } from "@/components/golden-bird";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY ||
   "BGsFFaTA-uRJu2LqW7spIXSkgaUGCfgy3eckDbxffUJ7N80C5NO0V1jhETymchIu4RWw8MHqgmBYEIogR84yhX0";
 
@@ -267,6 +269,8 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="flex min-h-[100dvh] w-full bg-background">
+      {/* App-wide feather/sky theme backdrop (dashboard mock) */}
+      <FeatherBackdrop />
       {/* Desktop Sidebar */}
       <div className="hidden md:block w-64 shrink-0">
         <div className="fixed inset-y-0 w-64">{sidebarContent}</div>
@@ -274,23 +278,34 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       {/* Mobile */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Floating icon cluster — replaces the full header bar on mobile */}
+        {/* Mobile top header — DeepFalcon logo + brand, bell, menu */}
         <div
-          className="md:hidden fixed right-3 z-[1010] flex items-center gap-1"
-          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
+          className="md:hidden fixed inset-x-0 top-0 z-[1010] flex items-center justify-between border-b border-amber-500/15 bg-background/85 px-3 pb-2 backdrop-blur-md"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
         >
-          {notificationButton}
-          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-9 w-9">
-                <Menu size={20} />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="p-0 w-64">{sidebarContent}</SheetContent>
-          </Sheet>
+          <div className="flex items-center gap-2.5">
+            <img src="/falcon-logo.png" alt="DeepFalcon" className="h-9 w-9 rounded-xl object-cover shadow-md shadow-amber-500/20 ring-1 ring-amber-500/30" />
+            <span
+              className="font-bold text-[15px] tracking-tight text-foreground"
+              style={{ fontFamily: "Syne, system-ui, sans-serif", letterSpacing: "-0.02em" }}
+            >
+              DeepFalcon
+            </span>
+          </div>
+          <div className="flex items-center gap-0.5">
+            {notificationButton}
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Open menu">
+                  <Menu size={20} />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="p-0 w-64">{sidebarContent}</SheetContent>
+            </Sheet>
+          </div>
         </div>
 
-        <main className="app-main flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full">
+        <main className="app-main relative z-10 flex-1 max-w-5xl mx-auto w-full p-4 pt-[calc(env(safe-area-inset-top,0px)+64px)] md:p-8 md:pt-8">
           {children}
         </main>
       </div>

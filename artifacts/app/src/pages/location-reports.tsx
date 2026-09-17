@@ -8,7 +8,8 @@ import { TYPE_CONFIG, type LocationType } from "@/lib/location-intelligence";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 interface LocationTypeReport {
   id: number;

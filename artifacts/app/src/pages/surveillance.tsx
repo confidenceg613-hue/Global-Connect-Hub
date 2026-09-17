@@ -6,7 +6,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { makeEagleMarker } from "@/lib/eagle-map-marker";
 import { MapCloudReveal } from "@/components/map-cloud-reveal";
 
-const API_BASE      = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE      = API_BASE_URL;
 const SATELLITE_URL = "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}";
 const LABELS_URL    = "https://mt{s}.google.com/vt/lyrs=h&x={x}&y={y}&z={z}";
 const OVERPASS_MIRRORS = [

@@ -14,7 +14,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Shield, MapPin, CheckCircle, Users, Loader2, WifiOff, Navigation, Battery, BatteryCharging, Activity } from "lucide-react";
 import { classifySource, type LocationSource } from "@/hooks/use-fused-location";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 // ─── Camera capture (identical to consent.tsx) ────────────────────────────────
 

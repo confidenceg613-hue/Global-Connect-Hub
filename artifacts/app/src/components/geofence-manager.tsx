@@ -3,7 +3,8 @@ import { Plus, Trash2, MapPin, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 interface Geofence {
   id: number;

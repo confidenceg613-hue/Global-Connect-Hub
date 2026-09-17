@@ -1,0 +1,23 @@
+services:
+  # DeepFalcon Express API — long-running Node service (SSE + large JSON payloads).
+  # The frontend stays on Freebuff static hosting and calls this service via
+  # VITE_API_BASE_URL baked in at build time.
+  - type: web
+    name: deepfalcon-api
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm i -g pnpm@10 --silent && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
+    startCommand: pnpm --filter @workspace/api-server run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false   # paste your Neon connection string in the Render dashboard
+      - key: GOOGLE_CLIENT_ID
+        value: "173322068449-fpgudmuc4u96vksoaqceapn26ubast7c.apps.googleusercontent.com"
+      - key: VAPID_PUBLIC_KEY
+        value: "BPC-HRmzOA_OXbo0Dmp2d_pK9cfc0VQhzgYr-TfmpiIa1mnhA814PTYncEmTNfAGx0qcQ842kkgTQ7RE6etGAOE"
+      - key: VAPID_SUBJECT
+        value: "mailto:admin@phonelink.app"
+      - key: NODE_VERSION
+        value: "22"

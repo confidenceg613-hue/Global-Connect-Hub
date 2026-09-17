@@ -22,7 +22,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 // ── Raw types from movement-patterns API ────────────────────────────────────
 
@@ -766,7 +767,7 @@ function DwellCard({ zone, rank }: { zone: DwellZone; rank: number }) {
 export default function BehavioralSignatures() {
   const { userId } = useAuth();
   const { toast } = useToast();
-  const { data: invites } = useListInvites(userId ?? 0);
+  const { data: invites = [] } = useListInvites({ userId: userId ?? 0 });
   const [selectedInviteId, setSelectedInviteId] = useState<number | null>(null);
   const [daysBack, setDaysBack] = useState(30);
   const [loading, setLoading] = useState(false);
@@ -791,7 +792,12 @@ export default function BehavioralSignatures() {
     try {
       const r = await fetch(`${API_BASE}/api/movement-patterns?inviteId=${selectedInviteId}&userId=${userId}&daysBack=${daysBack}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setRawData(await r.json());
+      const body: unknown = await r.json();
+      // SPA fallbacks can return HTML with a 200 — only accept well-shaped data.
+      if (!body || typeof body !== "object" || !("summary" in body)) {
+        throw new Error("Unexpected response shape");
+      }
+      setRawData(body as MovementResult);
     } catch (e: any) {
       toast({ title: "Failed to load data", description: e.message, variant: "destructive" });
     } finally {

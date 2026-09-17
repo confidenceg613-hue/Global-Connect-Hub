@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 interface PanicEntry {
   id: number;
@@ -128,9 +129,12 @@ export default function PanicLog() {
 
   const { data: entries = [], isLoading } = useQuery<PanicEntry[]>({
     queryKey: ["panic-log", userId],
-    queryFn: () =>
-      fetch(`${API_BASE}/api/notifications/${userId}?type=sos`)
-        .then((r) => r.json()),
+    queryFn: async () => {
+      const r = await fetch(`${API_BASE}/api/notifications/${userId}?type=sos`);
+      if (!r.ok) throw new Error("Failed to load panic log");
+      const d: unknown = await r.json();
+      return Array.isArray(d) ? d : []; // ignore SPA-fallback HTML responses
+    },
     enabled: !!userId,
     refetchInterval: 30_000,
   });

@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useGoogleAuth } from "@/hooks/use-google-auth";
 import { useCreateUser } from "@workspace/api-client-react";
+import { API_BASE } from "@/lib/api-base";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowRight, ShieldAlert, CheckCircle, Lock, Globe, Zap, Eye, KeyRound, Shield, Feather } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -100,7 +101,7 @@ export default function Landing() {
           login(user.id, { name: user.name, phone: user.fullPhone ?? user.phoneNumber ?? "" });
           const isReturning = (user as { isExistingUser?: boolean }).isExistingUser === true;
           if (code.trim() === ACCESS_CODE) {
-            try { await fetch(`/api/access/${user.id}/redeem`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: ACCESS_CODE }) }); } catch { /* non-critical */ }
+            try { await fetch(`${API_BASE}/api/access/${user.id}/redeem`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: ACCESS_CODE }) }); } catch { /* non-critical */ }
           }
           toast({ title: isReturning ? `Welcome back, ${user.name}!` : "Account created successfully" });
           setLocation("/dashboard");

@@ -16,7 +16,8 @@ import { fetchAreaInfo, aqiLabel } from "@/hooks/use-area-info";
 import { analyzeLocation, findClusters, TYPE_CONFIG } from "@/lib/location-intelligence";
 import { fetchStreetView, streetViewUrl, mapillaryViewerUrl, type StreetViewResult } from "@/lib/maps-config";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 /** Escape a value for safe insertion into an innerHTML HTML string. */
 function esc(v: unknown): string {
@@ -358,7 +359,7 @@ export default function LiveMap() {
     }
   }, []);
 
-  const { data: invites, refetch } = useListInvites(
+  const { data: invites = [], refetch } = useListInvites(
     { userId: userId! },
     { query: { enabled: !!userId, queryKey: getListInvitesQueryKey({ userId: userId! }), refetchInterval: 20000 } },
   );

@@ -11,17 +11,17 @@
   --sai-right:  env(safe-area-inset-right, 0px);
 }
 
-/* ── Reduced-motion: kill all Framer Motion / tw-animate transitions ── */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-  [style*="--motion-duration"] {
-    --motion-duration: 0.01ms !important;
-  }
+/* ── Animations disabled app-wide (user request: kill every live animation) ──
+   Unconditional, all elements: stops CSS keyframes, Tailwind/tw-animate
+   utilities (animate-pulse/spin/bounce/ping/in/out), inline animation styles
+   (e.g. AncientSky birds), and all transitions. Layout still paints instantly. */
+*, *::before, *::after {
+  animation: none !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition: none !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
 
 @custom-variant dark (&:is(.dark *));
@@ -212,6 +212,24 @@
   --opaque-button-border-intensity: 9;
   --elevate-1: rgba(245,180,20, .04);
   --elevate-2: rgba(245,180,20, .08);
+}
+
+/* ── App-wide golden-feather theme (matches the approved dashboard mock) ──
+   Every Card surface inherits the warm feathered-glass treatment; borders
+   pick up a warm amber tint so all pages read as one theme. */
+.dark .bg-card {
+  background: linear-gradient(150deg, rgba(96,66,28,0.5) 0%, rgba(70,48,20,0.42) 45%, rgba(48,34,16,0.5) 100%);
+  border-color: rgba(253,230,168,0.16);
+  box-shadow: 0 6px 22px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,220,160,0.14);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.dark {
+  --card-border: 32 45% 18%;
+  --border: 30 32% 15%;
+  --input: 30 32% 15%;
+  --popover-border: 32 45% 18%;
+  --sidebar-border: 32 45% 18%;
 }
 
 @layer base {

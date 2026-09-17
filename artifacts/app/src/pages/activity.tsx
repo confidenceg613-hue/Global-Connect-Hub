@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Activity as ActivityIcon, Bell, Camera, MapPin, Send, User, Image as ImageIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 interface NotificationLog {
   id: number;

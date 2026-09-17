@@ -5,6 +5,7 @@ import { Bot, X, Send, Trash2, Map, Mic, MicOff, Phone, PhoneOff, Monitor, Camer
 import { dispatchMapCommand, getMapContext } from "@/lib/map-command-bus";
 import type { MapCommand } from "@/lib/map-command-bus";
 import { useAuth } from "@/hooks/use-auth";
+import { API_BASE } from "@/lib/api-base";
 
 interface SREvent extends Event { results: SpeechRecognitionResultList; }
 interface SRInstance {
@@ -37,7 +38,7 @@ interface Message {
   debate?: DebateInfo | null;
 }
 
-const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+const BASE = API_BASE;
 
 const WELCOME: Message = {
   role: "assistant",
@@ -526,10 +527,11 @@ export default function AssistantWidget() {
       }
 
       // ── Non-streaming (vision / debate / fallback) ──────────────────────────
-      const data = await resp.json();
-      const reply: string = data.reply ?? "Sorry, I couldn't process that.";
-      const command: MapCommand | null = data.command ?? null;
-      const debate: DebateInfo | null = data.debate ?? null;
+      // Static-host fallbacks can 200 with HTML; json() then throws → caught below.
+      const data = await resp.json().catch(() => ({}) as Record<string, unknown>);
+      const reply: string = (data as Record<string, unknown>).reply as string ?? "Sorry, I couldn't process that.";
+      const command: MapCommand | null = (data as Record<string, unknown>).command as MapCommand | null ?? null;
+      const debate: DebateInfo | null = (data as Record<string, unknown>).debate as DebateInfo | null ?? null;
       setMessages(prev => [...prev, { role: "assistant", content: reply, command, debate }]);
       if (callModeRef.current) {
         setSpeaking(true);

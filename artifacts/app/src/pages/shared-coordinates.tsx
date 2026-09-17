@@ -27,7 +27,7 @@ export default function SharedCoordinates() {
   const { userId } = useAuth();
   const { toast } = useToast();
 
-  const { data: invites, isLoading } = useListInvites(
+  const { data: invites = [], isLoading } = useListInvites(
     { userId: userId! },
     {
       query: {

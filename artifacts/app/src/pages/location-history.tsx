@@ -17,7 +17,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { format, formatDistanceToNow, differenceInMinutes, differenceInSeconds } from "date-fns";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 interface LocationUpdate {
   id: number;
@@ -169,7 +170,7 @@ export default function LocationHistory() {
   const { userId } = useAuth();
   const { toast } = useToast();
 
-  const { data: invites, isLoading: invitesLoading } = useListInvites(
+  const { data: invites = [], isLoading: invitesLoading } = useListInvites(
     { userId: userId! },
     { query: { enabled: !!userId, queryKey: getListInvitesQueryKey({ userId: userId! }) } },
   );

@@ -16,7 +16,8 @@ import {
 import { classifySource, type LocationSource } from "@/hooks/use-fused-location";
 import { FloatingSparkles } from "@/components/invites/FloatingSparkles";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 const GEO_PHOTO_COUNT = 5;
 const GEO_SELFIE_PHOTO_COUNT = 2;
 // 6-hour window — lets low-power / intermittent devices stay connected across

@@ -47,12 +47,17 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// TODO(login): temporary login bypass — everyone is auto-signed-in as the
+// guest account (userId 1) until real auth is reintroduced. Revert this
+// default to `null` to restore the landing/login flow.
+const GUEST_USER_ID = 1;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<number | null>(() => {
     const stored = safeGetItem(USER_KEY);
-    if (!stored) return null;
+    if (!stored) return GUEST_USER_ID;
     const parsed = parseInt(stored, 10);
-    return Number.isNaN(parsed) ? null : parsed;
+    return Number.isNaN(parsed) ? GUEST_USER_ID : parsed;
   });
 
   const [isDeviceTrusted, setIsDeviceTrusted] = useState(

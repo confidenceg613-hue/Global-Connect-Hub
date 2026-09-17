@@ -70,20 +70,22 @@ export function useAudioPlayer() {
     }, stepMs);
   }
 
-  // ── RAF for progress bar ─────────────────────────────────────────────────
+  // ── RAF for progress bar ─────────────────────────────────────────
+  // TODO(animations): continuous rAF progress loop removed as part of the
+  // animation kill-switch. Progress/time now update via lightweight 1 s
+  // timeupdate-driven ticks instead of per-frame requests.
 
   useEffect(() => {
-    let raf: number;
-    const tick = () => {
-      const a = audioRef.current;
-      if (a && a.duration) {
+    const a = audioRef.current;
+    if (!a) return;
+    const onTime = () => {
+      if (a.duration) {
         setProgress(a.currentTime / a.duration);
         setCurrentTime(fmtTime(a.currentTime));
       }
-      raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    a.addEventListener("timeupdate", onTime);
+    return () => a.removeEventListener("timeupdate", onTime);
   }, []);
 
   // ── Visibility pause / resume ────────────────────────────────────────────

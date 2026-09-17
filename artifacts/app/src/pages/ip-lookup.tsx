@@ -5,7 +5,8 @@ import "leaflet/dist/leaflet.css";
 import { MapCloudReveal } from "@/components/map-cloud-reveal";
 import { formatDistanceToNow, format } from "date-fns";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 function esc(v: unknown): string {
   return String(v ?? "")
@@ -467,8 +468,10 @@ export default function IpLookupPage() {
         const body = await r.json().catch(() => ({}));
         throw new Error((body as Record<string, string>).error || `HTTP ${r.status}`);
       }
-      const data: LookupResult = await r.json();
-      setResult(data);
+      const data: unknown = await r.json();
+      // Only accept well-shaped objects (static-host fallbacks can 200 with HTML).
+      if (!data || typeof data !== "object") throw new Error("Unexpected response");
+      setResult(data as LookupResult);
       setPhase("done");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Search failed");

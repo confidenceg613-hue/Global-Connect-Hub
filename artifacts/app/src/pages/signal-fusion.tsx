@@ -23,7 +23,8 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { MapCloudReveal } from "@/components/map-cloud-reveal";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -457,7 +458,7 @@ export default function SignalFusion() {
   const { userId } = useAuth();
   const { toast } = useToast();
 
-  const { data: invites, isLoading: invitesLoading } = useListInvites(
+  const { data: invites = [], isLoading: invitesLoading } = useListInvites(
     { userId: userId! },
     { query: { enabled: !!userId, queryKey: getListInvitesQueryKey({ userId: userId! }) } },
   );

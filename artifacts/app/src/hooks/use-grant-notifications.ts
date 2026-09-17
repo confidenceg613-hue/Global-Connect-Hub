@@ -46,7 +46,7 @@ export function useGrantNotifications(userId: number | null) {
     requestBrowserNotificationPermission();
   }, []);
 
-  const { data: invites } = useListInvites(
+  const { data: invites = [] } = useListInvites(
     { userId: userId! },
     {
       query: {

@@ -48,7 +48,7 @@ export default function Invites() {
   const [optIn, setOptIn] = useState(false);
   const [lastCreated, setLastCreated] = useState<Invite | null>(null);
 
-  const { data: invites, isLoading } = useListInvites(
+  const { data: invites = [], isLoading } = useListInvites(
     { userId: userId! },
     {
       query: {
@@ -334,7 +334,8 @@ export default function Invites() {
   );
 }
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 interface InviteSessionData {
   id: number;

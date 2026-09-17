@@ -28,7 +28,8 @@ interface GuardianContact {
   minutesSincePing: number;
 }
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 const REFRESH_SECONDS = 45;
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -213,8 +214,10 @@ export default function GuardianPage() {
       setError(null);
       const res = await fetch(`${API_BASE}/api/guardian/brief?userId=${userId}`);
       if (!res.ok) throw new Error("Failed to fetch briefs");
-      const data = await res.json() as { results: GuardianContact[] };
-      setContacts(data.results);
+      const data = await res.json() as { results?: GuardianContact[] };
+      // Static-host SPA fallbacks return 200 + HTML; treat any non-array or
+      // missing results as empty instead of crashing the auto-refresh loop.
+      setContacts(Array.isArray(data?.results) ? data.results : []);
       setLastRefresh(new Date());
       setCountdown(REFRESH_SECONDS);
     } catch {

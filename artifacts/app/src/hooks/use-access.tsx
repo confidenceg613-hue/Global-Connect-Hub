@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 export type AccessStatusValue = "unlimited" | "subscribed" | "free" | "expired" | "locked";
 
@@ -91,9 +92,39 @@ export function AccessProvider({ children }: { children: ReactNode }) {
     fetch(`${API_BASE}/api/access/${userId}/check-in`, { method: "POST" })
       .then((res) => res.json())
       .then((data) => {
-        if (!cancelled) setStatus(data);
+        // TODO(login): only trust well-formed status payloads; anything else
+        // (error JSON, unexpected shape) fails open while auth is bypassed.
+        if (!cancelled) {
+          setStatus(
+            data && typeof data.allowed === "boolean"
+              ? data
+              : {
+                  allowed: true,
+                  status: "free",
+                  freeAccessesUsed: 0,
+                  freeAccessLimit: 3,
+                  freeAccessesRemaining: 3,
+                  accessExpiresAt: null,
+                  message: "",
+                },
+          );
+        }
       })
-      .catch(() => { /* fail open on network errors — don't lock users out over a blip */ })
+      .catch(() => {
+        // Fail open on network errors — don't lock users out over a blip.
+        // TODO(login): revisit when real auth returns.
+        if (!cancelled) {
+          setStatus({
+            allowed: true,
+            status: "free",
+            freeAccessesUsed: 0,
+            freeAccessLimit: 3,
+            freeAccessesRemaining: 3,
+            accessExpiresAt: null,
+            message: "",
+          });
+        }
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });

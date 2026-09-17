@@ -10,7 +10,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { MapPin, X, Shield } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 interface LocationRequest {
   notifId: number;

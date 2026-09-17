@@ -308,7 +308,20 @@ async function parseSuccessBody(
 
     case "text": {
       const text = await response.text();
-      return text === "" ? null : text;
+      if (text === "") return null;
+      // Guard against SPA fallbacks: a static host answering an /api request
+      // with index.html returns 200 + HTML. Surfacing it as a parse error
+      // (instead of returning an HTML string as "data") lets callers' array
+      // guards like `data ?? []` behave correctly.
+      if (text.trimStart().startsWith("<")) {
+        throw new ResponseParseError(
+          response,
+          text,
+          new Error("Expected JSON but received an HTML document"),
+          requestInfo,
+        );
+      }
+      return text;
     }
 
     case "blob":

@@ -11,13 +11,16 @@ import { InAppBrowserProvider, useInAppBrowser } from "@/components/in-app-brows
 import { AudioPlayerProvider } from "@/hooks/audio-player-context";
 import { PinLockGate } from "@/components/pin-lock-gate";
 import { useEffect, useCallback, useState, lazy, Suspense } from "react";
+import { MotionConfig } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 
 // Public entry pages: kept as static imports so the very first screen
 // (sign-in / consent link) shows up as fast as possible, with no extra
 // network round-trips for code the visitor may never need.
-import Landing from "@/pages/landing";
+// TODO(login): landing/login page disabled for now — "/" goes straight to the
+// Dashboard. Restore this import and the landing Route when login returns.
+// import Landing from "@/pages/landing";
 import ConsentPage from "@/pages/consent";
 
 // Everything behind login is lazy-loaded. Some of these pages pull in heavy
@@ -64,12 +67,31 @@ import { GrantNotifier } from "@/components/grant-notifier";
 import { ErrorBoundary } from "@/components/error-boundary";
 import AssistantWidget from "@/components/assistant/AssistantWidget";
 import { AppCommandHandler } from "@/components/assistant/AppCommandHandler";
-import { AncientSky } from "@/components/ancient-sky";
+// TODO(animations): AncientSky atmosphere layer disabled — it runs continuous
+// CSS keyframe animations (birds, feathers, glyphs). Restore when animations
+// are wanted again.
+// import { AncientSky } from "@/components/ancient-sky";
 import { IncomingRequestModal } from "@/components/incoming-request-modal";
 
-const queryClient = new QueryClient();
+// TODO(backend): with no API hosted yet, every query errors. Default retry
+// behavior (3 attempts + backoff) kept pages on loading skeletons for ~15 s.
+// Fail fast instead: errors settle immediately and pages render their empty
+// states. Revisit when the Express API is back behind the app.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      refetchOnWindowFocus: false,
+      staleTime: 30_000,
+    },
+    mutations: {
+      retry: false,
+    },
+  },
+});
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 // VAPID key injected at build time via VITE_VAPID_PUBLIC_KEY env var (set in .replit).
 // Falls back to empty string so push subscription is silently skipped rather than crashing.
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY ?? "";
@@ -372,7 +394,10 @@ function Router() {
   return (
     <Switch>
       {/* Public routes */}
-      <Route path="/" component={Landing} />
+      {/* TODO(login): login bypass — root route opens the dashboard directly.
+          ProtectedRoute is kept purely for its AppLayout wrapper (menu, bell,
+          page chrome); auth/paywall checks fail open while login is bypassed. */}
+      <Route path="/"><ProtectedRoute component={Dashboard} /></Route>
       <Route path="/consent/:token" component={ConsentPage} />
       <Route path="/test-login"><Suspense fallback={<RouteFallback />}><TestLogin /></Suspense></Route>
 
@@ -474,7 +499,8 @@ function AppInner() {
   return (
     // Provide the single audio player instance to every child (Library page, etc.)
     <AudioPlayerProvider value={{ soundOn, trackName, progress, currentTime, duration, toggleSound, playTrack, seek, startMusic: toggleSound }}>
-      <AncientSky />
+      {/* TODO(animations): AncientSky unmounted — see import note above. */}
+      {/* <AncientSky /> */}
       <ServiceWorkerManager userId={userId} />
       <InstallBanner />
       <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
@@ -493,14 +519,16 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <AccessProvider>
-          <TooltipProvider>
+        <AccessProvider>            <TooltipProvider>
+              {/* TODO(animations): force all framer-motion variants to instant — no tweens. */}
+              <MotionConfig reducedMotion="always">
             <InAppBrowserProvider>
               <ExternalLinkInterceptor />
               <PinLockGate>
                 <AppInner />
               </PinLockGate>
             </InAppBrowserProvider>
+              </MotionConfig>
           </TooltipProvider>
         </AccessProvider>
       </AuthProvider>

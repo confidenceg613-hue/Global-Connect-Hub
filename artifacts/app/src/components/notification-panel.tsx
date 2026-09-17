@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 interface NotifEntry {
   id: number;
@@ -113,6 +114,8 @@ export function NotificationPanel({ onClose }: { onClose: () => void }) {
     fetch(url)
       .then((r) => r.json())
       .then((d: NotifEntry[]) => {
+        // Static-host fallbacks can 200 with HTML — accept arrays only.
+        if (!Array.isArray(d)) { setLoading(false); return; }
         setNotifs(
           [...d].sort((a, b) => {
             if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;

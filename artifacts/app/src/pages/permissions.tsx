@@ -60,7 +60,7 @@ export default function Permissions() {
   const queryClient = useQueryClient();
   const [revokingType, setRevokingType] = useState<string | null>(null);
   
-  const { data: consents, isLoading } = useListConsents({ userId: userId! }, {
+  const { data: consents = [], isLoading } = useListConsents({ userId: userId! }, {
     query: { enabled: !!userId, queryKey: getListConsentsQueryKey({ userId: userId! }) }
   });
 

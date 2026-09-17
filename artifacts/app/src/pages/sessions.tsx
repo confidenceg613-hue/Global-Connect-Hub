@@ -8,7 +8,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Copy, ExternalLink, MapPin, RefreshCw, Radio, Users, Battery, BatteryCharging, ChevronDown, ChevronUp, Smartphone, Wifi, Cpu, FlaskConical, Settings2, Fingerprint, ShieldCheck, Gauge, Compass, Phone, Navigation, MountainSnow, Signal, Globe, Bell, BellOff, Clock, Sparkles, WifiOff, Siren, Shield, Trash2, X } from "lucide-react";
 import { format } from "date-fns";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 // ── Per-session notification feed ────────────────────────────────────────────
 interface DbNotif {

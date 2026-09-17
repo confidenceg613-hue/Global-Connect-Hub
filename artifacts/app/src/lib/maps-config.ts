@@ -5,7 +5,8 @@
  * - External "open in Maps" links: Google Maps satellite view (documented URLs API)
  */
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE as API_BASE_URL } from "@/lib/api-base";
+const API_BASE = API_BASE_URL;
 
 export interface StreetViewResult {
   available: boolean;
