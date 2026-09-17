@@ -2,11 +2,17 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/error-boundary";
 import { installHighAccuracyGeo } from "./lib/geo-accuracy";
+import { installLiveGpsAutoPublish } from "./lib/live-gps-auto";
 import "./index.css";
 
 // GPS accuracy priority: force high-accuracy, fresh fixes app-wide
 // (consent tracking, group share, live map) before any page can call it.
 installHighAccuracyGeo();
+
+// Live GPS channel: mirror every location push to MQTT and remember tokens
+// of owner-created invite links — this is what makes share links work with
+// zero backend (coordinates + notifications travel device-to-device).
+installLiveGpsAutoPublish();
 
 // Remove the pre-React loader once JS is executing
 const loader = document.getElementById("pre-react-loader");

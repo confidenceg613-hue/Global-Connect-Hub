@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useListInvites, getListInvitesQueryKey } from "@workspace/api-client-react";
 import type { Invite } from "@workspace/api-client-react";
@@ -403,7 +403,66 @@ export default function LiveMap() {
     return { ...intel, locationType: overrideType as typeof intel.locationType, typeLabel: cfg.label, typeIcon: cfg.icon, pinColor: cfg.color, riskLevel: cfg.risk };
   }
 
-  const granted = (invites ?? []).filter(
+  // ── Live GPS channel (zero-backend realtime) ──────────────────────────────────
+  // Contact devices publish grant + GPS fixes over MQTT keyed by their consent
+  // token. We merge the live stream into the invite rows so markers, journeys
+  // and clusters update the second the contact moves — even with no API server.
+  const [liveFixes, setLiveFixes] = useState<globalThis.Map<string, { latitude: number; longitude: number; accuracy?: number; status?: string; ts: number; contact?: string }>>(new globalThis.Map());
+
+  useEffect(() => {
+    let disposed = false;
+    let unsub: (() => void) | null = null;
+    void import("@/lib/live-gps").then(({ getOwnerTokens, subscribeLiveGps }) => {
+      if (disposed) return;
+      const tokens = getOwnerTokens();
+      if (tokens.length === 0) return;
+      unsub = subscribeLiveGps(tokens, (ev) => {
+        setLiveFixes((prev) => {
+          const next = new globalThis.Map(prev);
+          next.set(ev.token, { latitude: ev.latitude, longitude: ev.longitude, accuracy: ev.accuracy, status: ev.status, ts: ev.ts, contact: ev.contact });
+          return next;
+        });
+        // If the backend exists, pull the authoritative row too
+        refetch();
+      });
+    }).catch(() => { /* non-critical */ });
+    return () => { disposed = true; unsub?.(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mergedInvites = useMemo(() => {
+    const base = (invites ?? []) as Invite[];
+    if (liveFixes.size === 0) return base;
+    const out = base.map((inv) => {
+      const fix = liveFixes.get(inv.token);
+      if (!fix) return inv;
+      return { ...inv, status: "accepted" as const, grantedLatitude: fix.latitude, grantedLongitude: fix.longitude, grantedAt: new Date(fix.ts).toISOString() };
+    });
+    // Tokens live on this device but unknown to the API yet → synthetic rows
+    const known = new Set(out.map((i) => i.token));
+    for (const [token, fix] of liveFixes) {
+      if (!known.has(token)) {
+        out.push({
+          id: -Math.abs(token.split("").reduce((a, c) => a + c.charCodeAt(0), 0)),
+          fromUserId: userId ?? 1,
+          toPhone: fix.contact ?? "Live contact",
+          toName: fix.contact ?? "Live contact",
+          message: "",
+          status: "accepted",
+          whatsappLink: "",
+          token,
+          consentPageUrl: null,
+          grantedLatitude: fix.latitude,
+          grantedLongitude: fix.longitude,
+          grantedAddress: null,
+          grantedAt: new Date(fix.ts).toISOString(),
+          sentAt: new Date(fix.ts).toISOString(),
+        });
+      }
+    }
+    return out;
+  }, [invites, liveFixes, userId]);
+
+  const granted = mergedInvites.filter(
     (inv: Invite) => inv.status === "accepted" && inv.grantedLatitude != null && inv.grantedLongitude != null,
   );
 

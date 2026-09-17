@@ -9,7 +9,15 @@ import { invitesTable } from "@workspace/db/schema";
 const router = Router();
 
 // ── Mistral Pixtral client (vision-capable) ───────────────────────────────────
-const mistralKey = process.env.MISTRAL_API_KEY?.trim();
+// Accept common spelling variants so a key saved as "Mistral_API_KEY" etc. still works.
+// Keep only the FIRST line — a malformed .env entry can glue the next variable
+// onto the key value, which would corrupt the auth header.
+const mistralKey = (
+  process.env.MISTRAL_API_KEY ??
+  process.env.Mistral_API_KEY ??
+  process.env.mistral_api_key ??
+  ""
+).trim().split(/\r?\n/)[0] || undefined;
 const pixtralClient = mistralKey
   ? new OpenAI({ apiKey: mistralKey, baseURL: "https://api.mistral.ai/v1" })
   : null;
@@ -117,7 +125,7 @@ ${notifText}`;
 
     // Comprehensive text summary combining everything
     const summaryResp = await pixtralClient.chat.completions.create({
-      model: "mistral-large-latest",
+      model: "open-mistral-nemo", // free tier (mistral-large is paywalled)
       max_tokens: 2000,
       messages: [
         { role: "user", content: summaryPrompt + (analysis ? `\n\nVISUAL ANALYSIS:\n${analysis}` : "") },
@@ -147,7 +155,7 @@ async function textOnlySummary(
 
   try {
     const resp = await pixtralClient.chat.completions.create({
-      model: "mistral-large-latest",
+      model: "open-mistral-nemo", // free tier (mistral-large is paywalled)
       max_tokens: 1500,
       messages: [{
         role: "user",

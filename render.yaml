@@ -19,5 +19,7 @@ services:
         value: "BPC-HRmzOA_OXbo0Dmp2d_pK9cfc0VQhzgYr-TfmpiIa1mnhA814PTYncEmTNfAGx0qcQ842kkgTQ7RE6etGAOE"
       - key: VAPID_SUBJECT
         value: "mailto:admin@phonelink.app"
+      - key: MISTRAL_API_KEY
+        sync: false   # paste your Mistral API key in the Render dashboard — powers the AI assistant, Guardian AI and consent-session summaries
       - key: NODE_VERSION
         value: "22"

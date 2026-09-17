@@ -6,6 +6,8 @@ import {
   Filter, RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { LIVE_GPS_BELL_EVENT } from "@/lib/live-gps";
+import { LIVE_GPS_EVENT } from "@/components/live-gps-notifier";
 
 import { API_BASE as API_BASE_URL } from "@/lib/api-base";
 const API_BASE = API_BASE_URL;
@@ -73,6 +75,11 @@ export function useNotificationCount(userId: number | null) {
       .then((d) => setCount(d.count ?? 0))
       .catch(() => {});
 
+    // Live GPS channel (no backend): a contact accepting/sharing raises the bell
+    const onLive = () => setCount((c) => c + 1);
+    window.addEventListener(LIVE_GPS_BELL_EVENT, onLive);
+    return () => window.removeEventListener(LIVE_GPS_BELL_EVENT, onLive);
+
     // Open SSE stream — increment on each new notification arriving
     const es = new EventSource(`${API_BASE}/api/notifications/${userId}/stream`);
     esRef.current = es;
@@ -137,6 +144,31 @@ export function NotificationPanel({ onClose }: { onClose: () => void }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId }),
     }).catch(() => {});
+
+    // Live GPS channel (no backend): accepted invites appear in the drawer
+    let liveSeq = -1;
+    const onLive = (e: Event) => {
+      const ev = (e as CustomEvent).detail as { type: string; latitude: number; longitude: number; ts: number };
+      if (!ev || liveSeq === ev.ts) return;
+      liveSeq = ev.ts;
+      setNotifs((prev) => [
+        {
+          id: ev.ts,
+          type: ev.type === "grant" ? "location_granted" : "location_update",
+          title: ev.type === "grant" ? "📍 Location access accepted!" : "📍 Live GPS update",
+          body: ev.type === "grant"
+            ? `Live GPS is streaming: ${ev.latitude.toFixed(5)}, ${ev.longitude.toFixed(5)}`
+            : `${ev.latitude.toFixed(5)}, ${ev.longitude.toFixed(5)}`,
+          data: { latitude: ev.latitude, longitude: ev.longitude },
+          read: false,
+          pinned: false,
+          createdAt: new Date(ev.ts).toISOString(),
+        },
+        ...prev,
+      ]);
+    };
+    window.addEventListener(LIVE_GPS_EVENT, onLive);
+    return () => window.removeEventListener(LIVE_GPS_EVENT, onLive);
   }, [userId, typeFilter, fetchNotifs]);
 
   // SSE: prepend new notifications as they arrive
