@@ -94,24 +94,42 @@ export default function Landing() {
     if (!name || !phone) { toast({ title: "Please fill in all fields", variant: "destructive" }); return; }
     const parsedPhone = parsePhoneNumber(phone);
     if (!parsedPhone) { toast({ title: "Invalid phone number", variant: "destructive" }); return; }
-    createUser.mutate(
-      { data: { name, phoneNumber: parsedPhone.nationalNumber, countryCode: `+${parsedPhone.countryCallingCode}`, countryIso: parsedPhone.country || "US" } },
-      {
-        onSuccess: async (user) => {
+    const payload = { name, phoneNumber: parsedPhone.nationalNumber, countryCode: `+${parsedPhone.countryCallingCode}`, countryIso: parsedPhone.country || "US" };
+    // Production's serverless host only executes exact static paths, so the
+    // generated client's POST /api/users has no function there. /api/user is
+    // the flat equivalent (same contract + isExistingUser); fall back to the
+    // generated client wherever the real backend runs.
+    const signIn = async (): Promise<{ user: any; isExistingUser?: boolean }> => {
+      try {
+        const res = await fetch(`${API_BASE}/api/user`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(`user endpoint ${res.status}`);
+        return { user: await res.json() };
+      } catch {
+        const user = await createUser.mutateAsync({ data: payload });
+        return { user, isExistingUser: (user as { isExistingUser?: boolean }).isExistingUser };
+      }
+    };
+    (async () => {
+      try {
+        const { user, isExistingUser } = await signIn();
+        {
           login(user.id, { name: user.name, phone: user.fullPhone ?? user.phoneNumber ?? "" });
           const isReturning = (user as { isExistingUser?: boolean }).isExistingUser === true;
           if (code.trim() === ACCESS_CODE) {
             try { await fetch(`${API_BASE}/api/access/${user.id}/redeem`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: ACCESS_CODE }) }); } catch { /* non-critical */ }
           }
-          toast({ title: isReturning ? `Welcome back, ${user.name}!` : "Account created successfully" });
+          toast({ title: isExistingUser === true || isReturning ? `Welcome back, ${user.name}!` : "Account created successfully" });
           setLocation("/dashboard");
-        },
-        onError: (err: unknown) => {
-          const msg = err instanceof Error ? err.message : undefined;
-          toast({ title: "Failed to sign in. Please try again.", description: msg, variant: "destructive" });
-        },
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : undefined;
+        toast({ title: "Failed to sign in. Please try again.", description: msg, variant: "destructive" });
       }
-    );
+    })();
   };
 
   return (

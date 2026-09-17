@@ -18,9 +18,7 @@ import { ToastAction } from "@/components/ui/toast";
 // Public entry pages: kept as static imports so the very first screen
 // (sign-in / consent link) shows up as fast as possible, with no extra
 // network round-trips for code the visitor may never need.
-// TODO(login): landing/login page disabled for now — "/" goes straight to the
-// Dashboard. Restore this import and the landing Route when login returns.
-// import Landing from "@/pages/landing";
+import Landing from "@/pages/landing";
 import ConsentPage from "@/pages/consent";
 
 // Everything behind login is lazy-loaded. Some of these pages pull in heavy
@@ -398,7 +396,7 @@ function Router() {
       {/* TODO(login): login bypass — root route opens the dashboard directly.
           ProtectedRoute is kept purely for its AppLayout wrapper (menu, bell,
           page chrome); auth/paywall checks fail open while login is bypassed. */}
-      <Route path="/"><ProtectedRoute component={Dashboard} /></Route>
+      <Route path="/"><Landing /></Route>
       <Route path="/consent/:token" component={ConsentPage} />
       <Route path="/test-login"><Suspense fallback={<RouteFallback />}><TestLogin /></Suspense></Route>
 
