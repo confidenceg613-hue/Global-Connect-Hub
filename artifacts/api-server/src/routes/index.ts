@@ -30,6 +30,7 @@ import movementPatternsRouter from "./movement-patterns";
 import signalFusionRouter from "./signal-fusion";
 import spoofDetectionRouter from "./spoof-detection";
 import quietInferenceRouter from "./quiet-inference";
+import locationUpdatesRouter from "./location-updates";
 
 const router: IRouter = Router();
 
@@ -64,5 +65,6 @@ router.use(movementPatternsRouter);
 router.use(signalFusionRouter);
 router.use(spoofDetectionRouter);
 router.use(quietInferenceRouter);
+router.use(locationUpdatesRouter);
 
 export default router;

@@ -1051,7 +1051,7 @@ function DataSection() {
     try {
       const [locRes, invRes] = await Promise.all([
         fetch(`${API_BASE}/api/location-updates/${userId}`),
-        fetch(`${API_BASE}/api/invites/${userId}`),
+        fetch(`${API_BASE}/api/invites?userId=${userId}`),
       ]);
       const locations = locRes.ok ? await locRes.json() : [];
       const invites = invRes.ok ? await invRes.json() : [];
