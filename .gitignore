@@ -54,3 +54,7 @@ Thumbs.db
 
 # Embedded Postgres data directory (runtime state, not source)
 .pglite-data/
+
+# Python bytecode caches
+__pycache__/
+*.pyc

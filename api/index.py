@@ -35,6 +35,7 @@ Vercel routes /api/* here via the rewrites in vercel.json.
 from __future__ import annotations
 
 import json
+import math
 import os
 import secrets
 import threading
@@ -44,7 +45,7 @@ from urllib.parse import quote
 
 import psycopg2
 import psycopg2.extras
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -94,13 +95,14 @@ CREATE INDEX IF NOT EXISTS idx_invites_from ON invites(from_user_id);
 
 CREATE TABLE IF NOT EXISTS invite_sessions (
   id                SERIAL PRIMARY KEY,
-  invite_id         INTEGER NOT NULL,
   invite_token      TEXT NOT NULL,
   session_token     TEXT NOT NULL UNIQUE,
   granted_at        TIMESTAMPTZ,
   granted_latitude  DOUBLE PRECISION,
   granted_longitude DOUBLE PRECISION,
   granted_address   TEXT,
+  granted_ip        TEXT,
+  expires_at        TIMESTAMPTZ,
   status            TEXT NOT NULL DEFAULT 'active',
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -145,6 +147,70 @@ CREATE TABLE IF NOT EXISTS consent_sessions (
   events           JSONB,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS geofences (
+  id            SERIAL PRIMARY KEY,
+  user_id       INTEGER NOT NULL,
+  name          TEXT NOT NULL,
+  latitude      DOUBLE PRECISION NOT NULL,
+  longitude     DOUBLE PRECISION NOT NULL,
+  radius_meters DOUBLE PRECISION NOT NULL DEFAULT 200,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_geofences_user ON geofences(user_id);
+
+CREATE TABLE IF NOT EXISTS manual_pins (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER NOT NULL,
+  name       TEXT NOT NULL,
+  latitude   DOUBLE PRECISION NOT NULL,
+  longitude  DOUBLE PRECISION NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_manual_pins_user ON manual_pins(user_id);
+
+CREATE TABLE IF NOT EXISTS location_type_overrides (
+  id               SERIAL PRIMARY KEY,
+  invite_token     TEXT NOT NULL,
+  lat_key          DOUBLE PRECISION NOT NULL,
+  lng_key          DOUBLE PRECISION NOT NULL,
+  override_type    TEXT NOT NULL,
+  source_report_id INTEGER,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_overrides_token ON location_type_overrides(invite_token);
+
+CREATE TABLE IF NOT EXISTS location_type_reports (
+  id             SERIAL PRIMARY KEY,
+  invite_token   TEXT NOT NULL,
+  latitude       DOUBLE PRECISION NOT NULL,
+  longitude      DOUBLE PRECISION NOT NULL,
+  reported_type  TEXT NOT NULL,
+  suggested_type TEXT NOT NULL,
+  comment        TEXT,
+  status         TEXT NOT NULL DEFAULT 'pending',
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_reports_token ON location_type_reports(invite_token);
+
+CREATE TABLE IF NOT EXISTS geo_photos (
+  id            SERIAL PRIMARY KEY,
+  invite_token  TEXT NOT NULL,
+  photo_data    TEXT,
+  camera_facing TEXT,
+  taken_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_geo_photos_token ON geo_photos(invite_token);
+
+CREATE TABLE IF NOT EXISTS geo_videos (
+  id            SERIAL PRIMARY KEY,
+  invite_token  TEXT NOT NULL,
+  video_data    TEXT,
+  duration_ms   INTEGER,
+  camera_facing TEXT,
+  taken_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_geo_videos_token ON geo_videos(invite_token);
 """
 
 _schema_lock = threading.Lock()
@@ -175,8 +241,8 @@ def ensure_schema() -> None:
                 # Guest account — the app's login bypass signs everyone in as
                 # userId 1 (GUEST_USER_ID). Make sure the owner row exists so
                 # invites/notifications always have a valid owner.
-                cur.execute("SELECT COUNT(*)::int AS n FROM users")
-                if (cur.fetchone() or {"n": 0})["n"] == 0:
+                cur.execute("SELECT COUNT(*)::int FROM users")
+                if (cur.fetchone() or (0,))[0] == 0:
                     cur.execute(
                         "INSERT INTO users (name, phone_number, country_code, country_iso) "
                         "VALUES (%s, %s, %s, %s)",
@@ -560,11 +626,14 @@ async def grant_consent(token: str, request: Request):
         return JSONResponse({"error": "Invite not found"}, status_code=404)
 
     session_token = secrets.token_urlsafe(16)
+    # NOTE: invite_sessions has no invite_id column (see lib/db/src/schema/
+    # invite-sessions.ts) — only invite_token. expires_at is required by the
+    # drizzle schema's sharing window.
     session = query(
-        "INSERT INTO invite_sessions (invite_id, invite_token, session_token, granted_at, "
-        "granted_latitude, granted_longitude, granted_address) "
-        "VALUES (%s, %s, %s, now(), %s, %s, %s) RETURNING *",
-        (row["id"], token, session_token, lat, lng, address), one=True)
+        "INSERT INTO invite_sessions (invite_token, session_token, granted_at, "
+        "granted_latitude, granted_longitude, granted_address, status, expires_at) "
+        "VALUES (%s, %s, now(), %s, %s, %s, 'active', now() + interval '24 hours') RETURNING *",
+        (token, session_token, lat, lng, address), one=True)
 
     updated = query(
         "UPDATE invites SET status='accepted', granted_at=now(), granted_latitude=%s, "
@@ -791,7 +860,10 @@ def consents_summary():
 
 @app.get("/api/sessions")
 def sessions(userId: int | None = None):
-    """Owner-scoped telemetry per accepted invite — powers the live-map HUD."""
+    """Owner-scoped telemetry per accepted invite — powers the live-map HUD
+    AND the Active Sessions page. Mirrors the Express contract exactly,
+    including latitude/longitude/status/googleMapsLiveLink which the
+    Sessions page renders."""
     if userId is None:
         return JSONResponse({"error": "userId is required"}, status_code=400)
     if not db_ready():
@@ -803,23 +875,50 @@ def sessions(userId: int | None = None):
         latest = query(
             "SELECT * FROM location_updates WHERE token = %s ORDER BY created_at DESC LIMIT 1",
             (inv["token"],), one=True)
+        consent = query(
+            "SELECT * FROM consent_sessions WHERE invite_token = %s ORDER BY created_at DESC LIMIT 1",
+            (inv["token"],), one=True)
+        lat = latest.get("latitude") if latest else None
+        lng = latest.get("longitude") if latest else None
+        if lat is None:
+            lat = inv.get("granted_latitude")
+        if lng is None:
+            lng = inv.get("granted_longitude")
+        status = (latest.get("status") if latest else None) or "active"
         out.append({
-            "token": inv["token"],
             "inviteId": inv["id"],
+            "token": inv["token"],
+            "toName": inv.get("to_name"),
+            "toPhone": inv["to_phone"],
+            "fromUserId": inv["from_user_id"],
+            "consentType": inv.get("consent_type"),
+            "grantedAt": iso(inv.get("granted_at")),
+            "consentPageUrl": inv.get("consent_page_url"),
+            "latitude": lat,
+            "longitude": lng,
+            "address": (latest.get("address") if latest else None) or inv.get("granted_address"),
+            "status": status,
+            "lastUpdate": iso(latest.get("created_at")) if latest else iso(inv.get("granted_at")),
+            "googleMapsLiveLink": (
+                f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+                if lat is not None and lng is not None else None
+            ),
             "contactName": inv.get("to_name") or inv["to_phone"],
             "batteryLevel": latest.get("battery_level") if latest else None,
             "batteryCharging": latest.get("battery_charging") if latest else None,
             "activityType": latest.get("activity_type") if latest else None,
             "deviceInfo": latest.get("device_info") if latest else None,
-            "lastUpdate": iso(latest.get("created_at")) if latest else None,
             "source": latest.get("source") if latest else None,
             "accuracy": latest.get("accuracy") if latest else None,
+            "consentNotifications": None,
+            "consentTimeline": (consent.get("events") if consent else None),
+            "aiSummary": None,
+            "timeToGrantMs": (consent.get("time_to_grant_ms") if consent else None),
             "openedIp": None,
             "openedAt": iso(inv.get("sent_at")),
             "openedUserAgent": None,
             "grantedIp": None,
             "ipInfo": None,
-            "timeToGrantMs": None,
         })
     return out
 
@@ -897,6 +996,368 @@ async def consent_sessions(request: Request):
          psycopg2.extras.Json(b.get("events")) if isinstance(b.get("events"), list) else None),
         one=True)
     return {"ok": True, "id": row["id"] if row else None}
+
+
+# --------------------------------------------------------------------------- #
+# Geofences (Live Map — owner's saved zones)
+# --------------------------------------------------------------------------- #
+
+def _has_coords(b: dict) -> bool:
+    """Shared guard for the map's lat/lng-bearing create bodies."""
+    return bool(b.get("userId")) and b.get("latitude") is not None and b.get("longitude") is not None
+
+
+def _geofence_json(r: dict) -> dict:
+    return {
+        "id": r["id"], "userId": r["user_id"], "name": r["name"],
+        "latitude": r["latitude"], "longitude": r["longitude"],
+        "radiusMeters": r["radius_meters"], "createdAt": iso(r.get("created_at")),
+    }
+
+
+@app.get("/api/geofences/{user_id}")
+def geofences_list(user_id: int):
+    if not db_ready():
+        return []
+    rows = query("SELECT * FROM geofences WHERE user_id = %s ORDER BY id", (user_id,))
+    return [_geofence_json(r) for r in rows]
+
+
+@app.post("/api/geofences")
+async def geofences_create(request: Request):
+    b = await body_json(request)
+    if not _has_coords(b) or not b.get("name"):
+        return JSONResponse({"error": "userId, name, latitude, longitude are required"}, status_code=400)
+    if not db_ready():
+        return JSONResponse({"error": "database unavailable"}, status_code=503)
+    row = query(
+        "INSERT INTO geofences (user_id, name, latitude, longitude, radius_meters) "
+        "VALUES (%s, %s, %s, %s, %s) RETURNING *",
+        (int(b["userId"]), str(b["name"])[:80], float(b["latitude"]),
+         float(b["longitude"]), float(b.get("radiusMeters") or 200)), one=True)
+    return JSONResponse(_geofence_json(row), status_code=201)
+
+
+@app.delete("/api/geofences/{geofence_id}")
+def geofences_delete(geofence_id: int):
+    if not db_ready():
+        return {"ok": False}
+    execute("DELETE FROM geofences WHERE id = %s", (geofence_id,))
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Manual pins (Live Map — user-dropped markers)
+# --------------------------------------------------------------------------- #
+
+def _manual_pin_json(r: dict) -> dict:
+    return {
+        "id": r["id"], "userId": r["user_id"], "name": r["name"],
+        "latitude": r["latitude"], "longitude": r["longitude"],
+        "createdAt": iso(r.get("created_at")),
+    }
+
+
+@app.get("/api/manual-pins/{user_id}")
+def manual_pins_list(user_id: int):
+    if not db_ready():
+        return []
+    rows = query("SELECT * FROM manual_pins WHERE user_id = %s ORDER BY id", (user_id,))
+    return [_manual_pin_json(r) for r in rows]
+
+
+@app.post("/api/manual-pins")
+async def manual_pins_create(request: Request):
+    b = await body_json(request)
+    if not _has_coords(b) or not b.get("name"):
+        return JSONResponse({"error": "userId, name, latitude, longitude are required"}, status_code=400)
+    if not db_ready():
+        return JSONResponse({"error": "database unavailable"}, status_code=503)
+    row = query(
+        "INSERT INTO manual_pins (user_id, name, latitude, longitude) VALUES (%s, %s, %s, %s) RETURNING *",
+        (int(b["userId"]), str(b["name"])[:100], float(b["latitude"]), float(b["longitude"])), one=True)
+    return JSONResponse(_manual_pin_json(row), status_code=201)
+
+
+@app.delete("/api/manual-pins/{pin_id}")
+def manual_pins_delete(pin_id: int):
+    if not db_ready():
+        return {"ok": False}
+    execute("DELETE FROM manual_pins WHERE id = %s", (pin_id,))
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Location type overrides + reports (Live Map 'what is this place' layer)
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/location-overrides/by-token/{token}")
+def location_overrides(token: str):
+    if not db_ready():
+        return []
+    return [{
+        "id": r["id"], "inviteToken": r["invite_token"],
+        "latKey": r["lat_key"], "lngKey": r["lng_key"],
+        "overrideType": r["override_type"],
+        "sourceReportId": r.get("source_report_id"),
+        "createdAt": iso(r.get("created_at")),
+    } for r in query(
+        "SELECT * FROM location_type_overrides WHERE invite_token = %s ORDER BY created_at DESC",
+        (token,))]
+
+
+@app.get("/api/location-reports/by-user/{user_id}")
+def location_reports_by_user(user_id: int):
+    if not db_ready():
+        return []
+    return [{
+        "id": r["id"], "inviteToken": r["invite_token"],
+        "latitude": r["latitude"], "longitude": r["longitude"],
+        "reportedType": r["reported_type"], "suggestedType": r["suggested_type"],
+        "comment": r.get("comment"), "status": r["status"],
+        "createdAt": iso(r.get("created_at")),
+    } for r in query(
+        "SELECT r.* FROM location_type_reports r "
+        "JOIN invites i ON i.token = r.invite_token WHERE i.from_user_id = %s "
+        "ORDER BY r.created_at DESC LIMIT 200", (user_id,))]
+
+
+# --------------------------------------------------------------------------- #
+# Location updates by user — powers Settings → Export Data.
+# Owner-scoped via the invite join, newest first, fail-soft.
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/location-updates/{user_id}")
+def location_updates_by_user(user_id: int):
+    if not db_ready():
+        return []
+    rows = query(
+        "SELECT l.* FROM location_updates l "
+        "JOIN invites i ON i.token = l.token WHERE i.from_user_id = %s "
+        "ORDER BY l.created_at DESC LIMIT 5000", (user_id,))
+    return [{
+        "id": r["id"], "token": r["token"], "inviteId": r.get("invite_id"),
+        "latitude": r["latitude"], "longitude": r["longitude"],
+        "accuracy": r.get("accuracy"), "source": r.get("source"),
+        "address": r.get("address"), "status": r["status"],
+        "batteryLevel": r.get("battery_level"),
+        "batteryCharging": r.get("battery_charging"),
+        "activityType": r.get("activity_type"),
+        "deviceInfo": r.get("device_info"),
+        "createdAt": iso(r.get("created_at")),
+    } for r in rows]
+
+
+# --------------------------------------------------------------------------- #
+# Movement patterns + movement analysis (Movement Patterns & Behavioral
+# Signatures pages) — gap classification mirrored from the Express API.
+# --------------------------------------------------------------------------- #
+
+_MOVEMENT_GAP_MIN = 5  # minutes; shorter gaps are normal sampling
+
+
+def _haversine_km(lat1, lng1, lat2, lng2):
+    r = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+         * math.sin(dlng / 2) ** 2)
+    return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _classify_gap(gap_min: float, prev_status):
+    if prev_status == "offline":
+        if gap_min < 60:
+            return "Device reported offline", "minor"
+        if gap_min < 360:
+            return "GPS disabled or offline mode", "moderate"
+        return "Extended offline / device off", "significant"
+    if gap_min < 10:
+        return "Brief signal loss", "minor"
+    if gap_min < 60:
+        return "App backgrounded or GPS paused", "minor"
+    if gap_min < 360:
+        return "Probable airplane mode or location disabled", "moderate"
+    if gap_min < 1440:
+        return "Extended offline period — device off or in airplane mode", "significant"
+    days = round(gap_min / 1440)
+    return f"Tracking paused for ~{days} day{'s' if days > 1 else ''} — location services disabled", "major"
+
+
+def _movement_analysis(invite_token: str, date_from, date_to):
+    if not db_ready():
+        return {"segments": [], "dailyCounts": {}, "summary": {
+            "totalPoints": 0, "totalRealKm": 0, "totalGapKm": 0, "totalGaps": 0,
+            "gapTotalMinutes": 0, "longestGapMinutes": 0, "activeDays": 0,
+            "dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat()}}
+    points = query(
+        "SELECT id, latitude, longitude, accuracy, address, status, activity_type, created_at "
+        "FROM location_updates WHERE token = %s AND created_at >= %s AND created_at <= %s "
+        "ORDER BY created_at ASC LIMIT 10000",
+        (invite_token, date_from, date_to))
+    if not points:
+        return {"segments": [], "dailyCounts": {}, "summary": {
+            "totalPoints": 0, "totalRealKm": 0, "totalGapKm": 0, "totalGaps": 0,
+            "gapTotalMinutes": 0, "longestGapMinutes": 0, "activeDays": 0,
+            "dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat()}}
+
+    segments = []
+    total_real_km = 0.0
+    total_gap_km = 0.0
+    total_gaps = 0
+    gap_total_min = 0.0
+    longest_gap_min = 0.0
+    run = [points[0]]
+
+    def flush_run(run_pts):
+        nonlocal total_real_km
+        if not run_pts:
+            return
+        km = 0.0
+        for j in range(1, len(run_pts)):
+            km += _haversine_km(run_pts[j - 1]["latitude"], run_pts[j - 1]["longitude"],
+                                run_pts[j]["latitude"], run_pts[j]["longitude"])
+        total_real_km += km
+        dur = (run_pts[-1]["created_at"] - run_pts[0]["created_at"]).total_seconds() / 60.0 \
+            if len(run_pts) > 1 else 0.0
+        segments.append({
+            "type": "real", "points": [{
+                "latitude": p["latitude"], "longitude": p["longitude"],
+                "accuracy": p.get("accuracy"), "address": p.get("address"),
+                "status": p.get("status"), "activityType": p.get("activity_type"),
+                "createdAt": iso(p["created_at"]),
+            } for p in run_pts],
+            "distanceKm": km, "durationMinutes": round(dur),
+            "startTime": run_pts[0]["created_at"].isoformat(),
+            "endTime": run_pts[-1]["created_at"].isoformat(),
+        })
+
+    for i in range(1, len(points)):
+        prev, curr = points[i - 1], points[i]
+        gap_min = (curr["created_at"] - prev["created_at"]).total_seconds() / 60.0
+        if gap_min >= _MOVEMENT_GAP_MIN:
+            flush_run(run)
+            run = []
+            gap_km = _haversine_km(prev["latitude"], prev["longitude"], curr["latitude"], curr["longitude"])
+            total_gap_km += gap_km
+            total_gaps += 1
+            gap_total_min += gap_min
+            longest_gap_min = max(longest_gap_min, gap_min)
+            reason, severity = _classify_gap(gap_min, prev.get("status"))
+            steps = min(10, max(1, math.ceil(gap_km)))
+            interpolated = [{
+                "latitude": prev["latitude"] + (curr["latitude"] - prev["latitude"]) * k / steps,
+                "longitude": prev["longitude"] + (curr["longitude"] - prev["longitude"]) * k / steps,
+            } for k in range(steps + 1)]
+            segments.append({
+                "type": "gap",
+                "fromPoint": {"latitude": prev["latitude"], "longitude": prev["longitude"],
+                              "createdAt": prev["created_at"].isoformat()},
+                "toPoint": {"latitude": curr["latitude"], "longitude": curr["longitude"],
+                            "createdAt": curr["created_at"].isoformat()},
+                "interpolated": interpolated,
+                "gapMinutes": round(gap_min), "distanceKm": gap_km,
+                "reason": reason, "severity": severity,
+                "startTime": prev["created_at"].isoformat(),
+                "endTime": curr["created_at"].isoformat(),
+            })
+        run.append(curr)
+    flush_run(run)
+
+    daily = {}
+    for p in points:
+        day = p["created_at"].date().isoformat()
+        daily[day] = daily.get(day, 0) + 1
+
+    return {
+        "segments": segments,
+        "dailyCounts": daily,
+        "summary": {
+            "totalPoints": len(points),
+            "totalRealKm": round(total_real_km, 2),
+            "totalGapKm": round(total_gap_km, 2),
+            "totalGaps": total_gaps,
+            "gapTotalMinutes": round(gap_total_min),
+            "longestGapMinutes": round(longest_gap_min),
+            "activeDays": len(daily),
+            "dateFrom": date_from.isoformat(),
+            "dateTo": date_to.isoformat(),
+        },
+    }
+
+
+@app.get("/api/location/movement-analysis/{token}")
+def movement_analysis(token: str, from_: str | None = Query(default=None, alias="from"),
+                      to: str | None = None):
+    now = datetime.now(timezone.utc)
+    try:
+        date_from = datetime.fromisoformat(from_.replace("Z", "+00:00")) if from_ else now - timedelta(days=30)
+        date_to = datetime.fromisoformat(to.replace("Z", "+00:00")) if to else now
+    except Exception:
+        return JSONResponse({"error": "Invalid from/to date"}, status_code=400)
+    return _movement_analysis(token, date_from, date_to)
+
+
+@app.get("/api/movement-patterns")
+def movement_patterns(inviteId: int | None = None, userId: int | None = None,
+                      daysBack: int = 30):
+    if not db_ready():
+        return {"segments": [], "dailyCounts": {}, "summary": {}}
+    token = None
+    if inviteId is not None:
+        row = query("SELECT token FROM invites WHERE id = %s", (inviteId,), one=True)
+        token = row.get("token") if row else None
+    elif userId is not None:
+        row = query(
+            "SELECT token FROM invites WHERE from_user_id = %s AND status = 'accepted' "
+            "ORDER BY granted_at DESC LIMIT 1", (userId,), one=True)
+        token = row.get("token") if row else None
+    if not token:
+        return {"segments": [], "dailyCounts": {}, "summary": {
+            "totalPoints": 0, "totalRealKm": 0, "totalGapKm": 0, "totalGaps": 0,
+            "gapTotalMinutes": 0, "longestGapMinutes": 0, "activeDays": 0,
+            "dateFrom": datetime.now(timezone.utc).isoformat(),
+            "dateTo": datetime.now(timezone.utc).isoformat()}}
+    now = datetime.now(timezone.utc)
+    return _movement_analysis(token, now - timedelta(days=max(1, min(daysBack, 365))), now)
+
+
+# --------------------------------------------------------------------------- #
+# Guardian brief — per-contact situation summary for the Guardian page.
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/guardian/brief")
+def guardian_brief(userId: int | None = None):
+    if userId is None:
+        return JSONResponse({"error": "Missing userId"}, status_code=400)
+    if not db_ready():
+        return {"results": []}
+    invites = query(
+        "SELECT * FROM invites WHERE from_user_id = %s AND status = 'accepted'", (userId,))
+    results = []
+    for inv in invites:
+        latest = query(
+            "SELECT * FROM location_updates WHERE token = %s ORDER BY created_at DESC LIMIT 1",
+            (inv["token"],), one=True)
+        photos = query(
+            "SELECT camera_facing, taken_at FROM geo_photos WHERE invite_token = %s "
+            "ORDER BY taken_at DESC LIMIT 4", (inv["token"],))
+        videos = query(
+            "SELECT camera_facing, taken_at, duration_ms FROM geo_videos WHERE invite_token = %s "
+            "ORDER BY taken_at DESC LIMIT 4", (inv["token"],))
+        results.append({
+            "inviteId": inv["id"], "token": inv["token"],
+            "contactName": inv.get("to_name") or inv["to_phone"],
+            "latitude": (latest.get("latitude") if latest else None) or inv.get("granted_latitude"),
+            "longitude": (latest.get("longitude") if latest else None) or inv.get("granted_longitude"),
+            "status": (latest.get("status") if latest else None) or "active",
+            "lastUpdate": iso(latest.get("created_at")) if latest else None,
+            "batteryLevel": latest.get("battery_level") if latest else None,
+            "batteryCharging": latest.get("battery_charging") if latest else None,
+            "photoCount": len(photos), "videoCount": len(videos),
+        })
+    return {"results": results}
 
 
 # Vercel serverless handler
