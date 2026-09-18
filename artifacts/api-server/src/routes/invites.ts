@@ -2,14 +2,6 @@ import { Router, type IRouter } from "express";
 import { eq, and, desc } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
-/** Extract the real client IP, respecting common proxy headers. */
-function getClientIp(req: import("express").Request): string {
-  const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string") return fwd.split(",")[0].trim();
-  if (Array.isArray(fwd)) return fwd[0].trim();
-  return req.socket.remoteAddress ?? "unknown";
-}
-
 /** Fire-and-forget ip-api.com lookup. Returns null on any error. */
 async function lookupIp(ip: string): Promise<Record<string, unknown> | null> {
   // Skip private/loopback addresses
@@ -32,6 +24,8 @@ function shortToken(): string {
 const LOCATION_SHARING_DURATION_MS = 10 * 60 * 1000;
 import { db, invitesTable, usersTable, inviteSessionsTable } from "@workspace/db";
 import { sendPushAndLog } from "../lib/notifications.js";
+import { grantLocationConsent } from "../lib/grant-consent.js";
+import { getClientIp } from "../lib/request-ip.js";
 import { consumeAccess, BANK_DETAILS } from "../lib/access-control.js";
 import {
   ListInvitesQueryParams,
@@ -223,67 +217,23 @@ router.post("/invites/by-token/:token/grant", async (req, res): Promise<void> =>
     return;
   }
 
-  const [existing] = await db
-    .select()
-    .from(invitesTable)
-    .where(eq(invitesTable.token, params.data.token));
+  const result = await grantLocationConsent({
+    token: params.data.token,
+    latitude: body.data.latitude,
+    longitude: body.data.longitude,
+    address: body.data.address,
+    grantedIp: getClientIp(req),
+  });
 
-  if (!existing) {
+  if (!result) {
     res.status(404).json({ error: "Invite not found" });
     return;
   }
 
-  const grantedIp = getClientIp(req);
-  const isFirstGrant = existing.status !== "accepted";
-
-  // --- Create a new session for this grant (permanent reuse: one session per click) ---
-  const sessionToken = shortToken();
-  const [session] = await db
-    .insert(inviteSessionsTable)
-    .values({
-      inviteToken: params.data.token,
-      sessionToken,
-      grantedAt: new Date(),
-      expiresAt: new Date(Date.now() + LOCATION_SHARING_DURATION_MS),
-      grantedLatitude: body.data.latitude,
-      grantedLongitude: body.data.longitude,
-      grantedAddress: body.data.address,
-      grantedIp,
-      status: "active",
-    })
-    .returning();
-
-  // Update the invite's top-level grant fields (first time only — keep the "first seen" snapshot)
-  const [updated] = await db
-    .update(invitesTable)
-    .set({
-      status: "accepted",
-      grantedIp,
-      ...(isFirstGrant
-        ? {
-            grantedLatitude: body.data.latitude,
-            grantedLongitude: body.data.longitude,
-            grantedAddress: body.data.address,
-            grantedAt: new Date(),
-          }
-        : {}),
-    })
-    .where(eq(invitesTable.token, params.data.token))
-    .returning();
-
-  // Push a notification on EVERY new session so the owner knows the link was clicked again
-  sendPushAndLog(existing.fromUserId, {
-    type: "grant",
-    title: isFirstGrant ? "✅ Location access granted" : "🔄 New sharing session started",
-    body: `${existing.toName ?? existing.toPhone} just shared their live location${isFirstGrant ? "" : " again"}`,
-    tag: `granted-${session.id}`,
-    data: { inviteId: existing.id, sessionId: session.id, contactName: existing.toName ?? existing.toPhone },
-  }).catch(() => {});
-
   res.json({
-    ...GetInviteResponse.parse(updated),
-    sessionToken: session.sessionToken,
-    expiresAt: session.expiresAt,
+    ...GetInviteResponse.parse(result.invite),
+    sessionToken: result.session.sessionToken,
+    expiresAt: result.session.expiresAt,
   });
 });
 

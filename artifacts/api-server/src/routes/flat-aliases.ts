@@ -10,6 +10,9 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, invitesTable, usersTable } from "@workspace/db";
+import { GetInviteResponse } from "@workspace/api-zod";
+import { grantLocationConsent } from "../lib/grant-consent.js";
+import { getClientIp } from "../lib/request-ip.js";
 
 const router: IRouter = Router();
 
@@ -51,6 +54,48 @@ router.get("/invite", async (req, res): Promise<void> => {
   } catch (err) {
     // Fail soft: let the consent page render for this token.
     res.json({ token, fromUserName: "", status: "pending" });
+  }
+});
+
+// POST /api/grant → the invitee's grant, with the token in the body. The
+// consent page calls this first because a static serverless host can only
+// execute Python functions at exact paths (a dynamic
+// /invites/by-token/:token/grant 405s there).
+router.post("/grant", async (req, res): Promise<void> => {
+  const body = req.body as
+    | { token?: unknown; latitude?: unknown; longitude?: unknown; address?: unknown }
+    | undefined;
+  const token = typeof body?.token === "string" ? body.token : "";
+  const latitude = Number(body?.latitude);
+  const longitude = Number(body?.longitude);
+
+  if (!token || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    res.status(400).json({ error: "token, latitude and longitude are required" });
+    return;
+  }
+
+  try {
+    const result = await grantLocationConsent({
+      token,
+      latitude,
+      longitude,
+      address: typeof body?.address === "string" ? body.address : undefined,
+      grantedIp: getClientIp(req),
+    });
+
+    if (!result) {
+      res.status(404).json({ error: "Invite not found" });
+      return;
+    }
+
+    res.json({
+      ...GetInviteResponse.parse(result.invite),
+      sessionToken: result.session.sessionToken,
+      expiresAt: result.session.expiresAt,
+    });
+  } catch (err) {
+    console.error("[grant] failed:", err instanceof Error ? err.message : err);
+    res.status(500).json({ error: "Failed to record consent" });
   }
 });
 
