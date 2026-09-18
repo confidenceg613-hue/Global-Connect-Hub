@@ -44,6 +44,50 @@ type Queryable = {
   }>;
 };
 
+// SQLSTATEs a re-run of a schema dump raises because the object already exists.
+// The bootstrap must tolerate every one of them: the embedded database keeps
+// its data on disk, so the dump is replayed on every process start.
+const ALREADY_EXISTS = new Set([
+  "42710", // duplicate_object (constraints, indexes on a table)
+  "42P07", // duplicate_table (tables, sequences, indexes)
+  "42P06", // duplicate_schema
+  "42P16", // invalid_table_definition (constraint already present)
+  "42723", // duplicate_function
+]);
+
+function sqlState(err: unknown): string {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : "";
+}
+
+/**
+ * Apply a `pg_dump --schema-only` script, tolerating objects that already
+ * exist. The dump has no `IF NOT EXISTS`/`$`-quoting/`COPY`, so splitting on
+ * `;` is safe; running statement-by-statement also lets a partially-created
+ * data dir finish bootstrapping instead of aborting the whole script.
+ */
+async function applySchema(pglite: PGlite, sql: string): Promise<void> {
+  const statements = sql
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s && !s.startsWith("--"));
+
+  let applied = 0;
+  let skipped = 0;
+  for (const statement of statements) {
+    try {
+      await pglite.exec(statement);
+      applied++;
+    } catch (err) {
+      if (ALREADY_EXISTS.has(sqlState(err))) { skipped++; continue; }
+      throw err;
+    }
+  }
+  if (skipped) {
+    console.log(`[db] Embedded schema: ${applied} applied, ${skipped} already present.`);
+  }
+}
+
 function createClient(): Queryable {
   if (externalUrl) {
     console.log("[db] Using external Postgres from DATABASE_URL.");
@@ -66,15 +110,15 @@ function createClient(): Queryable {
   const dataDir = process.env.PGLITE_DATA_DIR || join(process.cwd(), ".pglite-data");
   const pglite = new PGlite(dataDir);
 
-  // Bootstrap the full schema (idempotent: IF NOT EXISTS everywhere). Every
-  // query goes through `ready` first, so the schema is always applied before
-  // the first real query of the process. When the bundle can't find the file
-  // on disk (e.g. esbuild moved it), fall back to an in-memory database so
-  // the server still boots — the DDL is applied by ensureSchema below.
+  // Bootstrap the full schema. Every query goes through `ready` first, so the
+  // schema is always applied before the first real query of the process. When
+  // the bundle can't find the file on disk (e.g. esbuild moved it), fall back
+  // to an in-memory database so the server still boots — the DDL is applied by
+  // ensureSchema below.
   let ready: Promise<unknown>;
   try {
     const bootstrap = readFileSync(join(currentDir, "embedded-schema.sql"), "utf8");
-    ready = pglite.exec(bootstrap);
+    ready = applySchema(pglite, bootstrap);
   } catch (err) {
     console.warn(
       "[db] Embedded schema file not found — starting with an EMPTY embedded database " +

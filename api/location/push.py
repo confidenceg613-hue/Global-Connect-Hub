@@ -95,7 +95,6 @@ CREATE TABLE IF NOT EXISTS invites (
 );
 CREATE TABLE IF NOT EXISTS invite_sessions (
   id                SERIAL PRIMARY KEY,
-  invite_id         INTEGER NOT NULL,
   invite_token      TEXT NOT NULL,
   session_token     TEXT NOT NULL UNIQUE,
   granted_at        TIMESTAMPTZ,
@@ -108,7 +107,6 @@ CREATE TABLE IF NOT EXISTS invite_sessions (
 CREATE TABLE IF NOT EXISTS location_updates (
   id               SERIAL PRIMARY KEY,
   token            TEXT NOT NULL,
-  invite_id        INTEGER,
   latitude         DOUBLE PRECISION NOT NULL,
   longitude        DOUBLE PRECISION NOT NULL,
   accuracy         DOUBLE PRECISION,
@@ -136,6 +134,16 @@ CREATE TABLE IF NOT EXISTS notifications_log (
 """
 
 SESSION_TTL_MS = 6 * 60 * 60 * 1000  # matches the client's sharing duration
+
+
+def _battery(value):
+    """battery_level is INTEGER in the schema; floats abort the insert."""
+    if value is None:
+        return None
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
 
 
 def _db_ready() -> bool:
@@ -192,12 +200,15 @@ async def location_push(request: Request):
         return {"ok": True, "buffered": True}
 
     device_info = b.get("deviceInfo")
+    # location_updates has no invite_id column, and battery_level is INTEGER
+    # in the real schema (see lib/db/src/schema/location-updates.ts) — passing
+    # a float literal to an integer column aborts the insert.
     _execute(
-        "INSERT INTO location_updates (token, invite_id, latitude, longitude, accuracy, "
+        "INSERT INTO location_updates (token, latitude, longitude, accuracy, "
         "source, address, status, battery_level, battery_charging, activity_type, device_info) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (invite_token, invite["id"], lat, lng, b.get("accuracy"), b.get("source"),
-         b.get("address"), b.get("status") or "active", b.get("batteryLevel"),
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (invite_token, lat, lng, b.get("accuracy"), b.get("source"),
+         b.get("address"), b.get("status") or "active", _battery(b.get("batteryLevel")),
          b.get("batteryCharging"), b.get("activityType"),
          json.dumps(device_info) if isinstance(device_info, dict) else None))
 
@@ -217,11 +228,10 @@ async def location_push(request: Request):
                             - last["created_at"].astimezone(timezone.utc)).total_seconds() >= 60:
             label = (b.get("address") or f"{float(lat):.5f}, {float(lng):.5f}")
             _execute(
-                "INSERT INTO notifications_log (user_id, type, title, body, tag, data) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
+                "INSERT INTO notifications_log (user_id, type, title, body, data) "
+                "VALUES (%s, %s, %s, %s, %s)",
                 (invite["from_user_id"], "location_update",
                  f"📍 {contact_name} — live location", label,
-                 f"live-update-{invite_token}",
                  json.dumps({"token": invite_token, "inviteId": invite["id"],
                              "contactName": contact_name,
                              "latitude": lat, "longitude": lng})))

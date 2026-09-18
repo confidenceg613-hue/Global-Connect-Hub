@@ -75,7 +75,6 @@ CREATE TABLE IF NOT EXISTS notifications_log (
   type       TEXT NOT NULL DEFAULT 'location_update',
   title      TEXT NOT NULL DEFAULT '',
   body       TEXT NOT NULL DEFAULT '',
-  tag        TEXT,
   data       JSONB,
   pinned     BOOLEAN NOT NULL DEFAULT FALSE,
   read       BOOLEAN NOT NULL DEFAULT FALSE,

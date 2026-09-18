@@ -47,7 +47,7 @@ router.post("/push/subscribe", async (req, res): Promise<void> => {
 
 // DELETE /api/push/subscribe — remove a push subscription
 router.delete("/push/subscribe", async (req, res): Promise<void> => {
-  const { endpoint } = req.body as { endpoint?: string };
+  const { endpoint } = (req.body ?? {}) as { endpoint?: string };
   if (!endpoint) {
     res.status(400).json({ error: "endpoint required" });
     return;

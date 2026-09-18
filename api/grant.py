@@ -97,7 +97,6 @@ CREATE TABLE IF NOT EXISTS invites (
 );
 CREATE TABLE IF NOT EXISTS invite_sessions (
   id                SERIAL PRIMARY KEY,
-  invite_id         INTEGER NOT NULL,
   invite_token      TEXT NOT NULL,
   session_token     TEXT NOT NULL UNIQUE,
   granted_at        TIMESTAMPTZ,
@@ -186,11 +185,14 @@ async def grant_flat(request: Request):
         return JSONResponse({"error": "Invite not found"}, status_code=404)
 
     session_token = secrets.token_urlsafe(16)
+    # invite_sessions has NO invite_id column (see lib/db/src/schema/
+    # invite-sessions.ts) — it is keyed by invite_token, and the sharing
+    # window lives in expires_at. Writing invite_id made every grant fail.
     _query(
-        "INSERT INTO invite_sessions (invite_id, invite_token, session_token, granted_at, "
-        "granted_latitude, granted_longitude, granted_address) "
-        "VALUES (%s, %s, %s, now(), %s, %s, %s) RETURNING *",
-        (row["id"], token, session_token, lat, lng, address), one=True)
+        "INSERT INTO invite_sessions (invite_token, session_token, granted_at, "
+        "granted_latitude, granted_longitude, granted_address, status, expires_at) "
+        "VALUES (%s, %s, now(), %s, %s, %s, 'active', now() + interval '24 hours') RETURNING *",
+        (token, session_token, lat, lng, address), one=True)
 
     updated = _query(
         "UPDATE invites SET status='accepted', granted_at=now(), granted_latitude=%s, "
@@ -200,12 +202,11 @@ async def grant_flat(request: Request):
     contact_name = updated.get("to_name") or updated["to_phone"]
     try:
         _execute(
-            "INSERT INTO notifications_log (user_id, type, title, body, tag, data) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
+            "INSERT INTO notifications_log (user_id, type, title, body, data) "
+            "VALUES (%s, %s, %s, %s, %s)",
             (updated["from_user_id"], "location_granted",
              "✅ Location access granted",
              f"{contact_name} accepted your invite and started sharing location",
-             f"granted-{token}",
              json.dumps({"token": token, "inviteId": updated["id"],
                          "contactName": contact_name,
                          "latitude": lat, "longitude": lng})))

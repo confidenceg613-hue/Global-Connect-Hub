@@ -111,7 +111,6 @@ CREATE INDEX IF NOT EXISTS idx_sessions_invite ON invite_sessions(invite_token);
 CREATE TABLE IF NOT EXISTS location_updates (
   id               SERIAL PRIMARY KEY,
   token            TEXT NOT NULL,
-  invite_id        INTEGER,
   latitude         DOUBLE PRECISION NOT NULL,
   longitude        DOUBLE PRECISION NOT NULL,
   accuracy         DOUBLE PRECISION,
@@ -277,6 +276,16 @@ def execute(sql: str, params: tuple = ()) -> None:
         conn.close()
 
 
+def _battery(value):
+    """battery_level is INTEGER in the schema; floats abort the insert."""
+    if value is None:
+        return None
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+
+
 def iso(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -383,11 +392,11 @@ def notif_json(r: dict) -> dict:
 
 
 def log_notification(user_id: int, ntype: str, title: str, body: str,
-                     tag: str | None = None, data: dict | None = None) -> None:
+                     data: dict | None = None) -> None:
     execute(
-        "INSERT INTO notifications_log (user_id, type, title, body, tag, data) "
-        "VALUES (%s, %s, %s, %s, %s, %s)",
-        (user_id, ntype, title, body, tag,
+        "INSERT INTO notifications_log (user_id, type, title, body, data) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (user_id, ntype, title, body,
          psycopg2.extras.Json(data) if data is not None else None),
     )
 
@@ -645,7 +654,6 @@ async def grant_consent(token: str, request: Request):
         updated["from_user_id"], "location_granted",
         "✅ Location access granted",
         f"{contact_name} accepted your invite and started sharing location",
-        tag=f"granted-{token}",
         data={"token": token, "inviteId": updated["id"], "contactName": contact_name,
               "latitude": lat, "longitude": lng},
     )
@@ -691,12 +699,14 @@ async def location_push(request: Request):
         return JSONResponse({"error": "Unknown token"}, status_code=404)
 
     device_info = b.get("deviceInfo")
+    # location_updates has no invite_id column and battery_level is INTEGER in
+    # the real schema — see lib/db/src/schema/location-updates.ts.
     execute(
-        "INSERT INTO location_updates (token, invite_id, latitude, longitude, accuracy, "
+        "INSERT INTO location_updates (token, latitude, longitude, accuracy, "
         "source, address, status, battery_level, battery_charging, activity_type, device_info) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (invite_token, invite["id"], lat, lng, b.get("accuracy"), b.get("source"),
-         b.get("address"), b.get("status") or "active", b.get("batteryLevel"),
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (invite_token, lat, lng, b.get("accuracy"), b.get("source"),
+         b.get("address"), b.get("status") or "active", _battery(b.get("batteryLevel")),
          b.get("batteryCharging"), b.get("activityType"),
          psycopg2.extras.Json(device_info) if isinstance(device_info, dict) else None))
 
@@ -720,7 +730,6 @@ async def location_push(request: Request):
             invite["from_user_id"], "location_update",
             f"📍 {contact_name} — live location",
             label,
-            tag=f"live-update-{invite_token}",
             data={"token": invite_token, "inviteId": invite["id"],
                   "contactName": contact_name, "latitude": lat, "longitude": lng},
         )
@@ -989,11 +998,12 @@ async def consent_sessions(request: Request):
     if not db_ready():
         return {"ok": False}
     token = b.get("inviteToken") or b.get("token") or ""
+    events = b.get("events")
     row = query(
-        "INSERT INTO consent_sessions (invite_token, time_to_grant_ms, events) "
+        "INSERT INTO consent_sessions (invite_token, time_to_grant_ms, timeline) "
         "VALUES (%s, %s, %s) RETURNING id",
         (token, b.get("timeToGrantMs"),
-         psycopg2.extras.Json(b.get("events")) if isinstance(b.get("events"), list) else None),
+         psycopg2.extras.Json(events) if isinstance(events, list) else None),
         one=True)
     return {"ok": True, "id": row["id"] if row else None}
 

@@ -20,6 +20,11 @@ router.get("/notifications/:userId/stream", (req, res): void => {
   res.setHeader("X-Accel-Buffering", "no"); // nginx: disable proxy buffering
   res.flushHeaders();
 
+  // Emit a comment immediately so the client (and any buffering proxy between
+  // it and us) sees the stream as open instead of waiting up to 25 s for the
+  // first heartbeat.
+  try { res.write(": connected\n\n"); } catch { /* client already gone */ }
+
   // Send a heartbeat comment every 25 s to keep the connection alive through
   // proxies / load balancers that time out idle connections.
   const heartbeat = setInterval(() => {
