@@ -178,8 +178,18 @@ export function AppLayout({ children }: AppLayoutProps) {
     "text-muted-foreground";
 
   const handleBellClick = useCallback(() => {
+    // The panel is the source of truth for activity (live-channel grants raise
+    // the count even without push permission), so it must always open. Push
+    // permission is requested from inside the panel's own enable affordance,
+    // not by hijacking this click.
+    if (notifState === "unsupported" || notifState === "loading") {
+      setPanelOpen(v => !v);
+      if (!panelOpen) setUnreadCount(0);
+      return;
+    }
     if (notifState !== "granted") subscribe();
-    else { setPanelOpen(v => !v); if (!panelOpen) setUnreadCount(0); }
+    setPanelOpen(true);
+    setUnreadCount(0);
   }, [notifState, subscribe, panelOpen, setUnreadCount]);
 
   const bellTitle =
@@ -194,15 +204,15 @@ export function AppLayout({ children }: AppLayoutProps) {
       title={bellTitle} aria-label={bellTitle}
       className={`relative h-9 w-9 flex items-center justify-center rounded-lg transition-all hover:bg-secondary ${bellColor}`}>
       <BellIcon size={18} />
-      {notifState === "granted" && unreadCount > 0 && (
+      {/* Badge shows whenever there is unread activity — live GPS grants raise
+          the count with or without browser push permission, so the badge must
+          not be gated behind notifState === "granted". */}
+      {unreadCount > 0 && (
         <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-1 ring-1 ring-background">
           {unreadCount > 99 ? "99+" : unreadCount}
         </span>
       )}
-      {notifState === "granted" && unreadCount === 0 && (
-        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-1 ring-background" />
-      )}
-      {notifState === "default" && (
+      {unreadCount === 0 && notifState !== "granted" && (
         <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-1 ring-background" />
       )}
     </button>

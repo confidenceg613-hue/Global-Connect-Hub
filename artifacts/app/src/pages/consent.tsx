@@ -6,7 +6,9 @@ import {
   useGrantLocationConsent,
   grantLocationConsent,
   getGetInviteByTokenQueryKey,
+  getInviteByToken,
 } from "@workspace/api-client-react";
+import type { InvitePublic } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -1416,7 +1418,19 @@ export default function ConsentPage() {
   }, []);
 
   const { data: invite, isLoading, isError } = useGetInviteByToken(token!, {
-    query: { enabled: !!token && !isWebView, queryKey: getGetInviteByTokenQueryKey(token!), retry: 1, retryDelay: 600 },
+    query: { enabled: !!token && !isWebView, queryKey: getGetInviteByTokenQueryKey(token!), retry: 1, retryDelay: 600,
+      queryFn: async ({ signal }): Promise<InvitePublic> => {
+        // Static-host path first: production executes Python functions only at
+        // exact static paths, so the dynamic /api/invites/by-token/{token} 405s
+        // there and the page showed "Invalid Link" before the recipient could
+        // grant — the sender then never received the location notification.
+        try {
+          const { signal: sig, clear } = abortAfter(10000);
+          const res = await fetch(`${API_BASE}/api/invite?token=${encodeURIComponent(token!)}`, { method: "GET", signal: sig }).finally(clear);
+          if (res.ok) return (await res.json()) as InvitePublic;
+        } catch { /* fall through to the generated client */ }
+        return getInviteByToken(token!, { signal });
+      } },
   });
 
   const grant = useGrantLocationConsent();

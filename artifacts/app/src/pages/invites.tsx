@@ -114,6 +114,8 @@ export default function Invites() {
       // to its live GPS channel the moment it's created.
       if (created?.token) {
         void import("@/lib/live-gps").then(({ rememberOwnerToken }) => rememberOwnerToken(created.token));
+        void import("@/lib/owner-invites").then(({ rememberOwnerInvite }) =>
+          rememberOwnerInvite({ token: created.token, toName: name || undefined, toPhone: parsedPhone.number, createdAt: Date.now() }));
       }
       // Open native SMS app with the pre-filled message that already contains the link
       window.open(created.whatsappLink, "_blank");
@@ -147,8 +149,11 @@ export default function Invites() {
           whatsappLink: smsLink,
           status: "pending",
         } as unknown as Invite);
-        // Same owner registration for the offline-created link.
+        // Same owner registration for the offline-created link, plus a local
+        // invite record so the sender's list/map keep context without a DB.
         void import("@/lib/live-gps").then(({ rememberOwnerToken }) => rememberOwnerToken(token));
+        void import("@/lib/owner-invites").then(({ rememberOwnerInvite }) =>
+          rememberOwnerInvite({ token, toName: name || undefined, toPhone: parsedPhone.number, createdAt: Date.now() }));
         window.open(smsLink, "_blank");
         toast({ title: "SMS app opened (offline mode)", description: "Tracking activates once the server is connected." });
         setPhone("");

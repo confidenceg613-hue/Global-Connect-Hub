@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { LIVE_GPS_BELL_EVENT } from "@/lib/live-gps";
+import { getOwnerNotifs } from "@/components/live-gps-notifier";
 import { LIVE_GPS_EVENT } from "@/components/live-gps-notifier";
 
 import { API_BASE as API_BASE_URL } from "@/lib/api-base";
@@ -69,8 +70,9 @@ export function useNotificationCount(userId: number | null) {
   useEffect(() => {
     if (!userId) { setCount(0); return; }
 
-    // Fetch initial count via REST
-    fetch(`${API_BASE}/api/notifications/${userId}/unread-count`)
+    // Fetch initial count via REST (flat endpoint — production's serverless
+    // host only executes exact static paths; the dynamic /:id path 405s there)
+    fetch(`${API_BASE}/api/notifications/unread-count?userId=${userId}`)
       .then((r) => r.json())
       .then((d) => setCount(d.count ?? 0))
       .catch(() => {});
@@ -78,23 +80,21 @@ export function useNotificationCount(userId: number | null) {
     // Live GPS channel (no backend): a contact accepting/sharing raises the bell
     const onLive = () => setCount((c) => c + 1);
     window.addEventListener(LIVE_GPS_BELL_EVENT, onLive);
-    return () => window.removeEventListener(LIVE_GPS_BELL_EVENT, onLive);
 
-    // Open SSE stream — increment on each new notification arriving
-    const es = new EventSource(`${API_BASE}/api/notifications/${userId}/stream`);
-    esRef.current = es;
-
-    es.onmessage = () => {
-      // Each SSE message is a new unread notification
-      setCount((c) => c + 1);
-    };
-
-    es.onerror = () => {
-      // EventSource will auto-reconnect; silence the error
-    };
+    // SSE stream from a real backend — increment on each new notification.
+    // (Previously this block sat after an early return and never ran, so
+    // backend notifications never incremented the badge.)
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${API_BASE}/api/notifications/${userId}/stream`);
+      esRef.current = es;
+      es.onmessage = () => setCount((c) => c + 1);
+      es.onerror = () => { /* EventSource auto-reconnects */ };
+    } catch { /* EventSource unavailable — live channel still works */ }
 
     return () => {
-      es.close();
+      window.removeEventListener(LIVE_GPS_BELL_EVENT, onLive);
+      es?.close();
       esRef.current = null;
     };
   }, [userId]);
@@ -116,15 +116,25 @@ export function NotificationPanel({ onClose }: { onClose: () => void }) {
     if (!userId) return;
     setLoading(true);
     const url = type
-      ? `${API_BASE}/api/notifications/${userId}?type=${encodeURIComponent(type)}`
-      : `${API_BASE}/api/notifications/${userId}`;
+      ? `${API_BASE}/api/notifications?userId=${userId}&type=${encodeURIComponent(type)}`
+      : `${API_BASE}/api/notifications?userId=${userId}`;
     fetch(url)
       .then((r) => r.json())
       .then((d: NotifEntry[]) => {
         // Static-host fallbacks can 200 with HTML — accept arrays only.
-        if (!Array.isArray(d)) { setLoading(false); return; }
+        // Merge with the durable local entries (live-channel grants persist
+        // across reloads on this device) so the drawer is never empty after
+        // a contact accepts.
+        const local = getOwnerNotifs().map((n) => ({ ...n, read: false, pinned: false })) as NotifEntry[];
+        const remote = Array.isArray(d) ? d : [];
+        const seen = new Set<number>();
+        const merged = [...local, ...remote].filter((n) => {
+          if (seen.has(n.id)) return false;
+          seen.add(n.id);
+          return true;
+        });
         setNotifs(
-          [...d].sort((a, b) => {
+          merged.sort((a, b) => {
             if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
             return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
           }),

@@ -58,6 +58,20 @@ export function rememberOwnerToken(token: string): void {
       localStorage.setItem(OWNER_TOKENS_KEY, JSON.stringify(tokens.slice(-200)));
     }
   } catch { /* storage full — non-critical */ }
+
+  // Critical: subscribe the already-open live client to this token's topic
+  // RIGHT NOW. Without this, an invite created after page load is never
+  // subscribed to until a full reload — so the grant the invitee publishes
+  // minutes later reaches nobody and the sender gets no notification.
+  const topic = `${TOPIC_PREFIX}${token}`;
+  if (!state.topics.has(topic)) {
+    state.topics.add(topic);
+    const client = state.client;
+    if (client?.connected) {
+      try { client.subscribe(topic, { qos: 0 }); } catch { /* the connect handler resubscribes all topics */ }
+    }
+    // If not connected yet, the "connect" handler resubscribes state.topics.
+  }
 }
 
 // ── Shared singleton client ──────────────────────────────────────────────────
