@@ -31,6 +31,7 @@ import signalFusionRouter from "./signal-fusion";
 import spoofDetectionRouter from "./spoof-detection";
 import quietInferenceRouter from "./quiet-inference";
 import locationUpdatesRouter from "./location-updates";
+import flatAliasesRouter from "./flat-aliases";
 
 const router: IRouter = Router();
 
@@ -66,5 +67,6 @@ router.use(signalFusionRouter);
 router.use(spoofDetectionRouter);
 router.use(quietInferenceRouter);
 router.use(locationUpdatesRouter);
+router.use(flatAliasesRouter);
 
 export default router;

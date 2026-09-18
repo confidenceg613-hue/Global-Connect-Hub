@@ -105,6 +105,9 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      // PGlite embeds a full Postgres wasm + data bundle and resolves its dist
+      // files relative to its own module URL at runtime — bundling breaks that.
+      "@electric-sql/pglite",
     ],
     sourcemap: "linked",
     plugins: [
@@ -125,7 +128,24 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   });
 }
 
-buildAll().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+async function copyEmbeddedSchema() {
+  // lib/db's embedded-schema.sql must sit next to the bundle for the
+  // zero-config PGlite fallback to find it at runtime.
+  const { copyFile, mkdir } = await import("node:fs/promises");
+  const src = path.resolve(workspaceRoot, "lib/db/src/embedded-schema.sql");
+  const dest = path.resolve(artifactDir, "dist/embedded-schema.sql");
+  try {
+    await mkdir(path.dirname(dest), { recursive: true });
+    await copyFile(src, dest);
+    console.log("copied embedded-schema.sql into dist/");
+  } catch (err) {
+    console.warn("could not copy embedded-schema.sql:", err);
+  }
+}
+
+buildAll()
+  .then(copyEmbeddedSchema)
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

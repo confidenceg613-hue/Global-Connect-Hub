@@ -51,3 +51,6 @@ Thumbs.db
 # Local secrets (managed via environment settings)
 .env.local
 .env
+
+# Embedded Postgres data directory (runtime state, not source)
+.pglite-data/
