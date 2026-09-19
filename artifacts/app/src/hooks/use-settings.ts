@@ -21,6 +21,9 @@ export interface AppSettings {
     enableJourneyLines: boolean;
     enableRiskDetection: boolean;
   };
+  security: {
+    biometricEnabled: boolean;
+  };
 }
 
 const SETTINGS_KEY = "phoneLink_settings";
@@ -46,6 +49,9 @@ const DEFAULT_SETTINGS: AppSettings = {
     enableJourneyLines: true,
     enableRiskDetection: true,
   },
+  security: {
+    biometricEnabled: false,
+  },
 };
 
 function loadSettings(): AppSettings {
@@ -58,6 +64,7 @@ function loadSettings(): AppSettings {
       privacy: { ...DEFAULT_SETTINGS.privacy, ...parsed.privacy },
       appearance: { ...DEFAULT_SETTINGS.appearance, ...parsed.appearance },
       tracking: { ...DEFAULT_SETTINGS.tracking, ...parsed.tracking },
+      security: { ...DEFAULT_SETTINGS.security, ...parsed.security },
     };
   } catch {
     return DEFAULT_SETTINGS;

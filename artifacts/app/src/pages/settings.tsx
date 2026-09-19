@@ -47,6 +47,7 @@ import {
   Lock,
   KeyRound,
   CheckCircle2,
+  Fingerprint,
 } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { usePin } from "@/hooks/use-pin";
@@ -806,6 +807,7 @@ type PinMode = "view" | "set-new" | "set-confirm" | "change-verify" | "change-ne
 
 function SecuritySection() {
   const { pinEnabled, hasPin, verifyPin, savePin, removePin } = usePin();
+  const { settings, updateSettings } = useSettings();
   const { toast } = useToast();
   const [mode, setMode] = useState<PinMode>("view");
   const [pin, setPin] = useState("");
@@ -881,7 +883,7 @@ function SecuritySection() {
 
       {/* Status card */}
       <Card>
-        <CardContent className="pt-4">
+        <CardContent className="divide-y divide-border/60">
           <SettingRow
             label="PIN Lock"
             description={pinEnabled && hasPin() ? "App is protected by a 4-digit PIN." : "No PIN is set."}
@@ -895,6 +897,27 @@ function SecuritySection() {
               <span className={`text-xs font-medium ${pinEnabled && hasPin() ? "text-amber-500" : "text-muted-foreground"}`}>
                 {pinEnabled && hasPin() ? "Active" : "Not set"}
               </span>
+            </div>
+          </SettingRow>
+
+          <SettingRow
+            label="Biometric Authentication"
+            description="Unlock DeepFalcon with your device fingerprint or face recognition instead of your PIN."
+          >
+            <div className="flex items-center gap-2">
+              <Fingerprint size={16} className={settings.security.biometricEnabled ? "text-amber-500" : "text-muted-foreground"} />
+              <Switch
+                checked={settings.security.biometricEnabled}
+                onCheckedChange={() =>
+                  updateSettings((prev) => ({
+                    ...prev,
+                    security: {
+                      ...prev.security,
+                      biometricEnabled: !prev.security.biometricEnabled,
+                    },
+                  }))
+                }
+              />
             </div>
           </SettingRow>
         </CardContent>
