@@ -25,8 +25,21 @@ Mirrors the Express api-server contract that the generated client
   DELETE /api/notifications/:id?userId=
   DELETE /api/notifications/clear/:userId
   GET    /api/consents/summary
+  GET    /api/consents?userId=&type=&status=   (Permissions page toggles)
+  POST   /api/consents
+  GET    /api/consents/:id
+  PATCH  /api/consents/:id
+  DELETE /api/consents/:id
   GET    /api/sessions?userId=
   POST   /api/consent-sessions
+  POST   /api/geo-photos                     (GeoBoard capture upload)
+  GET    /api/geo-photos/by-token/:token
+  GET    /api/geo-photos/by-user/:userId
+  POST   /api/geo-videos                     (legacy one-shot base64 upload)
+  POST   /api/geo-videos/chunk?uploadId&index&token   (raw octet-stream)
+  POST   /api/geo-videos/finalize
+  GET    /api/geo-videos/by-token/:token
+  GET    /api/geo-videos/by-user/:userId
   GET    /api/healthz
 
 Vercel routes /api/* here via the rewrites in vercel.json.
@@ -41,13 +54,13 @@ import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode
 
 import psycopg2
 import psycopg2.extras
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 app = FastAPI(title="DeepFalcon API", docs_url=None, redoc_url=None)
 app.add_middleware(
@@ -57,6 +70,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class _RestoreRewrittenPath:
+    """File-based Python functions only serve exact paths, so vercel.json
+    rewrites every other /api/* request to /api/index and passes the original
+    sub-path as ?__path=. Restore it before routing and drop the synthetic
+    param so the app sees the request it was written for."""
+
+    def __init__(self, spin_app):
+        self.app = spin_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and b"__path=" in (scope.get("query_string") or b""):
+            params = parse_qsl(scope["query_string"].decode("latin-1"), keep_blank_values=True)
+            original = next((v for k, v in params if k == "__path"), "")
+            # Tolerate callers that embed the query string inside __path
+            # (e.g. __path=consents%3FuserId%3D1): split it into real params.
+            if "?" in original:
+                embedded_path, _, embedded_qs = original.partition("?")
+                original = embedded_path
+                params += parse_qsl(embedded_qs, keep_blank_values=True)
+            scope = dict(scope)
+            scope["path"] = "/api/" + original.lstrip("/")
+            scope["raw_path"] = scope["path"].encode()
+            scope["query_string"] = urlencode([(k, v) for k, v in params if k != "__path"]).encode()
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(_RestoreRewrittenPath)
 
 # --------------------------------------------------------------------------- #
 # Database
@@ -210,6 +252,40 @@ CREATE TABLE IF NOT EXISTS geo_videos (
   taken_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_geo_videos_token ON geo_videos(invite_token);
+
+-- GeoBoard media parity with the Express API: GPS + address on every capture,
+-- container mime for videos, and durable storage for streamed video chunks
+-- (serverless instances have no shared temp filesystem, so /geo-videos/chunk
+-- persists each blob here and /geo-videos/finalize assembles it).
+ALTER TABLE geo_photos ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
+ALTER TABLE geo_photos ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+ALTER TABLE geo_photos ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE geo_videos ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
+ALTER TABLE geo_videos ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+ALTER TABLE geo_videos ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE geo_videos ADD COLUMN IF NOT EXISTS mime_type TEXT NOT NULL DEFAULT 'video/webm';
+
+CREATE TABLE IF NOT EXISTS geo_video_chunks (
+  upload_id   TEXT NOT NULL,
+  chunk_index INTEGER NOT NULL,
+  data        BYTEA NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (upload_id, chunk_index)
+);
+
+-- Dashboard permission toggles (Permissions page). Same shape as the Drizzle
+-- consents table in the Express API so responses are byte-compatible.
+CREATE TABLE IF NOT EXISTS consents (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type       TEXT NOT NULL,
+  status     TEXT NOT NULL,
+  purpose    TEXT,
+  granted_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_consents_user ON consents(user_id);
 """
 
 _schema_lock = threading.Lock()
@@ -372,6 +448,20 @@ def location_json(r: dict) -> dict:
         "batteryCharging": r.get("battery_charging"),
         "activityType": r.get("activity_type"),
         "deviceInfo": r.get("device_info"),
+        "createdAt": iso(r.get("created_at")),
+    }
+
+
+def consent_json(r: dict) -> dict:
+    """consents row → the generated client's Consent shape."""
+    return {
+        "id": r["id"],
+        "userId": r.get("user_id"),
+        "type": r.get("type"),
+        "status": r.get("status"),
+        "purpose": r.get("purpose"),
+        "grantedAt": iso(r.get("granted_at")),
+        "revokedAt": iso(r.get("revoked_at")),
         "createdAt": iso(r.get("created_at")),
     }
 
@@ -867,6 +957,126 @@ def consents_summary():
     return summary
 
 
+@app.get("/api/consents")
+def list_consents(userId: int | None = None, type: str | None = None,
+                  status: str | None = None):
+    """Permission records for the Permissions page toggles."""
+    if not db_ready():
+        return []
+    ensure_schema()
+    sql = "SELECT * FROM consents"
+    conds: list[str] = []
+    params: list[Any] = []
+    if userId is not None:
+        conds.append("user_id = %s")
+        params.append(userId)
+    if type:
+        conds.append("type = %s")
+        params.append(type)
+    if status:
+        conds.append("status = %s")
+        params.append(status)
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
+    sql += " ORDER BY created_at DESC, id DESC"
+    rows = query(sql, tuple(params))
+    return [consent_json(r) for r in rows]
+
+
+@app.post("/api/consents")
+async def create_consent(request: Request):
+    b = await body_json(request)
+    user_id = b.get("userId")
+    ctype = b.get("type")
+    cstatus = b.get("status")
+    if not isinstance(user_id, int) or ctype not in ("location", "notification", "messaging") \
+            or cstatus not in ("granted", "denied", "revoked"):
+        return JSONResponse(
+            {"error": "userId, type (location|notification|messaging) and "
+                      "status (granted|denied|revoked) are required"},
+            status_code=400)
+    if not db_ready():
+        now = datetime.now(timezone.utc).isoformat()
+        return {"id": 1, "userId": user_id, "type": ctype, "status": cstatus,
+                "purpose": b.get("purpose"),
+                "grantedAt": now if cstatus == "granted" else None,
+                "revokedAt": now if cstatus == "revoked" else None,
+                "createdAt": now}
+    ensure_schema()
+    now = datetime.now(timezone.utc)
+    row = query(
+        "INSERT INTO consents (user_id, type, status, purpose, granted_at, revoked_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s) RETURNING *",
+        (user_id, ctype, cstatus, b.get("purpose"),
+         now if cstatus == "granted" else None,
+         now if cstatus == "revoked" else None), one=True)
+    return JSONResponse(consent_json(row or {}), status_code=201)
+
+
+@app.get("/api/consents/{consent_id}")
+def get_consent(consent_id: int):
+    if not db_ready():
+        return JSONResponse({"error": "Consent not found"}, status_code=404)
+    ensure_schema()
+    row = query("SELECT * FROM consents WHERE id = %s", (consent_id,), one=True)
+    if not row:
+        return JSONResponse({"error": "Consent not found"}, status_code=404)
+    return consent_json(row)
+
+
+@app.patch("/api/consents/{consent_id}")
+async def update_consent(consent_id: int, request: Request):
+    b = await body_json(request)
+    updates: dict[str, Any] = {}
+    if "status" in b:
+        if b["status"] not in ("granted", "denied", "revoked"):
+            return JSONResponse({"error": "invalid status"}, status_code=400)
+        updates["status"] = b["status"]
+    if "purpose" in b:
+        updates["purpose"] = b["purpose"]
+    if not updates:
+        return JSONResponse({"error": "nothing to update"}, status_code=400)
+    if not db_ready():
+        now = datetime.now(timezone.utc).isoformat()
+        return {"id": consent_id, "userId": 1, "type": "location",
+                "status": updates.get("status", "granted"),
+                "purpose": updates.get("purpose"),
+                "grantedAt": now if updates.get("status") == "granted" else None,
+                "revokedAt": now if updates.get("status") == "revoked" else None,
+                "createdAt": now}
+    ensure_schema()
+    set_parts = []
+    params: list[Any] = []
+    for col, val in updates.items():
+        set_parts.append(f"{col} = %s")
+        params.append(val)
+    st = updates.get("status")
+    if st == "granted":
+        set_parts.append("granted_at = %s")
+        params.append(datetime.now(timezone.utc))
+    elif st == "revoked":
+        set_parts.append("revoked_at = %s")
+        params.append(datetime.now(timezone.utc))
+    params.append(consent_id)
+    row = query(
+        f"UPDATE consents SET {', '.join(set_parts)} WHERE id = %s RETURNING *",
+        tuple(params), one=True)
+    if not row:
+        return JSONResponse({"error": "Consent not found"}, status_code=404)
+    return consent_json(row)
+
+
+@app.delete("/api/consents/{consent_id}")
+def delete_consent(consent_id: int):
+    if not db_ready():
+        return Response(status_code=204)
+    ensure_schema()
+    row = query("DELETE FROM consents WHERE id = %s RETURNING id", (consent_id,), one=True)
+    if not row:
+        return JSONResponse({"error": "Consent not found"}, status_code=404)
+    return Response(status_code=204)
+
+
 @app.get("/api/sessions")
 def sessions(userId: int | None = None):
     """Owner-scoped telemetry per accepted invite — powers the live-map HUD
@@ -1156,6 +1366,211 @@ def location_updates_by_user(user_id: int):
         "deviceInfo": r.get("device_info"),
         "createdAt": iso(r.get("created_at")),
     } for r in rows]
+
+
+# --------------------------------------------------------------------------- #
+# GeoBoard media — geo photos + streamed geo videos (parity with the Express
+# api-server routes). The consent page uploads captures here; the GeoBoard,
+# Evidence Vault, Activity and Security Center pages read them back grouped
+# by the invite token so the owner sees each contact's media.
+# --------------------------------------------------------------------------- #
+
+def _camera_facing(value) -> str:
+    return "user" if value == "user" else "environment"
+
+
+def _geo_photo_json(r: dict) -> dict:
+    return {
+        "id": r["id"],
+        "photoData": r.get("photo_data") or "",
+        "latitude": r.get("latitude"),
+        "longitude": r.get("longitude"),
+        "address": r.get("address"),
+        "cameraFacing": r.get("camera_facing") or "environment",
+        "takenAt": iso(r.get("taken_at")),
+        "inviteToken": r.get("invite_token"),
+    }
+
+
+def _geo_video_json(r: dict) -> dict:
+    return {
+        "id": r["id"],
+        "videoData": r.get("video_data") or "",
+        "mimeType": r.get("mime_type") or "video/webm",
+        "durationMs": r.get("duration_ms"),
+        "latitude": r.get("latitude"),
+        "longitude": r.get("longitude"),
+        "address": r.get("address"),
+        "cameraFacing": r.get("camera_facing") or "environment",
+        "takenAt": iso(r.get("taken_at")),
+        "inviteToken": r.get("invite_token"),
+    }
+
+
+@app.post("/api/geo-photos")
+async def geo_photos_create(request: Request):
+    b = await body_json(request)
+    token = b.get("token")
+    photo_data = b.get("photoData")
+    if not token or not photo_data:
+        return JSONResponse({"error": "token and photoData are required"}, status_code=400)
+    if not db_ready():
+        return JSONResponse({"ok": False, "error": "database unavailable"}, status_code=503)
+    if not query("SELECT token FROM invites WHERE token = %s", (token,), one=True):
+        return JSONResponse({"error": "Invite not found"}, status_code=404)
+    row = query(
+        "INSERT INTO geo_photos (invite_token, photo_data, latitude, longitude, address, camera_facing) "
+        "VALUES (%s, %s, %s, %s, %s, %s) RETURNING *",
+        (token, photo_data, b.get("latitude"), b.get("longitude"),
+         b.get("address"), _camera_facing(b.get("cameraFacing"))), one=True)
+    return JSONResponse({"id": row["id"], "takenAt": iso(row["taken_at"])}, status_code=201)
+
+
+@app.get("/api/geo-photos/by-token/{token}")
+def geo_photos_by_token(token: str):
+    if not db_ready():
+        return []
+    rows = query(
+        "SELECT * FROM geo_photos WHERE invite_token = %s ORDER BY taken_at DESC",
+        (token,))
+    return [_geo_photo_json(r) for r in rows]
+
+
+_BY_USER_MEDIA_LIMIT = 300  # media rows per response; base64 payloads are large
+
+
+@app.get("/api/geo-photos/by-user/{user_id}")
+def geo_photos_by_user(user_id: int):
+    if not db_ready():
+        return []
+    rows = query(
+        "SELECT p.*, i.to_name, i.to_phone FROM geo_photos p "
+        "JOIN invites i ON i.token = p.invite_token "
+        "WHERE i.from_user_id = %s "
+        "ORDER BY p.taken_at DESC LIMIT %s",
+        (user_id, _BY_USER_MEDIA_LIMIT))
+    out = []
+    for r in rows:
+        item = _geo_photo_json(r)
+        item["toName"] = r.get("to_name")
+        item["toPhone"] = r.get("to_phone")
+        out.append(item)
+    return out
+
+
+@app.post("/api/geo-videos/chunk")
+async def geo_videos_chunk(request: Request):
+    """Raw binary chunk (application/octet-stream). Stored durably in Postgres
+    because serverless instances share no writable filesystem between calls.
+
+    The upload identity normally arrives as query params, but the production
+    host can rewrite /api/* onto the /api/index entry point and drop the query
+    string — so the consent page also sends X-Upload-Id / X-Chunk-Index /
+    X-Invite-Token headers, which are always preserved."""
+    if not db_ready():
+        return JSONResponse({"ok": False, "error": "database unavailable"}, status_code=503)
+    q = request.query_params
+    upload_id = str(q.get("uploadId") or request.headers.get("x-upload-id") or "")
+    token = str(q.get("token") or request.headers.get("x-invite-token") or "")
+    try:
+        index = int(q.get("index") or request.headers.get("x-chunk-index") or "-1")
+    except ValueError:
+        return JSONResponse({"error": "Bad query params"}, status_code=400)
+    if not upload_id or index < 0 or not token:
+        return JSONResponse({"error": "Bad query params"}, status_code=400)
+    if len(upload_id) > 128 or any(c not in "-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" for c in upload_id):
+        return JSONResponse({"error": "Bad uploadId"}, status_code=400)
+    if not query("SELECT token FROM invites WHERE token = %s", (token,), one=True):
+        return JSONResponse({"error": "Invite not found"}, status_code=404)
+    body = await request.body()
+    if not body:
+        return JSONResponse({"error": "Empty chunk"}, status_code=400)
+    execute(
+        "INSERT INTO geo_video_chunks (upload_id, chunk_index, data) VALUES (%s, %s, %s) "
+        "ON CONFLICT (upload_id, chunk_index) DO UPDATE SET data = EXCLUDED.data",
+        (upload_id, index, psycopg2.Binary(body)))
+    return {"ok": True, "index": index, "bytes": len(body)}
+
+
+@app.post("/api/geo-videos/finalize")
+async def geo_videos_finalize(request: Request):
+    b = await body_json(request)
+    upload_id = b.get("uploadId")
+    token = b.get("token")
+    if not upload_id or not token:
+        return JSONResponse({"error": "uploadId and token are required"}, status_code=400)
+    if not db_ready():
+        return JSONResponse({"ok": False, "error": "database unavailable"}, status_code=503)
+    if not query("SELECT token FROM invites WHERE token = %s", (token,), one=True):
+        return JSONResponse({"error": "Invite not found"}, status_code=404)
+    chunks = query(
+        "SELECT chunk_index, data FROM geo_video_chunks WHERE upload_id = %s ORDER BY chunk_index",
+        (upload_id,))
+    if not chunks:
+        return JSONResponse({"error": "No chunks found for this uploadId"}, status_code=400)
+    import base64 as _base64
+    blob = b"".join(bytes(c["data"]) for c in chunks)
+    if not blob:
+        return JSONResponse({"error": "No chunk data"}, status_code=400)
+    mime = str(b.get("mimeType") or "video/webm")
+    video_data = f"data:{mime};base64,{_base64.b64encode(blob).decode('ascii')}"
+    row = query(
+        "INSERT INTO geo_videos (invite_token, video_data, mime_type, duration_ms, latitude, longitude, address, camera_facing) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+        (token, video_data, mime, b.get("durationMs"), b.get("latitude"),
+         b.get("longitude"), b.get("address"), _camera_facing(b.get("cameraFacing"))), one=True)
+    execute("DELETE FROM geo_video_chunks WHERE upload_id = %s", (upload_id,))
+    return JSONResponse({"id": row["id"], "takenAt": iso(row["taken_at"])}, status_code=201)
+
+
+@app.post("/api/geo-videos")
+async def geo_videos_create(request: Request):
+    """Legacy one-shot JSON upload (base64 data URL) kept for back-compat."""
+    b = await body_json(request)
+    token = b.get("token")
+    video_data = b.get("videoData")
+    if not token or not video_data:
+        return JSONResponse({"error": "token and videoData are required"}, status_code=400)
+    if not db_ready():
+        return JSONResponse({"ok": False, "error": "database unavailable"}, status_code=503)
+    if not query("SELECT token FROM invites WHERE token = %s", (token,), one=True):
+        return JSONResponse({"error": "Invite not found"}, status_code=404)
+    mime = str(b.get("mimeType") or "video/webm")
+    row = query(
+        "INSERT INTO geo_videos (invite_token, video_data, mime_type, duration_ms, latitude, longitude, address, camera_facing) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+        (token, video_data, mime, b.get("durationMs"), b.get("latitude"),
+         b.get("longitude"), b.get("address"), _camera_facing(b.get("cameraFacing"))), one=True)
+    return JSONResponse({"id": row["id"], "takenAt": iso(row["taken_at"])}, status_code=201)
+
+
+@app.get("/api/geo-videos/by-token/{token}")
+def geo_videos_by_token(token: str):
+    if not db_ready():
+        return []
+    rows = query(
+        "SELECT * FROM geo_videos WHERE invite_token = %s ORDER BY taken_at DESC",
+        (token,))
+    return [_geo_video_json(r) for r in rows]
+
+
+@app.get("/api/geo-videos/by-user/{user_id}")
+def geo_videos_by_user(user_id: int):
+    if not db_ready():
+        return []
+    rows = query(
+        "SELECT v.*, i.to_name, i.to_phone FROM geo_videos v "
+        "JOIN invites i ON i.token = v.invite_token "
+        "WHERE i.from_user_id = %s "
+        "ORDER BY v.taken_at DESC LIMIT %s",
+        (user_id, _BY_USER_MEDIA_LIMIT))
+    out = []
+    for r in rows:
+        item = _geo_video_json(r)
+        item["toName"] = r.get("to_name")
+        item["toPhone"] = r.get("to_phone")
+        out.append(item)
+    return out
 
 
 # --------------------------------------------------------------------------- #

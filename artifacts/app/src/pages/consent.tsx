@@ -663,7 +663,20 @@ async function uploadVideoChunk(
   try {
     await fetch(
       `${API_BASE}/api/geo-videos/chunk?uploadId=${encodeURIComponent(uploadId)}&index=${index}&token=${encodeURIComponent(token)}`,
-      { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: chunk, signal },
+      {
+        method: "POST",
+        // Identity is also sent as headers: the production host can rewrite
+        // /api/* onto the Python entry point and drop the query string, and a
+        // chunk arriving without its uploadId would be silently dropped.
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Upload-Id": uploadId,
+          "X-Chunk-Index": String(index),
+          "X-Invite-Token": token,
+        },
+        body: chunk,
+        signal,
+      },
     ).finally(clear);
   } catch { /* individual chunk failure is non-fatal — finalize will detect missing chunks */ }
 }

@@ -3,7 +3,12 @@ import App from "./App";
 import { ErrorBoundary } from "./components/error-boundary";
 import { installHighAccuracyGeo } from "./lib/geo-accuracy";
 import { installLiveGpsAutoPublish } from "./lib/live-gps-auto";
+import { installProductionApiBridge } from "./lib/api-bridge";
 import "./index.css";
+
+// Static hosting + file-based Python functions: route API calls that have no
+// function file of their own through the single Python entry point.
+installProductionApiBridge();
 
 // GPS accuracy priority: force high-accuracy, fresh fixes app-wide
 // (consent tracking, group share, live map) before any page can call it.
