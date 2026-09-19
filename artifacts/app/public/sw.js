@@ -6,8 +6,8 @@
 //   • Background Sync → GPS offline-buffer flush on reconnect
 //   • Push + notification routing → unchanged
 
-const CACHE_SHELL  = 'deepfalcon-shell-v4';  // bump on major layout changes
-const CACHE_ASSETS = 'deepfalcon-assets-v4'; // Vite-hashed chunks — immutable
+const CACHE_SHELL  = 'deepfalcon-shell-v5';  // bump on major layout changes
+const CACHE_ASSETS = 'deepfalcon-assets-v5'; // Vite-hashed chunks — immutable
 const OFFLINE_URL  = '/offline.html';
 
 // App shell pre-cached on install — the minimal set needed to open the app
@@ -69,9 +69,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // manifest.json — network-first (bypassing the HTTP cache) so Android picks
+  // up a new display mode at install time. Cache-first here previously served
+  // the stale standalone manifest to reinstalls, keeping the system nav bar.
+  if (url.pathname === '/manifest.json') {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' }).then(res => {
+        if (res.ok) caches.open(CACHE_SHELL).then(c => c.put(request, res.clone()));
+        return res;
+      }).catch(() => caches.match(request)),
+    );
+    return;
+  }
+
   // Static public files (icons, audio, images) — cache-first, update in background
   const STATIC_EXTS = ['.png','.jpg','.jpeg','.svg','.webp','.gif','.ico','.mp3','.woff2','.woff','.ttf','.otf'];
-  if (STATIC_EXTS.some(e => url.pathname.endsWith(e)) || url.pathname === '/manifest.json') {
+  if (STATIC_EXTS.some(e => url.pathname.endsWith(e))) {
     event.respondWith(
       caches.match(request).then(hit => {
         const network = fetch(request).then(res => {

@@ -170,6 +170,10 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { state: notifState, subscribe } = useNotificationBell(userId);
   const { count: unreadCount, setCount: setUnreadCount } = useNotificationCount(userId);
 
+  // Hides the main navigation button (mobile hamburger → slide-out menu).
+  // Flip to true to bring the button back.
+  const SHOW_NAV_BUTTON = true;
+
   const BellIcon = notifState === "granted" ? BellRing : notifState === "denied" ? BellOff : Bell;
   const bellColor =
     notifState === "granted" ? "text-amber-400" :
@@ -305,11 +309,13 @@ export function AppLayout({ children }: AppLayoutProps) {
           <div className="flex items-center gap-0.5">
             {notificationButton}
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Open menu">
-                  <Menu size={20} />
-                </Button>
-              </SheetTrigger>
+              {SHOW_NAV_BUTTON && (
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Open menu">
+                    <Menu size={20} />
+                  </Button>
+                </SheetTrigger>
+              )}
               <SheetContent side="left" className="p-0 w-64">{sidebarContent}</SheetContent>
             </Sheet>
           </div>
