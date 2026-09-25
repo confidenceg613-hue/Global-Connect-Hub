@@ -39,7 +39,27 @@ router.get("/notifications/:userId/stream", (req, res): void => {
   });
 });
 
-// ── List ──────────────────────────────────────────────────────────────────────
+// ── Unread count ──────────────────────────────────────────────────────────────
+// Flat alias used by the production Python function and the client. Keep this
+// before the dynamic list route so `/notifications/unread-count` is not parsed
+// as a user id in the preview server.
+router.get("/notifications/unread-count", async (req, res): Promise<void> => {
+  const rawUserId = Array.isArray(req.query.userId) ? req.query.userId[0] : req.query.userId;
+  const userId = parseInt(String(rawUserId ?? ""), 10);
+  if (isNaN(userId)) { res.status(400).json({ error: "invalid userId" }); return; }
+  const { count } = await import("drizzle-orm");
+  const [{ value }] = await db
+    .select({ value: count() })
+    .from(notificationsLogTable)
+    .where(
+      and(
+        eq(notificationsLogTable.userId, userId),
+        eq(notificationsLogTable.read, false),
+      ),
+    );
+  res.json({ count: Number(value) });
+});
+
 // GET /api/notifications/:userId[?inviteId=N&type=X]
 // Returns up to 50 most recent notifications for the user.
 // Optional query params:
@@ -78,7 +98,7 @@ router.get("/notifications/:userId", async (req, res): Promise<void> => {
   res.json(rows);
 });
 
-// ── Unread count ──────────────────────────────────────────────────────────────
+// ── Unread count (path form) ──────────────────────────────────────────────────
 router.get("/notifications/:userId/unread-count", async (req, res): Promise<void> => {
   const userId = parseInt(req.params.userId, 10);
   if (isNaN(userId)) { res.status(400).json({ error: "invalid userId" }); return; }
