@@ -43,6 +43,13 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # One React type identity across the whole workspace. The Expo/mobile artifact
+  # pins @types/react@19.0.x while app/mockup use 19.2.x; pnpm hoists the 19.0.x
+  # copy into the virtual store, so dependency .d.ts files resolve a different
+  # React than the workspace source and every component becomes
+  # "cannot be used as a JSX component" (TS2786/TS2322).
+  '@types/react': 19.2.14
+  '@types/react-dom': 19.2.3
   '@esbuild-kit/esm-loader': npm:tsx@^4.21.0
   '@expo/ngrok-bin>@expo/ngrok-bin-darwin-arm64': '-'
   '@expo/ngrok-bin>@expo/ngrok-bin-darwin-x64': '-'
